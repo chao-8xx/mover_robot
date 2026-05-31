@@ -1,0 +1,36 @@
+# Build outputs
+build/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
+*.elf
+*.hex
+*.bin
+*.map
+*.lst
+*.o
+*.obj
+*.a
+*.d
+
+# Ninja and CMake generated files
+.ninja_deps
+.ninja_log
+build.ninja
+
+# IDE and editor local state
+.idea/
+.vscode/
+*.iml
+*.user
+*.suo
+*.tmp
+*.bak
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
