@@ -4,17 +4,35 @@
 
 #include "headfile.h"
 
+void all_init(void)
+{
+    led_off();
+    timer_init();
+    // encoder_init();
+    // adc_init();
+    // usart_init();
+     openmv_uart_init();
+     AX_LIDAR_Init(&huart4);
+     // OLED_Init();
+     // key_led_init();
+}
+
+// 定时器初始化
+void timer_init(void)
+{
+    HAL_TIM_Base_Start_IT(&htim6);    // 1ms中断
+    HAL_TIM_Base_Start_IT(&htim7);    // 5ms中断
+}
+
 // 定时器中断回调函数
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
     if (htim ->Instance == TIM6){    // 1ms中断
 
-        void usart_handle(void );
-        key_tick();
     }
     else if (htim ->Instance == TIM7){    // 5ms中断
-
-        void usart_handle(void );
         key_tick();
+        // usart_handle();
+
     }
 }

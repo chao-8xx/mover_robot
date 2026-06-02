@@ -58,6 +58,9 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user sources here
         BSP/Src/ax_lidar.c
         BSP/Src/fun.c
+        BSP/Src/key_led.c
+        BSP/Src/uart_dma.c
+        BSP/Src/timer.c
 )
 
 # Add include paths

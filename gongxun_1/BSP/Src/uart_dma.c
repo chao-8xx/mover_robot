@@ -145,7 +145,7 @@ void openmv_qr_task(void)
 // }
 
 // // 使用虚拟串口CDC 重定向 printf
-// 已在 主函数main.c 中实现 _write 函数，这里不需要再定义 fputc 了
+// 已在 主函数 main.c 中实现 _write 函数，这里不需要再定义 fputc 了
 // int fputc(int ch, FILE *f)
 // {
 //     (void)f;

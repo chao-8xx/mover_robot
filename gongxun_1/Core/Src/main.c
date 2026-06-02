@@ -97,36 +97,27 @@ int main(void)
   MX_TIM6_Init();
   MX_TIM7_Init();
   /* USER CODE BEGIN 2 */
-  // AX_LIDAR_Init(&huart4);
-  //
+
+  all_init();
+
   // HAL_Delay(1000);
   //
   // AX_LIDAR_Start();
-  openmv_uart_init();
-
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  uint8_t last_key = 0;
-  uint32_t last_key_tick = 0;
+
   while (1)
   {
+    key_handle();
+    openmv_qr_task();
+
+
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
 
-    uint8_t key = (key_scan() == 1);
-
-    if (key && !last_key && (HAL_GetTick() - last_key_tick > 200)) {
-      last_key_tick = HAL_GetTick();
-      led_off();
-      openmv_send_start_scan();
-    }
-
-    last_key = key;
-    openmv_qr_task();
-    HAL_Delay(5);
   }
   /* USER CODE END 3 */
 }

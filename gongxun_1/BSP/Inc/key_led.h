@@ -7,7 +7,10 @@
 
 #include "headfile.h"
 
-int key_scan(void);
+#define KEY_COUNT 1
+
+void key_tick(void);
+void key_handle(void);
 
 void led_on(void);
 void led_off(void);

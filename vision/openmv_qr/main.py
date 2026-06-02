@@ -80,14 +80,16 @@ while True:
         qrcodes = img.find_qrcodes()
 
         for qr in qrcodes:
-            corners = qr.corners()
 
-            # 找二维码四角点并画红框
-            for i in range(4):
-                x1, y1 = corners[i]
-                x2, y2 = corners[(i + 1) % 4]
-                img.draw_line(x1, y1, x2, y2, color=255, thickness=2)
-                # img.draw_line(x1, y1, x2, y2, color=(255, 0, 0), thickness=2)
+            # 调试使用
+            # corners = qr.corners()
+
+            # # 找二维码四角点并画红框
+            # for i in range(4):
+            #     x1, y1 = corners[i]
+            #     x2, y2 = corners[(i + 1) % 4]
+            #     img.draw_line(x1, y1, x2, y2, color=255, thickness=2)
+            #     # img.draw_line(x1, y1, x2, y2, color=(255, 0, 0), thickness=2)
 
             # # 显示二维码解析的字符串内容
             payload = qr.payload()
