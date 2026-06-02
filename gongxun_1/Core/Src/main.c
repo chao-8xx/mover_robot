@@ -18,6 +18,7 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "tim.h"
 #include "usart.h"
 #include "usb_device.h"
 #include "gpio.h"
@@ -91,36 +92,41 @@ int main(void)
   MX_GPIO_Init();
   MX_USB_DEVICE_Init();
   MX_UART4_Init();
+  MX_USART1_UART_Init();
+  MX_USART2_UART_Init();
+  MX_TIM6_Init();
+  MX_TIM7_Init();
   /* USER CODE BEGIN 2 */
-  AX_LIDAR_Init(&huart4);
-
-  HAL_Delay(1000);
-
-  AX_LIDAR_Start();
+  // AX_LIDAR_Init(&huart4);
+  //
+  // HAL_Delay(1000);
+  //
+  // AX_LIDAR_Start();
+  openmv_uart_init();
 
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+  uint8_t last_key = 0;
+  uint32_t last_key_tick = 0;
   while (1)
   {
-    static uint32_t last_heartbeat_ms = 0;
-    uint32_t now = HAL_GetTick();
-
-    if (AX_LIDAR_Process() != 0U)
-    {
-      HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_0);
-      last_heartbeat_ms = now;
-    }
-
-    if ((now - last_heartbeat_ms) >= 500U)
-    {
-      last_heartbeat_ms = now;
-      HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_0);
-    }
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+
+    uint8_t key = (key_scan() == 1);
+
+    if (key && !last_key && (HAL_GetTick() - last_key_tick > 200)) {
+      last_key_tick = HAL_GetTick();
+      led_off();
+      openmv_send_start_scan();
+    }
+
+    last_key = key;
+    openmv_qr_task();
+    HAL_Delay(5);
   }
   /* USER CODE END 3 */
 }
@@ -171,14 +177,39 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
+
+// 重定向 printf 到 虚拟串口 CDC
+extern USBD_HandleTypeDef hUsbDeviceFS;
+
+int _write(int file, char *ptr, int len)
+{
+  (void)file;
+
+  if (hUsbDeviceFS.dev_state != USBD_STATE_CONFIGURED) {
+    return len;
+  }
+
+  uint32_t start = HAL_GetTick();
+
+  while (CDC_Transmit_FS((uint8_t *)ptr, len) != USBD_OK) {
+    if (HAL_GetTick() - start > 20) {
+      break;
+    }
+  }
+
+  return len;
+}
+
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
-  AX_LIDAR_UartRxCpltCallback(huart);
+  openmv_uart_rx_callback(huart);
+  // AX_LIDAR_UartRxCpltCallback(huart);
 }
 
 void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 {
-  AX_LIDAR_UartErrorCallback(huart);
+  openmv_uart_error_callback(huart);
+  // AX_LIDAR_UartErrorCallback(huart);
 }
 
 /* USER CODE END 4 */

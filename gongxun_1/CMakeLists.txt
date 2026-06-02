@@ -35,7 +35,15 @@ enable_language(C ASM)
 add_executable(${CMAKE_PROJECT_NAME}
         BSP/Inc/headfile.h
         BSP/Inc/fun.h
-        BSP/Src/fun.c)
+        BSP/Src/fun.c
+        BSP/Src/key_led.c
+        BSP/Inc/key_led.h
+        BSP/Src/uart_dma.c
+        BSP/Inc/uart_dma.h
+        test/lidar_main.c
+        test/cdc_main.c
+        BSP/Src/timer.c
+        BSP/Inc/timer.h)
 
 # Add STM32CubeMX generated sources
 add_subdirectory(cmake/stm32cubemx)
