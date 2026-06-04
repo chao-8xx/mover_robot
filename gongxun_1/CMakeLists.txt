@@ -40,10 +40,12 @@ add_executable(${CMAKE_PROJECT_NAME}
         BSP/Inc/key_led.h
         BSP/Src/uart_dma.c
         BSP/Inc/uart_dma.h
-        test/lidar_main.c
-        test/cdc_main.c
         BSP/Src/timer.c
-        BSP/Inc/timer.h)
+        BSP/Inc/timer.h
+        BSP/Src/camera.c
+        BSP/Inc/camera.h
+        BSP/Src/test.c
+        BSP/Inc/test.h)
 
 # Add STM32CubeMX generated sources
 add_subdirectory(cmake/stm32cubemx)
@@ -56,7 +58,7 @@ target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
 # Add sources to executable
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user sources here
-        BSP/Src/ax_lidar.c
+        BSP/Src/lidar.c
         BSP/Src/fun.c
         BSP/Src/key_led.c
         BSP/Src/uart_dma.c

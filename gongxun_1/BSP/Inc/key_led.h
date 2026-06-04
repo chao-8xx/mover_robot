@@ -12,6 +12,8 @@
 void key_tick(void);
 void key_handle(void);
 
+
+void led_init(void);
 void led_on(void);
 void led_off(void);
 void led_toggle(void);

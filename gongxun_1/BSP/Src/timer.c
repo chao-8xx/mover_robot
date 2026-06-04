@@ -6,15 +6,11 @@
 
 void all_init(void)
 {
-    led_off();
+    led_init();
     timer_init();
-    // encoder_init();
-    // adc_init();
     // usart_init();
-     openmv_uart_init();
-     AX_LIDAR_Init(&huart4);
+    uart_init();
      // OLED_Init();
-     // key_led_init();
 }
 
 // 定时器初始化

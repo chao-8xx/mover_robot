@@ -16,7 +16,7 @@
 #include "gpio.h"
 #include "tim.h"
 #include "usart.h"
-// #include "dma.h"
+#include "dma.h"
 
 #include "usb_device.h"
 #include "usbd_cdc_if.h"
@@ -25,8 +25,10 @@
 
 #include "fun.h"
 #include "timer.h"
+#include "test.h"
 #include "key_led.h"
-#include "ax_lidar.h"
+#include "camera.h"
+#include "lidar.h"
 #include "uart_dma.h"
 
 

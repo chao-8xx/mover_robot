@@ -18,6 +18,7 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "dma.h"
 #include "tim.h"
 #include "usart.h"
 #include "usb_device.h"
@@ -90,19 +91,19 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_DMA_Init();
   MX_USB_DEVICE_Init();
   MX_UART4_Init();
   MX_USART1_UART_Init();
-  MX_USART2_UART_Init();
   MX_TIM6_Init();
   MX_TIM7_Init();
   /* USER CODE BEGIN 2 */
 
   all_init();
 
-  // HAL_Delay(1000);
-  //
-  // AX_LIDAR_Start();
+  HAL_Delay(1000);
+
+  lidar_start();
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -110,8 +111,13 @@ int main(void)
 
   while (1)
   {
+
     key_handle();
-    openmv_qr_task();
+
+    lidar_process();
+
+
+    // openmv_qr_task();
 
 
     /* USER CODE END WHILE */
@@ -189,18 +195,6 @@ int _write(int file, char *ptr, int len)
   }
 
   return len;
-}
-
-void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
-{
-  openmv_uart_rx_callback(huart);
-  // AX_LIDAR_UartRxCpltCallback(huart);
-}
-
-void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
-{
-  openmv_uart_error_callback(huart);
-  // AX_LIDAR_UartErrorCallback(huart);
 }
 
 /* USER CODE END 4 */

@@ -54,6 +54,7 @@ uint8_t key_getstate(uint8_t index)
 	}
 }
 
+// 按键扫描函数，定时调用 现在在5ms中断中调用
 void key_tick(void)
 {
 	static uint8_t count ;
@@ -82,7 +83,7 @@ void key_tick(void)
 				else
 				{
 					press_time [i] ++;
-					if(press_time [i] >= 50 && !long_press_flag [i] )
+					if(press_time [i] >= 10 && !long_press_flag [i])
 					{
 						long_press_flag [i] = 1;
 						key_longpress = i + 1;
@@ -93,7 +94,7 @@ void key_tick(void)
 			{
 				if (key_state [i] == 1)
 				{
-					if (press_time [i] < 50)
+					if (press_time [i] < 10)	// 1000ms
 					{
 						key_shortpress = i + 1;
 					}
@@ -105,6 +106,7 @@ void key_tick(void)
 	}
 }
 
+// 按键处理函数，在主循环中调用
 void key_handle(void)
 {
 	uint8_t shortpress = key_getshortpress ();
@@ -115,8 +117,9 @@ void key_handle(void)
 		switch(shortpress )
 		{
 			case 1:
-				led_off();
-				openmv_send_start_scan();
+				led_on();
+				lidar_test();
+				// openmv_send_start_scan();
 				break ;
 
 			// case 2:
@@ -135,14 +138,20 @@ void key_handle(void)
 	{
 		switch(longpress )
 		{
-			// case 1:
-			//  led_tick ();
+			case 1:
+				led_off();
+				// lidar_stop();
 		}
 	}
 }
 
 
 ///////////////////////////////////////////// LED 封装函数 /////////////////////////////////////////////
+// led 初始化
+void led_init(void) {
+	led_off();
+}
+
 // PC0 亮灯
 void led_on(void) {
     HAL_GPIO_WritePin(GPIOC,GPIO_PIN_0,GPIO_PIN_RESET);
@@ -153,7 +162,7 @@ void led_off(void) {
     HAL_GPIO_WritePin(GPIOC,GPIO_PIN_0,GPIO_PIN_SET);
 }
 
-// PC0 反转
+// PC0 翻转
 void led_toggle(void) {
     HAL_GPIO_TogglePin(GPIOC,GPIO_PIN_0);
 }
