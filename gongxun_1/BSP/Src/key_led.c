@@ -118,11 +118,15 @@ void key_handle(void)
 		{
 			case 1:
 				led_on();
-				lidar_test();
-				// openmv_send_start_scan();
+				// lidar_test();
+				maix_blob_test();
+				// openmv_qr_test();
 				break ;
 
-			// case 2:
+			case 2:
+				maix_blob_test();
+				break ;
+
 				// OLED_Clear();
 				// return flag;
 				//

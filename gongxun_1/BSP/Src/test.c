@@ -12,7 +12,31 @@ void cdc_test(void) {
 }
 
 // openmv扫码测试 key1 按下后开始扫码，扫码结果通过虚拟串口CDC输出
-void openmv_qr_test(void) {
+void openmv_qr_test(void)
+{
+    led_off();
+    openmv_send_start_scan();
+    printf("OpenMV QR test start\r\n");
+
+    while (1)
+    {
+        openmv_qr_task();
+
+        if (key_getlongpress() == 1)
+        {
+            openmv_send_stop_scan();
+            led_off();
+            printf("OpenMV QR test stop\r\n");
+            break;
+        }
+
+        HAL_Delay(10);
+    }
+}
+
+/*
+// 之前的openmv测试代码
+void openmv_qr_test_legacy(void) {
     // key
     // void key_handle(void)
     // {
@@ -45,6 +69,41 @@ void openmv_qr_test(void) {
     //     key_handle();
     //     openmv_qr_task();
     //   }
+}
+*/
+
+// maixcam测试函数，按键1开始识别物料，按键1长按停止识别，识别结果通过虚拟串口CDC输出
+void maix_blob_test(void)
+{
+    uint8_t started = 0;
+    maix_vision_t vision;
+
+    while (1)
+    {
+        if (!started)
+        {
+            led_off();
+            maix_start_blob(MAIX_COLOR_GREEN);
+            printf("Maix blob test start\r\n");
+            started = 1;
+        }
+
+        if (maix_get_result(&vision))
+        {
+            printf("Maix result: cmd=%02X target=%02X ok=%d dx=%d dy=%d tick=%lu\r\n",
+                   vision.cmd, vision.target, vision.ok,
+                   vision.dx, vision.dy, vision.tick);
+        }
+
+        if (key_getlongpress() == 1)
+        {
+            maix_stop();
+            printf("Maix blob test stop\r\n");
+            break;
+        }
+
+        HAL_Delay(10);
+    }
 }
 
 // LiDAR 测试函数，按键1开始扫描，按键1长按停止扫描，扫描结果通过虚拟串口CDC输出

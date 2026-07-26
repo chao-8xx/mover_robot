@@ -44,6 +44,8 @@ add_executable(${CMAKE_PROJECT_NAME}
         BSP/Inc/timer.h
         BSP/Src/camera.c
         BSP/Inc/camera.h
+        BSP/Src/lidar.c
+        BSP/Inc/lidar.h
         BSP/Src/test.c
         BSP/Inc/test.h)
 
@@ -69,6 +71,19 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user defined include paths
         BSP/Inc
+)
+
+# Add include paths for STM32 HAL and USB middleware
+list(APPEND CMAKE_INCLUDE_PATH
+    Drivers/STM32F4xx_HAL_Driver/Inc
+    Drivers/CMSIS/Include
+    Drivers/CMSIS/Device/ST/STM32F4xx/Include
+    Middlewares/ST/STM32_USB_Device_Library/Core/Inc
+    Middlewares/ST/STM32_USB_Device_Library/Class/CDC/Inc
+)
+
+target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
+    ${CMAKE_INCLUDE_PATH}
 )
 
 # Add project symbols (macros)

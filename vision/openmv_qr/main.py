@@ -63,7 +63,11 @@ def rx_handle():
                 # 校验数据
                 if recv_checksum == checksum(cmd, length, data):
                     # 数据包正确格式: 命令字0x01 长度1 数据为1 开启扫码
-                    if cmd == 0x01 and length == 1 and data[0] == 1:
+                    if cmd == 0x01 and length == 1 and data[0] == 0:
+                        flag[0] = 0
+                        last_payload = None
+                        print("QR scan stop")
+                    elif cmd == 0x01 and length == 1 and data[0] == 1:
                         flag[0] = 1
                         print("扫码开启")
                         last_payload = None  # 重置上一次内容

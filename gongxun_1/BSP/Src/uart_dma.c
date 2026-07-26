@@ -1,10 +1,11 @@
-#include "headfile.h"
+﻿#include "headfile.h"
 
 
 // UART 串口设备初始化
 void uart_init(void)
 {
     openmv_uart_init(&huart1);
+    maix_uart_init(&huart3);
     lidar_init(&huart4);
 }
 
@@ -16,25 +17,36 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
     {
         openmv_uart_rx_callback(huart);
     }
-    // LiDAR 用 UART4
-    else if (huart->Instance == UART4)
+    // Maix 用 USART3
+    else if (huart->Instance == USART3)
     {
-        // AX_LIDAR_RxCallback(huart);
+        maix_uart_rx_callback(huart);
     }
+    // // LiDAR 用 UART4
+    // else if (huart->Instance == UART4)
+    // {
+    //     AX_LIDAR_RxCallback(huart);
+    // }
 }
 
+// UART 错误回调函数
 void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 {
     if (huart->Instance == USART1)
     {
         openmv_uart_error_callback(huart);
     }
-    // LiDAR的错误处理
-    if (huart->Instance == UART4)
+    else if (huart->Instance == USART3)
     {
-        // openmv_uart_error_callback(huart);
+        maix_uart_error_callback(huart);
     }
+    // // LiDAR的错误处理
+    // if (huart->Instance == UART4)
+    // {
+    //     // openmv_uart_error_callback(huart);
+    // }
 }
+
 
 
 
