@@ -119,8 +119,8 @@ void key_handle(void)
 			case 1:
 				led_on();
 				// lidar_test();
-				maix_blob_test();
-				// openmv_qr_test();
+				// maix_blob_test();
+				openmv_qr_test();
 				break ;
 
 			case 2:

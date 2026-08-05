@@ -1,5 +1,4 @@
-# from holoviews.core.traversal import hierarchical
-# MaixCam 串口通信 + 物料识别 + 圆环识别 合并版
+# MaixCam 主要任务: 识别物料色块、圆环数字以及圆环中心、堆放物料顶部
 # 协议: AA 55 CMD LEN DATA SUM
 # 返回坐标包 DATA: TARGET OK dxL dxH dyL dyH
 
@@ -14,6 +13,7 @@ HEAD1 = 0XAA
 HEAD2 = 0X55
 
 CMD_NONE = 0XB0
+# CMD_QR   = 0XB1
 CMD_BLOB = 0XB2         # 物料 色块
 CMD_RING = 0XB3         # 圆环 数字
 CMD_ONUP = 0XB4         # 堆放物料顶部
@@ -62,8 +62,8 @@ SEARCH_Y1 = 0
 SEARCH_X2 = image_width
 SEARCH_Y2 = image_height
 
-SEND_PERIOD_MS = 30   # 约33Hz，先别太快，通信稳定后可改成20ms
-TX_DEBUG_PERIOD_MS = 500
+SEND_TIME_MS = 20   # 数据帧发送间隔 20ms 也就是50Hz 发送一次
+TX_DEBUG_TIME_MS = 1000    # 调试打印发送数据包间隔，避免串口打印过多影响识别速度 在maix端打印
 
 # 初始化
 cam = camera.Camera(image_width, image_height)
@@ -73,8 +73,7 @@ device = "/dev/serial0"         # 教程里写的是serial1  但是实测是seri
 serial = uart.UART(device, 115200)
 
 # pinmap.set_pin_function("A18", "UART1_RX")
-# pinmap.set_pin_function("A19", "UART1_TX")
-
+# pinmap.set_pin_function("A19", "UART1_TX")    # serial1 配置方法
 # device = "/dev/ttyS1"
 # serial = uart.UART(device, 115200)
 
@@ -101,8 +100,8 @@ def send_frame(cmd,data):
     frame.extend(data)  # 添加数据
     frame.append(checksum(cmd, length, data))  # 添加校验和
 
-    serial.write(frame)  # 发送数据包
-    return frame
+    serial.write(bytes(frame))  # 发送数据包  注: 这里的serial.write(bytes(frame))只能返回int型 不能返回数组
+    return bytes(frame)
 
 # 发送坐标
 def send_xy_result(cmd, target, ok, dx, dy):
@@ -110,12 +109,14 @@ def send_xy_result(cmd, target, ok, dx, dy):
 
     data = bytearray()
     data.append(target & 0xFF)
-    data.append(1 if ok else 0)     #
+    data.append(1 if ok else 0)     # 是否找到的标志位
     data.extend(pack("<h", int(dx)))    # 拼接坐标
     data.extend(pack("<h", int(dy)))    # 2字节 小端序
     frame = send_frame(cmd, data)
     now = time.ticks_ms()
-    if time.ticks_diff(now, last_tx_debug_time) >= TX_DEBUG_PERIOD_MS:
+
+    # 调试 打印在maix端的串口输出
+    if (now - last_tx_debug_time) >= TX_DEBUG_TIME_MS:
         print("Maix TX:", " ".join("%02X" % b for b in frame))
         last_tx_debug_time = now
 
@@ -128,12 +129,10 @@ def rx_handle():
     # if not buf:
     #     return
 
-    # 当前固件下 read(-1, 2) 可能在无数据时返回异常的内存内容。
-    # 无参数 read() 为非阻塞读取：没有串口数据时返回空 bytes。
+    # 非阻塞读取串口数据 打印接收到的内容
     buf = serial.read()
     if buf:
         print("UART1 RX:", " ".join("%02X" % b for b in buf))
-        
 
     else:
         return
@@ -174,10 +173,13 @@ def handle_cmd(cmd, data):
         print("Maix停止识别")
 
     elif cmd == CMD_BLOB:
+        # print("ENTER CMD_BLOB SET")
         if len(data) >= 1:
             mode = CMD_BLOB
             target = data[0]    # 颜色编号 1~6
-            print("Maix物料识别,物料颜色为:", target)
+            # print("mode=",mode)
+            # print("target=",target)
+            # print("Maix物料识别,物料颜色为:", target)
 
     elif cmd == CMD_RING:
         if len(data) >= 1:
@@ -788,7 +790,7 @@ while not app.need_exit():
     debug_img = img
 
     now = time.ticks_ms()
-    can_send = time.ticks_diff(now, last_send_time) >= SEND_PERIOD_MS
+    can_send = (now - last_send_time) >= SEND_TIME_MS
 
     if mode == CMD_NONE:
         disp.show(img)
@@ -796,7 +798,7 @@ while not app.need_exit():
         continue
 
     if mode == CMD_BLOB:
-        ok, dx, dy, debug_img = find_blobs(img, target)
+        ok, dx, dy, debug_img = find_blobs(img,target)
         if can_send:
             send_xy_result(CMD_BLOB, target, ok, dx, dy)
             last_send_time = now

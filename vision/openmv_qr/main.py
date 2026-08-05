@@ -15,6 +15,7 @@ sensor.set_auto_gain(True)              # 自动增益 看情况开不开 对灰
 sensor.set_auto_whitebal(True)          # 白平衡 同上
 
 uart = UART(3, 115200)                  # 初始化串口3
+                                        # 注: P4接RX P5接TX 注意是接 直接接F407即可
 
 clock = time.clock()
 
@@ -34,7 +35,7 @@ def send_qr(payload):
 
     data = payload.encode()  # 二维码内容转为二进制字节
     length = len(data)       # 数据长度
-    cmd = 0x18               # 命令字
+    cmd = 0xBB               # 命令字
 
     frame = bytearray([0xAA, 0x55, cmd, length])  # 帧头 + 命令字 + 长度
     frame.extend(data)  # 添加数据
@@ -62,12 +63,12 @@ def rx_handle():
 
                 # 校验数据
                 if recv_checksum == checksum(cmd, length, data):
-                    # 数据包正确格式: 命令字0x01 长度1 数据为1 开启扫码
-                    if cmd == 0x01 and length == 1 and data[0] == 0:
+                    # 数据包正确格式: 命令字0xB1 长度1 数据为1 开启扫码
+                    if cmd == 0xB1 and length == 1 and data[0] == 0:
                         flag[0] = 0
                         last_payload = None
-                        print("QR scan stop")
-                    elif cmd == 0x01 and length == 1 and data[0] == 1:
+                        print("扫码停止")
+                    elif cmd == 0xB1 and length == 1 and data[0] == 1:
                         flag[0] = 1
                         print("扫码开启")
                         last_payload = None  # 重置上一次内容
@@ -85,7 +86,7 @@ while True:
 
         for qr in qrcodes:
 
-            # 调试使用
+            # # 调试使用
             # corners = qr.corners()
 
             # # 找二维码四角点并画红框

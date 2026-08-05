@@ -7,8 +7,8 @@
 // openmv 通信协议
 #define HEAD1    0xAA
 #define HEAD2    0x55
-#define CMD_MV   0x01    // 命令位 让openmv 扫码
-#define CMD_QR   0x18    // 命令位 接收openmv 二维码数据
+#define CMD_MV   0xB1    // 命令位 让openmv 扫码
+#define CMD_QR   0xBB    // 命令位 接收openmv 二维码数据
 #define MAX_LEN  128     // 最大数据长度
 
 // maix 定长通信协议      # 协议: AA 55 CMD LEN DATA SUM    DATA数据: TARGET OK dxL dxH dyL dyH

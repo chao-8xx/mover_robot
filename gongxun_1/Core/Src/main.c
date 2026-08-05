@@ -98,6 +98,7 @@ int main(void)
   MX_TIM6_Init();
   MX_TIM7_Init();
   MX_USART3_UART_Init();
+  MX_USART6_UART_Init();
   /* USER CODE BEGIN 2 */
 
   all_init();
@@ -175,27 +176,35 @@ void SystemClock_Config(void)
 
 /* USER CODE BEGIN 4 */
 
-// 重定向 printf 到 虚拟串口 CDC
-extern USBD_HandleTypeDef hUsbDeviceFS;
-
-int _write(int file, char *ptr, int len)
+// 重定向 printf 到 串口6  可以无线串口 调参
+int _write(int file,char *ptr,int len)
 {
-  (void)file;
-
-  if (hUsbDeviceFS.dev_state != USBD_STATE_CONFIGURED) {
-    return len;
-  }
-
-  uint32_t start = HAL_GetTick();
-
-  while (CDC_Transmit_FS((uint8_t *)ptr, len) != USBD_OK) {
-    if (HAL_GetTick() - start > 20) {
-      break;
-    }
-  }
+  HAL_UART_Transmit(&huart6,(uint8_t *)ptr,len,100);
 
   return len;
 }
+
+// // 重定向 printf 到 虚拟串口 CDC
+// extern USBD_HandleTypeDef hUsbDeviceFS;
+//
+// int _write(int file, char *ptr, int len)
+// {
+//   (void)file;
+//
+//   if (hUsbDeviceFS.dev_state != USBD_STATE_CONFIGURED) {
+//     return len;
+//   }
+//
+//   uint32_t start = HAL_GetTick();
+//
+//   while (CDC_Transmit_FS((uint8_t *)ptr, len) != USBD_OK) {
+//     if (HAL_GetTick() - start > 20) {
+//       break;
+//     }
+//   }
+//
+//   return len;
+// }
 
 /* USER CODE END 4 */
 

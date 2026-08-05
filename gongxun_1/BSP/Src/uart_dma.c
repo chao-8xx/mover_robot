@@ -50,12 +50,12 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 
 
 
-// // 重定向 printf 到串口2
+// // 重定向 printf 到串口6
 // int fputc(int ch, FILE *f)
 // {
 //     (void)f;
 //     uint8_t c = (uint8_t)ch;
-//     HAL_UART_Transmit(&huart2, &c, 1, 10);
+//     HAL_UART_Transmit(&huart6, &c, 1, 10);
 //     return ch;
 // }
 

@@ -5,16 +5,17 @@
 #include "headfile.h"
 
 // 虚拟串口 USB CDC 测试函数，验证 CDC 是否正常工作
+// 现已变为无线串口 串口六输出了
 void cdc_test(void) {
     led_toggle();         // LED 闪烁表示程序在跑
-    printf("Hello from CDC!\r\n");
+    // printf("Hello from CDC!\r\n");
+    printf("hello world\r\n");
     HAL_Delay(1000);
 }
 
-// openmv扫码测试 key1 按下后开始扫码，扫码结果通过虚拟串口CDC输出
+// openmv扫码测试 key1 按下后开始扫码，扫码结果通过无线串口输出
 void openmv_qr_test(void)
 {
-    led_off();
     openmv_send_start_scan();
     printf("OpenMV QR test start\r\n");
 
@@ -82,7 +83,7 @@ void maix_blob_test(void)
     {
         if (!started)
         {
-            led_off();
+            led_on();
             maix_start_blob(MAIX_COLOR_GREEN);
             printf("Maix blob test start\r\n");
             started = 1;
@@ -97,6 +98,7 @@ void maix_blob_test(void)
 
         if (key_getlongpress() == 1)
         {
+            led_off();
             maix_stop();
             printf("Maix blob test stop\r\n");
             break;
