@@ -1,4 +1,4 @@
-# MaixCam 主要任务: 识别物料色块、圆环数字以及圆环中心、堆放物料顶部
+ MaixCam 主要任务: 识别物料色块、圆环数字以及圆环中心、堆放物料顶部
 # 协议: AA 55 CMD LEN DATA SUM
 # 返回坐标包 DATA: TARGET OK dxL dxH dyL dyH
 

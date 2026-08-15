@@ -11,6 +11,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <stdbool.h>
+#include <stdarg.h>     /* 为了使用可变参数 va_list */
 
 #include "main.h"
 #include "gpio.h"
@@ -30,6 +31,8 @@
 #include "camera.h"
 #include "lidar.h"
 #include "uart_dma.h"
+#include "hmi_tjc.h"
+#include "lcd.h"
 
 
 #endif //GONGXUN_1_HEADFILE_H

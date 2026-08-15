@@ -47,7 +47,11 @@ add_executable(${CMAKE_PROJECT_NAME}
         BSP/Src/lidar.c
         BSP/Inc/lidar.h
         BSP/Src/test.c
-        BSP/Inc/test.h)
+        BSP/Inc/test.h
+        BSP/Inc/hmi_tjc.h
+        BSP/Src/hmi_tjc.c
+        BSP/Src/lcd.c
+        BSP/Inc/lcd.h)
 
 # Add STM32CubeMX generated sources
 add_subdirectory(cmake/stm32cubemx)
