@@ -25,11 +25,18 @@
 
 #include "fun.h"
 #include "timer.h"
-#include "test.h"
-#include "key_led.h"
-#include "camera.h"
-#include "lidar.h"
 #include "uart_dma.h"
+#include "key_led.h"
+#include "led_buzzer.h" // 拓展板板载LED和蜂鸣器
+#include "camera.h"     // 摄像头
+#include "lidar.h"      // 激光雷达
+#include "Emm_V5.h"     // Emm42电机协议
+#include "step_motor.h" // 闭环步进电机控制
+#include "servo.h"      // 舵机
+#include "ws2812.h"     // 8位RGB灯
+#include "hwt101.h"     // HWT101陀螺仪
+
+#include "../../APP/Inc/test.h"
 
 
 #endif //GONGXUN_1_HEADFILE_H
