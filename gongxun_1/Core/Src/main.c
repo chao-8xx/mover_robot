@@ -99,13 +99,14 @@ int main(void)
   MX_TIM7_Init();
   MX_USART3_UART_Init();
   MX_USART6_UART_Init();
+  MX_TIM1_Init();
+  MX_UART5_Init();
+  MX_USART2_UART_Init();
+  MX_TIM2_Init();
+  MX_TIM4_Init();
   /* USER CODE BEGIN 2 */
 
-  all_init();
 
-  HAL_Delay(1000);
-
-  lidar_start();
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -114,8 +115,8 @@ int main(void)
   while (1)
   {
 
-    key_handle();     // 按键处理
-    lidar_process();  // 激光雷达处理
+    // key_handle();     // 按键处理
+    // lidar_process();  // 激光雷达处理
 
 
     // openmv_qr_task();

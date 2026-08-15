@@ -114,7 +114,7 @@ void key_handle(void)
 
 	if (shortpress != 0 )
 	{
-		switch(shortpress )
+		switch(shortpress)
 		{
 			case 1:
 				led_on();
@@ -151,22 +151,22 @@ void key_handle(void)
 
 
 ///////////////////////////////////////////// LED 封装函数 /////////////////////////////////////////////
-// led 初始化
-void led_init(void) {
-	led_off();
-}
-
-// PC0 亮灯
-void led_on(void) {
-    HAL_GPIO_WritePin(GPIOC,GPIO_PIN_0,GPIO_PIN_RESET);
-}
-
-// PC0 灭灯
-void led_off(void) {
-    HAL_GPIO_WritePin(GPIOC,GPIO_PIN_0,GPIO_PIN_SET);
-}
-
-// PC0 翻转
-void led_toggle(void) {
-    HAL_GPIO_TogglePin(GPIOC,GPIO_PIN_0);
-}
+// // led 初始化
+// void led_init(void) {
+// 	led_off();
+// }
+//
+// // PC0 亮灯
+// void led_on(void) {
+//     HAL_GPIO_WritePin(GPIOC,GPIO_PIN_0,GPIO_PIN_RESET);
+// }
+//
+// // PC0 灭灯
+// void led_off(void) {
+//     HAL_GPIO_WritePin(GPIOC,GPIO_PIN_0,GPIO_PIN_SET);
+// }
+//
+// // PC0 翻转
+// void led_toggle(void) {
+//     HAL_GPIO_TogglePin(GPIOC,GPIO_PIN_0);
+// }
