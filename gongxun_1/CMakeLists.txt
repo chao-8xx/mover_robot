@@ -46,12 +46,23 @@ add_executable(${CMAKE_PROJECT_NAME}
         BSP/Inc/camera.h
         BSP/Src/lidar.c
         BSP/Inc/lidar.h
-        BSP/Src/test.c
-        BSP/Inc/test.h
+        APP/Src/test.c
+        APP/Inc/test.h
+        BSP/Inc/step_motor.h
+        BSP/Src/step_motor.c
+        BSP/Inc/Emm_V5.h
+        BSP/Src/Emm_V5.c
+        BSP/Inc/servo.h
+        BSP/Src/servo.c
+        BSP/Inc/ws2812.h
+        BSP/Src/ws2812.c
+        BSP/Inc/hwt101.h
+        BSP/Src/hwt101.c
+        BSP/Src/led_buzzer.c
+        BSP/Inc/led_buzzer.h
         BSP/Inc/hmi_tjc.h
         BSP/Src/hmi_tjc.c
-        BSP/Src/lcd.c
-        BSP/Inc/lcd.h)
+)
 
 # Add STM32CubeMX generated sources
 add_subdirectory(cmake/stm32cubemx)

@@ -14,25 +14,31 @@
 #include <stdarg.h>     /* 为了使用可变参数 va_list */
 
 #include "main.h"
-#include "gpio.h"
+#include "dma.h"
 #include "tim.h"
 #include "usart.h"
-#include "dma.h"
-
 #include "usb_device.h"
+#include "gpio.h"
 #include "usbd_cdc_if.h"
 
 
 
 #include "fun.h"
 #include "timer.h"
-#include "test.h"
-#include "key_led.h"
-#include "camera.h"
-#include "lidar.h"
 #include "uart_dma.h"
-#include "hmi_tjc.h"
-#include "lcd.h"
+#include "key_led.h"
+#include "led_buzzer.h" // 拓展板板载LED和蜂鸣器
+#include "camera.h"     // 摄像头
+#include "lidar.h"      // 激光雷达
+#include "Emm_V5.h"     // Emm42电机协议
+#include "step_motor.h" // 闭环步进电机控制
+#include "servo.h"      // 舵机
+#include "ws2812.h"     // 8位RGB灯
+#include "hwt101.h"     // HWT101陀螺仪
+#include "hmi_tjc.h"    // 串口屏 代仿照
+
+#include "../../APP/Inc/test.h" // 各模块测试函数
+
 
 
 #endif //GONGXUN_1_HEADFILE_H

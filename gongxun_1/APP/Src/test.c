@@ -1,13 +1,9 @@
-//
-// Created by mechreuo on 2026/6/4.
-//
-
 #include "headfile.h"
 
 // 虚拟串口 USB CDC 测试函数，验证 CDC 是否正常工作
 // 现已变为无线串口 串口六输出了
 void cdc_test(void) {
-    led_toggle();         // LED 闪烁表示程序在跑
+    // led_toggle();         // LED 闪烁表示程序在跑
     // printf("Hello from CDC!\r\n");
     printf("hello world\r\n");
     HAL_Delay(1000);
@@ -26,7 +22,7 @@ void openmv_qr_test(void)
         if (key_getlongpress() == 1)
         {
             openmv_send_stop_scan();
-            led_off();
+            // led_off();
             printf("OpenMV QR test stop\r\n");
             break;
         }

@@ -5,7 +5,7 @@
 #ifndef GONGXUN_1_TEST_H
 #define GONGXUN_1_TEST_H
 
-#include "headfile.h"
+#include "../../BSP/Inc/headfile.h"
 
 void cdc_test(void);
 void openmv_qr_test(void);
