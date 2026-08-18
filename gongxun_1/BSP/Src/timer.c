@@ -4,6 +4,7 @@ void all_init(void)
 {
     timer_init();
     uart_init();
+    led_buzzer_init();
 }
 
 // 定时器初始化

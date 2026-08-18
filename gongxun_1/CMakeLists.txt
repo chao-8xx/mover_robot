@@ -60,8 +60,10 @@ add_executable(${CMAKE_PROJECT_NAME}
         BSP/Src/hwt101.c
         BSP/Src/led_buzzer.c
         BSP/Inc/led_buzzer.h
-        BSP/Inc/hmi_tjc.h
-        BSP/Src/hmi_tjc.c
+        BSP/Src/hmi.c
+        BSP/Inc/hmi.h
+        APP/Src/hmi_app.c
+        APP/Inc/hmi_app.h
 )
 
 # Add STM32CubeMX generated sources

@@ -104,9 +104,10 @@ int main(void)
   MX_USART2_UART_Init();
   MX_TIM2_Init();
   MX_TIM4_Init();
-  MX_UART5_Init();
   /* USER CODE BEGIN 2 */
-
+  all_init();
+  hmi_SetText("t1", "工训赛");
+  hmi_SetText("t1", "240V");
 
   /* USER CODE END 2 */
 
@@ -115,6 +116,7 @@ int main(void)
 
   while (1)
   {
+    // led_toggle();
 
     // key_handle();     // 按键处理
     // lidar_process();  // 激光雷达处理
@@ -177,36 +179,6 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
-
-// 重定向 printf 到 串口6  可以无线串口 调参
-int _write(int file,char *ptr,int len)
-{
-  HAL_UART_Transmit(&huart6,(uint8_t *)ptr,len,100);
-
-  return len;
-}
-
-// // 重定向 printf 到 虚拟串口 CDC
-// extern USBD_HandleTypeDef hUsbDeviceFS;
-//
-// int _write(int file, char *ptr, int len)
-// {
-//   (void)file;
-//
-//   if (hUsbDeviceFS.dev_state != USBD_STATE_CONFIGURED) {
-//     return len;
-//   }
-//
-//   uint32_t start = HAL_GetTick();
-//
-//   while (CDC_Transmit_FS((uint8_t *)ptr, len) != USBD_OK) {
-//     if (HAL_GetTick() - start > 20) {
-//       break;
-//     }
-//   }
-//
-//   return len;
-// }
 
 /* USER CODE END 4 */
 

@@ -35,9 +35,11 @@
 #include "servo.h"      // 舵机
 #include "ws2812.h"     // 8位RGB灯
 #include "hwt101.h"     // HWT101陀螺仪
-#include "hmi_tjc.h"    // 串口屏 代仿照
+#include "hmi.h"        // 串口屏
 
-#include "../../APP/Inc/test.h" // 各模块测试函数
+
+#include "../../APP/Inc/test.h"     // 各模块测试函数
+#include "../../APP/Inc/hmi_app.h"  // hmi 应用层函数
 
 
 
