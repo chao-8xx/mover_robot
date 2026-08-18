@@ -56,16 +56,22 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
     {
         openmv_uart_rx_callback(huart);
     }
-    // HWT101 陀螺仪用 USART3
-    else if (huart->Instance == USART3)
-    {
-        hwt101_uart_rx_callback(huart);
-    }
+    // HWT101 陀螺仪用 USART3，已改为 DMA + IDLE，
+    // 数据在 HAL_UARTEx_RxEventCallback 里处理
     // // LiDAR 用 UART4
     // else if (huart->Instance == UART4)
     // {
     //     AX_LIDAR_RxCallback(huart);
     // }
+}
+
+// UART DMA 接收事件回调（USART3 用 IDLE 事件收一段数据）
+void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
+{
+    if (huart->Instance == USART3)
+    {
+        hwt101_dma_rx_event(Size);
+    }
 }
 
 // UART 错误回调函数
