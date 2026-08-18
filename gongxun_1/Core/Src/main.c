@@ -106,9 +106,12 @@ int main(void)
   MX_TIM4_Init();
   /* USER CODE BEGIN 2 */
   all_init();
-  hmi_SetText("t1", "工训赛");
-  hmi_SetText("t1", "240V");
+  // hmi_SetText("t1", "工训赛");
+  // hmi_SetText("t1", "240V");
 
+  // HAL_Delay(1000);
+
+  // lidar_start();
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -116,7 +119,6 @@ int main(void)
 
   while (1)
   {
-    // led_toggle();
 
     // key_handle();     // 按键处理
     // lidar_process();  // 激光雷达处理

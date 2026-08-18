@@ -1,7 +1,7 @@
 #include "led_buzzer.h"
 
-#define LED_BUZZER_PORT   GPIOC
-#define LED_PIN           GPIO_PIN_0
+#define LED_BUZZER_PORT   GPIOE
+#define LED_PIN           GPIO_PIN_4
 #define BUZZER_PIN        GPIO_PIN_2
 
 // 拓展板板载LED与蜂鸣器初始化
@@ -14,22 +14,19 @@ void led_buzzer_init(void)
 // LED亮灯
 void led_on(void)
 {
-    HAL_GPIO_WritePin(LED_BUZZER_PORT,LED_PIN,GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(LED_BUZZER_PORT,LED_PIN,GPIO_PIN_SET);
 }
 
 // LED灭灯
 void led_off(void)
 {
-    HAL_GPIO_WritePin(LED_BUZZER_PORT,LED_PIN,GPIO_PIN_SET);
+    HAL_GPIO_WritePin(LED_BUZZER_PORT,LED_PIN,GPIO_PIN_RESET);
 }
 
 // LED翻转
 void led_toggle(void)
 {
-    led_on();
-    HAL_Delay(500);
-    led_off();
-    HAL_Delay(500);
+    HAL_GPIO_TogglePin(LED_BUZZER_PORT,LED_PIN);
 }
 
 // 蜂鸣器打开
