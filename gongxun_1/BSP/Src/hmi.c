@@ -23,7 +23,7 @@ void hmi_init(UART_HandleTypeDef *huart) {
 
 // hmi 串口接收
 void hmi_rx_callback(UART_HandleTypeDef *huart, uint16_t Size) {
-    if (huart->Instance != UART5) {
+    if (huart != hmi_uart) {
         return;
     }
 
@@ -110,6 +110,7 @@ void hmi_ChangePage(const char *pageName) {
 /**
  * @brief  非阻塞状态机解析屏幕回传的触摸事件
  * @note   状态机逐字节匹配接收   当前在本函数中没有循环逐字节调用 需要在串口接收回调中循环调用
+ * @note   通信协议: 0x65 + page_id + obj_id + event_type + 0xFF + 0xFF + 0xFF
  */
 hmi_touch_t hmi_GetTouch(uint8_t byte) {
     static uint8_t state = 0;       // 状态机的状态

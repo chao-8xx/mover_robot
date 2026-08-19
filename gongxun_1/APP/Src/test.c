@@ -115,3 +115,12 @@ void lidar_test(void) {
     }
     printf("================================\r\n");
 }
+
+// hwt101 测试函数，放到主函数 while循环中调用，打印角度和角速度 20HZ
+void hwt_test(void) {
+        printf("yaw: %.2f, wz: %.2f\r\n",
+               hwt101_get_yaw(),
+               hwt101_get_yaw_rate());
+
+        HAL_Delay(50);
+}

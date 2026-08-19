@@ -21,8 +21,8 @@
 // WitMotion 标准协议帧结构：
 // [0x55] [类型] [D0L] [D0H] [D1L] [D1H] [D2L] [D2H] [D3L] [D3H] [SUM]
 // SUM = 前 10 字节累加和的低 8 位
-#define HWT101_FRAME_LEN    11
-#define HWT101_HEAD         0x55
+#define HWT101_FRAME_LEN    11     // 陀螺仪发送的定长数据帧长
+#define HWT101_HEAD         0x55   // 帧头
 #define HWT101_TYPE_ACC     0x51   // 加速度
 #define HWT101_TYPE_GYRO    0x52   // 角速度
 #define HWT101_TYPE_ANGLE   0x53   // 角度
@@ -31,6 +31,7 @@
 #define HWT101_ACC_RANGE    16.0f    // ±16g
 #define HWT101_GYRO_RANGE   2000.0f  // ±2000°/s
 #define HWT101_ANGLE_RANGE  180.0f   // ±180°
+
 
 // 复位偏航角命令（官方示例）：
 // 解锁 FF AA 69 88 B5 -> 延时200ms
@@ -42,17 +43,11 @@ static const uint8_t hwt101_save_cmd[5] = {0xFF, 0xAA, 0x00, 0x00, 0x00};
 
 HWT101_Data_t hwt101 = {0};
 
-// 串口句柄：hwt101_init 时保存，之后接收/发送都用它
+
 static UART_HandleTypeDef *hwt101_uart = NULL;
 
-// HAL_UART_Receive_IT 单字节接收缓冲（每收 1 字节中断一次）
-static uint8_t hwt101_rx_byte = 0;
-
-// 当前正在拼装的一帧数据
-static uint8_t hwt101_buf[HWT101_FRAME_LEN];
-
-// 已收字节下标
-static uint8_t hwt101_idx = 0;
+static uint8_t hwt101_buf[HWT101_FRAME_LEN];    // 陀螺仪接收缓冲区
+static uint8_t hwt101_idx = 0;  // 已收字节下标
 
 // 接收状态机：
 // 0 = 等待 0x55 帧头
@@ -63,6 +58,63 @@ static uint8_t hwt101_state = 0;
 // 上一帧 wz 和时间，用于差分计算偏航角加速度
 static float hwt101_prev_wz = 0.0f;
 static uint32_t hwt101_prev_ms = 0;
+
+
+// 陀螺仪初始化
+void hwt101_init(UART_HandleTypeDef *huart)
+{
+    hwt101_uart = huart;
+
+    // 通信协议状态初始化
+    hwt101_state = 0;
+    hwt101_idx = 0;
+
+    // 数据状态
+    hwt101.valid = 0;
+
+    // 角速度差分
+    hwt101_prev_wz = 0.0f;
+    hwt101_prev_ms = HAL_GetTick();
+
+    // 开启陀螺仪的DMA空闲中断
+    HAL_UARTEx_ReceiveToIdle_DMA(hwt101_uart, hwt101_buf, sizeof(hwt101_buf));
+    __HAL_DMA_DISABLE_IT(hwt101_uart->hdmarx,DMA_IT_HT);      // 禁止半传输中断
+}
+
+// 陀螺仪接收回调
+void hwt101_rx_callback(UART_HandleTypeDef *huart, uint16_t size)
+{
+    hwt101_uart = huart;
+
+    if (size > HWT101_FRAME_LEN) {
+        size = HWT101_FRAME_LEN;
+    }
+
+    // 状态机逐字节匹配接收
+    for (uint16_t i = 0; i < size; i++) {
+        hwt101_byte_handle(hwt101_buf[i]);
+    }
+
+    // 重新开启陀螺仪的DMA空闲中断
+    HAL_UARTEx_ReceiveToIdle_DMA(hwt101_uart, hwt101_buf, sizeof(hwt101_buf));
+    __HAL_DMA_DISABLE_IT(hwt101_uart->hdmarx,DMA_IT_HT);      // 禁止半传输中断
+}
+
+// 陀螺仪错误回调
+void hwt101_error_callback(UART_HandleTypeDef *huart)
+{
+    if (huart != hwt101_uart) {
+        return;
+    }
+
+    // 通信协议复位
+    hwt101_state = 0;
+    hwt101_idx = 0;
+
+    // 重新开启陀螺仪的DMA空闲中断
+    HAL_UARTEx_ReceiveToIdle_DMA(hwt101_uart, hwt101_buf, sizeof(hwt101_buf));
+    __HAL_DMA_DISABLE_IT(hwt101_uart->hdmarx,DMA_IT_HT);      // 禁止半传输中断
+}
 
 // 读取小端序 int16：低字节在前，高字节在后
 static int16_t hwt101_get_i16(uint8_t offset)
@@ -132,7 +184,7 @@ static void hwt101_parse_frame(void)
 
 // 单字节状态机：每个中断字节喂进来一次
 // 流程：找 0x55 帧头 -> 认类型 -> 收满 11 字节 -> 解析 -> 重新等帧头
-static void hwt101_byte_handle(uint8_t byte)
+void hwt101_byte_handle(uint8_t byte)
 {
     if (hwt101_state == 0) {     // 等帧头
         if (byte == HWT101_HEAD) {
@@ -165,42 +217,6 @@ static void hwt101_byte_handle(uint8_t byte)
     }
 }
 
-// 初始化：保存串口句柄、复位解析状态、开启单字节中断接收
-// 示例：hwt101_init(&huart3);
-void hwt101_init(UART_HandleTypeDef *huart)
-{
-    hwt101_uart = huart;
-    hwt101_state = 0;
-    hwt101_idx = 0;
-    hwt101.valid = 0;
-    hwt101_prev_wz = 0.0f;
-    hwt101_prev_ms = HAL_GetTick();
-
-    HAL_UART_Receive_IT(hwt101_uart, &hwt101_rx_byte, 1);
-}
-
-// 串口接收完成回调：由 uart_dma.c 的 HAL_UART_RxCpltCallback 转发过来
-void hwt101_uart_rx_callback(UART_HandleTypeDef *huart)
-{
-    if (huart->Instance != USART3) {
-        return;
-    }
-
-    hwt101_byte_handle(hwt101_rx_byte);                       // 解析这一个字节
-    HAL_UART_Receive_IT(hwt101_uart, &hwt101_rx_byte, 1);     // 重新开启接收
-}
-
-// 串口错误回调：解析状态可能错乱，全部复位后重新开始接收
-void hwt101_uart_error_callback(UART_HandleTypeDef *huart)
-{
-    if (huart->Instance != USART3) {
-        return;
-    }
-
-    hwt101_state = 0;
-    hwt101_idx = 0;
-    HAL_UART_Receive_IT(hwt101_uart, &hwt101_rx_byte, 1);
-}
 
 float hwt101_get_yaw(void)
 {
@@ -222,23 +238,89 @@ uint8_t hwt101_data_valid(void)
     return hwt101.valid;       // 1 = 已经收到过有效数据
 }
 
-// 复位偏航角：把陀螺仪当前朝向设为 0°
+// 非阻塞复位状态机：解锁 -> 200ms -> Z角度归零 -> 500ms -> 保存
+typedef enum {
+    HWT101_RST_IDLE,
+    HWT101_RST_UNLOCK,
+    HWT101_RST_WAIT_UNLOCK,
+    HWT101_RST_ZERO,
+    HWT101_RST_WAIT_ZERO,
+    HWT101_RST_SAVE
+} Hwt101_RstState_t;
+
+static volatile uint8_t hwt101_rst_request = 0;
+static volatile uint8_t hwt101_rst_state = HWT101_RST_IDLE;
+static uint32_t hwt101_rst_tick = 0;
+
+// 中断安全版复位请求：只置标志，不阻塞、不等待
+void hwt101_yaw_reset_request(void)
+{
+    hwt101_rst_request = 1;
+}
+
+// 复位偏航角（非阻塞，等价于 hwt101_yaw_reset_request）
 void hwt101_yaw_reset(void)
+{
+    hwt101_yaw_reset_request();
+}
+
+// 1ms 定时中断里调用，驱动非阻塞复位流程
+void hwt101_tick(void)
 {
     if (hwt101_uart == NULL) {
         return;
     }
 
-    // 官方示例：解锁 -> 200ms -> Z角度归零 -> 500ms -> 保存
-    HAL_UART_Transmit(hwt101_uart, (uint8_t *)hwt101_unlock_cmd, 5, 50);
-    HAL_Delay(200);
-    HAL_UART_Transmit(hwt101_uart, (uint8_t *)hwt101_zero_yaw_cmd, 5, 50);
-    HAL_Delay(500);
-    HAL_UART_Transmit(hwt101_uart, (uint8_t *)hwt101_save_cmd, 5, 50);
+    // 有复位请求且当前空闲时，启动一次复位流程
+    if (hwt101_rst_request && hwt101_rst_state == HWT101_RST_IDLE) {
+        hwt101_rst_request = 0;
+        hwt101_rst_state = HWT101_RST_UNLOCK;
+    }
 
-    // 清零差分状态，避免复位瞬间产生虚假角加速度
-    hwt101_prev_wz = 0.0f;
-    hwt101.yaw_accel = 0.0f;
+    switch (hwt101_rst_state) {
+        case HWT101_RST_UNLOCK:   // 发送解锁
+            // 注意：不能用 HAL_UART_GetState()，RX DMA 运行时它会返回 BUSY_RX；
+            // 发送只关心 gState，和 RX 的 RxState 是分开的
+            if (hwt101_uart->gState == HAL_UART_STATE_READY) {
+                HAL_UART_Transmit_IT(hwt101_uart, (uint8_t *)hwt101_unlock_cmd, 5);
+                hwt101_rst_tick = HAL_GetTick();
+                hwt101_rst_state = HWT101_RST_WAIT_UNLOCK;
+            }
+            break;
+
+        case HWT101_RST_WAIT_UNLOCK:   // 等 200ms
+            if (HAL_GetTick() - hwt101_rst_tick >= 200) {
+                hwt101_rst_state = HWT101_RST_ZERO;
+            }
+            break;
+
+        case HWT101_RST_ZERO:   // 发送 Z 角度归零
+            if (hwt101_uart->gState == HAL_UART_STATE_READY) {
+                HAL_UART_Transmit_IT(hwt101_uart, (uint8_t *)hwt101_zero_yaw_cmd, 5);
+                hwt101_rst_tick = HAL_GetTick();
+                hwt101_rst_state = HWT101_RST_WAIT_ZERO;
+            }
+            break;
+
+        case HWT101_RST_WAIT_ZERO:   // 等 500ms
+            if (HAL_GetTick() - hwt101_rst_tick >= 500) {
+                hwt101_rst_state = HWT101_RST_SAVE;
+            }
+            break;
+
+        case HWT101_RST_SAVE:   // 发送保存
+            if (hwt101_uart->gState == HAL_UART_STATE_READY) {
+                HAL_UART_Transmit_IT(hwt101_uart, (uint8_t *)hwt101_save_cmd, 5);
+                hwt101_rst_state = HWT101_RST_IDLE;
+                hwt101_prev_wz = 0.0f;
+                hwt101.yaw_accel = 0.0f;
+            }
+            break;
+
+        default:
+            hwt101_rst_state = HWT101_RST_IDLE;
+            break;
+    }
 }
 
 // HWT101初始化（串口3） 初始化加偏航角复位
@@ -253,7 +335,6 @@ void my_hwt101_init(void)
     }
     // 只有收到有效数据后再复位偏航角，复位指令才有意义
     if (hwt101_data_valid()) {
-        hwt101_yaw_reset();
-        HAL_Delay(100);   // 给传感器一点处理时间
+        hwt101_yaw_reset_request();   // 非阻塞，1ms 中断里自动执行完整复位流程
     }
 }

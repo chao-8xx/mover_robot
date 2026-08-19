@@ -18,24 +18,22 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
     if (huart->Instance == USART1) {
         openmv_uart_rx_callback(huart);
     }
-    else if (huart->Instance == USART3) {
-        hwt101_uart_rx_callback(huart);
-    }
+
 }
 
 // DMA空闲接收事件
 void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
 {
-    // OpenMV 用 USART1
-    if (huart->Instance == USART1)
-    {
-        openmv_uart_rx_callback(huart);
-    }
+    // // OpenMV 用 USART1
+    // if (huart->Instance == USART1)
+    // {
+    //     openmv_uart_rx_callback(huart);
+    // }
 
     // HWT101 陀螺仪用 USART3
-    else if (huart->Instance == USART3)
+    if (huart->Instance == USART3)
     {
-        hwt101_uart_rx_callback(huart);
+        hwt101_rx_callback(huart, Size);
     }
     // // LiDAR 用 UART4
     // else if (huart->Instance == UART4)
@@ -58,7 +56,7 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
     }
     else if (huart->Instance == USART3)
     {
-        hwt101_uart_error_callback(huart);
+        hwt101_error_callback(huart);
     }
     // // LiDAR的错误处理
     // if (huart->Instance == UART4)
@@ -113,7 +111,7 @@ void UART_PrintNumber(UART_HandleTypeDef *UART_X, int16_t num, uint8_t len)
 // 重定向 printf 到 串口6  可以无线串口 调参
 int _write(int file,char *ptr,int len)
 {
-    HAL_UART_Transmit_DMA(&huart6,(uint8_t *)ptr,len);
+    HAL_UART_Transmit(&huart6,(uint8_t *)ptr,len, 100);
 
     return len;
 }

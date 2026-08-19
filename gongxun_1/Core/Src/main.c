@@ -120,6 +120,8 @@ int main(void)
   while (1)
   {
 
+    hwt_test();
+
     // key_handle();     // 按键处理
     // lidar_process();  // 激光雷达处理
 
