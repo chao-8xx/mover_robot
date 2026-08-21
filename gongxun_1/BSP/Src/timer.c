@@ -1,9 +1,14 @@
+//
+// Created by mechreuo on 2026/6/3.
+//
+
 #include "headfile.h"
 
 void all_init(void)
 {
     timer_init();
     uart_init();
+    led_buzzer_init();
 }
 
 // 定时器初始化

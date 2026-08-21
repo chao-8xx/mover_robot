@@ -11,6 +11,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <stdbool.h>
+#include <stdarg.h>     /* 为了使用可变参数 va_list */
 
 #include "main.h"
 #include "gpio.h"
@@ -20,6 +21,8 @@
 
 #include "usb_device.h"
 #include "usbd_cdc_if.h"
+
+
 
 #include "fun.h"
 #include "timer.h"
@@ -33,12 +36,16 @@
 #include "servo.h"      // 舵机
 #include "ws2812.h"     // 8位RGB灯
 #include "hwt101.h"     // HWT101陀螺仪
+#include "hmi.h"        // 串口屏
+
 
 #include "pid.h"        // PID控制算法
 #include "chassis.h"    // 底盘控制
 #include "catch.h"      // 抓取装置
 #include "remind.h"     // 提醒装置（ws2812、蜂鸣器、LED）
 #include "test.h"       // 测试代码
+#include "hmi_app.h"  // hmi 应用层函数
+
 
 
 #endif //GONGXUN_1_HEADFILE_H

@@ -11,6 +11,7 @@ void cdc_test(void);
 void openmv_qr_test(void);
 void maix_blob_test(void);
 void lidar_test(void);
+void hwt_test(void);
 
 // 底盘测试代码 放入10ms中断
 void chassis_test(void);

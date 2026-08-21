@@ -21,8 +21,8 @@
 // WitMotion 标准协议帧结构：
 // [0x55] [类型] [D0L] [D0H] [D1L] [D1H] [D2L] [D2H] [D3L] [D3H] [SUM]
 // SUM = 前 10 字节累加和的低 8 位
-#define HWT101_FRAME_LEN    11
-#define HWT101_HEAD         0x55
+#define HWT101_FRAME_LEN    11     // 陀螺仪发送的定长数据帧长
+#define HWT101_HEAD         0x55   // 帧头
 #define HWT101_TYPE_ACC     0x51   // 加速度
 #define HWT101_TYPE_GYRO    0x52   // 角速度
 #define HWT101_TYPE_ANGLE   0x53   // 角度
