@@ -105,9 +105,7 @@ int main(void)
   MX_TIM2_Init();
   MX_TIM4_Init();
   /* USER CODE BEGIN 2 */
-  timer_init();
-  remind_init();
-  HAL_Delay(20);
+
 
   /* USER CODE END 2 */
 

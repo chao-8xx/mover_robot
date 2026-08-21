@@ -31,7 +31,6 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
     else if (htim ->Instance == TIM7) {    // 5ms中断
         yaw_rate = hwt101_get_yaw_rate();  // 偏航角角速度
         my_yaw = hwt101_get_yaw();         // 偏航角
-        remind_test();
     }
     else if (htim ->Instance == TIM2) {    // 10ms中断
         // car_rotate_ctrl();  // 用于控制底盘非阻塞转向 放进10ms中断 不影响后续控制 不可删

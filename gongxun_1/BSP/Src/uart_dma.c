@@ -9,6 +9,7 @@ void uart_init(void)
     // maix_uart_init(&huart3);
     hwt101_init(&huart3);
     lidar_init(&huart4);
+    hmi_init(&huart5);          // 串口屏
 }
 
 // 串口打印十进制数字（定宽，末尾自动补回车换行）
@@ -71,6 +72,10 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
     if (huart->Instance == USART3)
     {
         hwt101_dma_rx_event(Size);
+    }
+    else if (huart->Instance == UART5)
+    {
+        hmi_rx_callback(huart, Size);
     }
 }
 

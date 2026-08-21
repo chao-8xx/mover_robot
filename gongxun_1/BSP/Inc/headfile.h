@@ -43,8 +43,8 @@
 #include "chassis.h"    // 底盘控制
 #include "catch.h"      // 抓取装置
 #include "remind.h"     // 提醒装置（ws2812、蜂鸣器、LED）
-#include "test.h"       // 测试代码
 #include "hmi_app.h"  // hmi 应用层函数
+#include "test.h"       // 测试代码
 
 
 

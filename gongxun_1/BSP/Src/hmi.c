@@ -1,8 +1,4 @@
-//
-// Created by mechreuo on 2026/8/17.
-//
-
-#include "../Inc/hmi.h"
+#include "hmi.h"
 
 uint8_t hmi_rxbuffer[HMI_RX_SIZE];   // hmi 接收缓冲区
 char hmi_txbuffer[HMI_TX_SIZE];   // hmi 发送缓冲区
@@ -33,7 +29,6 @@ void hmi_rx_callback(UART_HandleTypeDef *huart, uint16_t Size) {
 
         if (touch.is_valid && touch.event_type == 0x01) {   // 事件有效且按键按下
             hmi_touch(); // 触摸事件
-            // printf("111");
         }
     }
         // 重新开启 DMA 空闲中断接收
@@ -54,8 +49,8 @@ void hmi_SendCmd(const char *format, ...) {
     va_list args;       // 可变参数列表
 
     // 将上层传入的格式化字符串 解析到 hmi_txbuffer 中
-    va_start(args,format);
-    vsnprintf(hmi_txbuffer, HMI_TX_SIZE, format, args);
+    va_start(args,format);  // args:参数列表    format:最后一个具名参数
+    vsnprintf(hmi_txbuffer, HMI_TX_SIZE, format, args); //format:格式串   args:参数列表
     va_end(args);
 
     // 获取需要发送的有效字符串长度
@@ -72,7 +67,10 @@ void hmi_SendCmd(const char *format, ...) {
     hmi_txbuffer[tx_len + 2] = hmi_end_cmd[2];
 
     // 发送封装好的字符串数据   总长度 = 字符长度 + 3个结束符
-    HAL_UART_Transmit_DMA(hmi_uart,(uint8_t *)hmi_txbuffer, tx_len + 3);
+    // 上一次 DMA 没发完就不发，避免 BUSY 和缓冲被覆盖
+    if (hmi_uart->gState == HAL_UART_STATE_READY) {
+        HAL_UART_Transmit_DMA(hmi_uart,(uint8_t *)hmi_txbuffer, tx_len + 3);
+    }
 }
 
 /**
@@ -119,7 +117,8 @@ hmi_touch_t hmi_GetTouch(uint8_t byte) {
 
     hmi_touch_t touch = {0, 0, 0, false};
 
-    switch (state) {
+    switch (state)
+    {
         case 0:     // 等待帧头 0x65
             if (byte == 0x65)
                 state = 1;
