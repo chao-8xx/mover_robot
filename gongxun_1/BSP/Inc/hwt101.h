@@ -54,4 +54,8 @@ void hwt101_tick(void);
 // HWT101初始化（串口3） 初始化加偏航角复位
 void my_hwt101_init(void);
 
+// 全局变量
+extern float yaw_rate;  // 全局偏航角角速度
+extern float my_yaw;    // 全局偏航角角度
+
 #endif //GONGXUN_1_HWT101_H

@@ -23,7 +23,7 @@ void step_motor_init();
 // 电机定速控制
 void motor_set_speed(Motor_Num motor_num,int16_t speed);
 // 电机定速定位置控制（pulse 为相对脉冲数，正负代表方向）
-void motor_set_speedPos(Motor_Num motor_num,int16_t speed,int16_t pulse);
+void motor_set_speedPos(Motor_Num motor_num,int16_t speed,int32_t pulse);
 
 // ---- 变量声明 ---- //
 extern int16_t motor1_speed;

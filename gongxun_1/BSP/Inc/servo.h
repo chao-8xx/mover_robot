@@ -17,12 +17,11 @@ typedef enum {
 // 舵机初始化：把 TIM1 三个通道配置为 50Hz PWM 并启动
 void servo_init(void);
 
-// 设置舵机角度，angle 范围 0.0 ~ 360.0（0° 对应 500us，360° 对应 2500us）
-void servo_set_angle(Servo_Num servo_num, float angle);
-
 // 直接设置 PWM 脉宽，pulse_us 范围 500 ~ 2500
 void servo_set_pulse(Servo_Num servo_num, uint16_t pulse_us);
 
+// 设置舵机角度，angle 范围 0.0 ~ 360.0（0° 对应 500us，360° 对应 2500us）
+void servo_set_angle(Servo_Num servo_num, float angle);
 
 // // 360°连续旋转舵机 // //
 

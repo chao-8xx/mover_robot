@@ -27,7 +27,24 @@ void servo_init(void)
     }
 }
 
-// ================ 180° 位置舵机：脉宽控制角度 ================
+// ================ 180°/270° 位置舵机：脉宽控制角度 ================
+
+// 直接设置 PWM 脉宽（us），自动限幅到 500 ~ 2500
+void servo_set_pulse(Servo_Num servo_num, uint16_t pulse_us)
+{
+    if ((int)servo_num < 0 || (int)servo_num >= SERVO_COUNT) {
+        return;
+    }
+
+    if (pulse_us < SERVO_MIN_PULSE_US) {
+        pulse_us = SERVO_MIN_PULSE_US;
+    }
+    else if (pulse_us > SERVO_MAX_PULSE_US) {
+        pulse_us = SERVO_MAX_PULSE_US;
+    }
+
+    __HAL_TIM_SET_COMPARE(&htim1, servo_channel[servo_num], pulse_us);
+}
 
 // 设置舵机角度：0° -> 500us，360° -> 2500us
 void servo_set_angle(Servo_Num servo_num, float angle)
@@ -48,24 +65,6 @@ void servo_set_angle(Servo_Num servo_num, float angle)
 
     servo_set_pulse(servo_num, pulse_us);
 }
-
-// 直接设置 PWM 脉宽（us），自动限幅到 500 ~ 2500
-void servo_set_pulse(Servo_Num servo_num, uint16_t pulse_us)
-{
-    if ((int)servo_num < 0 || (int)servo_num >= SERVO_COUNT) {
-        return;
-    }
-
-    if (pulse_us < SERVO_MIN_PULSE_US) {
-        pulse_us = SERVO_MIN_PULSE_US;
-    }
-    else if (pulse_us > SERVO_MAX_PULSE_US) {
-        pulse_us = SERVO_MAX_PULSE_US;
-    }
-
-    __HAL_TIM_SET_COMPARE(&htim1, servo_channel[servo_num], pulse_us);
-}
-
 
 // ================ 360° 连续旋转舵机：相对角度转动（开环计时） ================
 #define SERVO_MAX_SPEED        100       // 舵机最大速度

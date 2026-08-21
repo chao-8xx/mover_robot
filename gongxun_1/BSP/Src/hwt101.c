@@ -68,6 +68,10 @@ static uint8_t hwt101_state = 0;
 static float hwt101_prev_wz = 0.0f;
 static uint32_t hwt101_prev_ms = 0;
 
+// 全局变量
+float yaw_rate = 0.0f;  // 全局偏航角角速度
+float my_yaw = 0.0f;    // 全局偏航角角度
+
 // 读取小端序 int16：低字节在前，高字节在后
 static int16_t hwt101_get_i16(uint8_t offset)
 {
@@ -188,13 +192,22 @@ void hwt101_init(UART_HandleTypeDef *huart)
 // DMA 收到一段数据后由 HAL_UARTEx_RxEventCallback 转发到这里
 void hwt101_dma_rx_event(uint16_t size)
 {
+    uint16_t new_pos;
+    uint16_t count;
     uint16_t i;
 
+    // HAL 在循环 DMA 下传的 Size 是“缓冲区当前位置”：
+    // IDLE = 当前写入位置，HT = 128，TC = 256，不是本次新增字节数
+    new_pos = (uint16_t)(size % HWT101_DMA_BUF_SIZE);
+
+    // 用位置差计算真正新增的字节数，兼容跨过数组末尾的情况
+    count = (uint16_t)((new_pos + HWT101_DMA_BUF_SIZE - hwt101_dma_pos) % HWT101_DMA_BUF_SIZE);
+
     // 环形缓冲可能跨过数组末尾，用取模逐字节喂给状态机
-    for (i = 0; i < size; i++) {
+    for (i = 0; i < count; i++) {
         hwt101_byte_handle(hwt101_dma_buf[(hwt101_dma_pos + i) % HWT101_DMA_BUF_SIZE]);
     }
-    hwt101_dma_pos = (uint16_t)((hwt101_dma_pos + size) % HWT101_DMA_BUF_SIZE);
+    hwt101_dma_pos = new_pos;
 }
 
 // 串口错误回调：解析状态可能错乱，全部复位后重新开始接收
@@ -330,3 +343,5 @@ void my_hwt101_init(void)
         hwt101_yaw_reset_request();   // 非阻塞，1ms 中断里自动执行完整复位流程
     }
 }
+
+

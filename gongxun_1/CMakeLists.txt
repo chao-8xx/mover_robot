@@ -60,6 +60,14 @@ add_executable(${CMAKE_PROJECT_NAME}
         BSP/Src/hwt101.c
         BSP/Src/led_buzzer.c
         BSP/Inc/led_buzzer.h
+        APP/Inc/chassis.h
+        APP/Src/chassis.c
+        APP/Inc/pid.h
+        APP/Src/pid.c
+        APP/Inc/catch.h
+        APP/Src/catch.c
+        APP/Inc/remind.h
+        APP/Src/remind.c
 )
 
 # Add STM32CubeMX generated sources
@@ -84,6 +92,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user defined include paths
         BSP/Inc
+        APP/Inc
 )
 
 # Add include paths for STM32 HAL and USB middleware

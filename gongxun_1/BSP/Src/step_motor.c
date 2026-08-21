@@ -48,7 +48,7 @@ void step_motor_init()
     } 
 }
 
-// 电机定速控制（非阻塞，可在主循环或定时器中断中调用）
+// 电机定速控制（非阻塞，可在主循环或定时器中断中调用,正：逆时针，负：顺时针）
 void motor_set_speed(Motor_Num motor_num,int16_t speed)
 {
     uint8_t addr = step_motor_get_addr(motor_num);
@@ -59,7 +59,7 @@ void motor_set_speed(Motor_Num motor_num,int16_t speed)
         return;
     }
 
-    dir = (speed < 0) ? 1 : 0;                                    // 0 为 CW，1 为 CCW
+    dir = (speed < 0) ? 1 : 0;           // 0 为 CW，1 为 CCW
     vel = (speed < 0) ? (uint16_t)(-(int32_t)speed) : (uint16_t)speed;
     if (vel > MAX_SPEED) {
         vel = MAX_SPEED;
@@ -70,7 +70,7 @@ void motor_set_speed(Motor_Num motor_num,int16_t speed)
 }
 
 // 电机定速定位置控制（非阻塞，可在主循环或定时器中断中调用）
-void motor_set_speedPos(Motor_Num motor_num,int16_t speed,int16_t pulse)
+void motor_set_speedPos(Motor_Num motor_num,int16_t speed,int32_t pulse)
 {
     uint8_t addr = step_motor_get_addr(motor_num);
     uint8_t dir;

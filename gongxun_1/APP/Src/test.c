@@ -1,4 +1,4 @@
-#include "headfile.h"
+#include "test.h"
 
 // 虚拟串口 USB CDC 测试函数，验证 CDC 是否正常工作
 // 现已变为无线串口 串口六输出了
@@ -114,4 +114,165 @@ void lidar_test(void) {
         printf("@%3d %5d \r\n", i, lidar_data[i]);
     }
     printf("================================\r\n");
+}
+
+// 底盘测试代码 放入10ms中断
+void chassis_test(void)
+{
+    // 初始化部分 放入主函数
+    // timer_init();
+    // step_motor_init();
+    // my_hwt101_init();
+    // chassis_init();
+
+    car_rotate_ctrl();
+
+    static uint8_t step = 0;
+    static int16_t chassis_speed = 50;
+
+    switch (step)
+    {
+        case 0:
+            car_run_distance(chassis_speed,40.0f,0.0f);    // 发出指令，底盘进入忙状态，向右平移40cm
+            if (!car_is_busy()) {      // 空闲状态时，进入第1步
+                step = 1;
+            }
+            break;
+        case 1:
+            car_run_distance(chassis_speed,-40.0f,0.0f);    // 发出指令，底盘进入忙状态，向左平移40cm
+            if (!car_is_busy()) {      // 空闲状态时，进入第2步
+                step = 2;
+            }
+            break;
+        case 2:
+            car_run_distance(chassis_speed,0.0f,40.0f);    // 发出指令，底盘进入忙状态，向前平移40cm
+            if (!car_is_busy()) {      // 空闲状态时，进入第3步
+                step = 3;
+            }
+            break;
+        case 3:
+            car_run_distance(chassis_speed,0.0f,-40.0f);    // 发出指令，底盘进入忙状态，向后平移40cm
+            if (!car_is_busy()) {      // 空闲状态时，进入第4步
+                step = 4;
+            }
+            break;
+        case 4:
+            car_rotate_angle(90.0f);   // 发出指令，底盘进入忙状态，向左旋转90°
+            if (!car_is_busy()) {      // 空闲状态时，进入第5步
+                step = 5;
+            }
+            break;
+        case 5:
+            car_rotate_angle(90.0f);   // 发出指令，底盘进入忙状态，向右旋转90°
+            if (!car_is_busy()) {      // 空闲状态时，进入第6步
+                step = 6;
+            }
+            break;
+        case 6:
+            car_stop();                // 发出指令，底盘进入空闲状态，停车
+            break;
+        default:
+            car_stop();                // 发出指令，底盘进入空闲状态，停车
+            step = 6;
+            break;
+    }
+}
+
+// 提示装置测试代码 5ms定时中断
+void remind_test(void)
+{
+    // 初始化部分 放入主函数
+    // timer_init();
+    // remind_init();
+
+    static uint16_t work_time = 600;
+    static uint8_t step = 0;
+
+    switch (step)
+    {
+        case 0:
+            remindState = NO_REMIND;
+            step = 1;
+            break;
+        case 1:
+            work_time --;
+            if (work_time <= 0) {
+                work_time = 600;
+                remindState = RED_REMIND;
+                step = 2;
+            }
+            break;
+        case 2:
+            if (remindState == NO_REMIND) {
+                step = 3;
+            }
+            break;
+        case 3:
+            work_time --;
+            if (work_time <= 0) {
+                work_time = 600;
+                remindState = GREEN_REMIND;
+                step = 4;
+            }
+            break;
+        case 4:
+            if (remindState == NO_REMIND) {
+                step = 5;
+            }
+            break;
+        case 5:
+            work_time --;
+            if (work_time <= 0) {
+                work_time = 600;
+                remindState = BLUE_REMIND;
+                step = 6;
+            }
+            break;
+        case 6:
+            if (remindState == NO_REMIND) {
+                step = 7;
+            }
+            break;
+        case 7:
+            work_time --;
+            if (work_time <= 0) {
+                work_time = 600;
+                remindState = YELLOW_REMIND;
+                step = 8;
+            }
+            break;
+        case 8:
+            if (remindState == NO_REMIND) {
+                step = 9;
+            }
+            break;
+        case 9:
+            work_time --;
+            if (work_time <= 0) {
+                work_time = 600;
+                remindState = PINK_REMIND;
+                step = 10;
+            }
+            break;
+        case 10:
+            if (remindState == NO_REMIND) {
+                step = 11;
+            }
+            break;
+        case 11:
+            work_time --;
+            if (work_time <= 0) {
+                work_time = 600;
+                remindState = WHITE_REMIND;
+                step = 12;
+            }
+            break;
+        case 12:
+            step = 1;
+            break;
+        default:
+            break;
+    }
+
+    remind_control();
 }
