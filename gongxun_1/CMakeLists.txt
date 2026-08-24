@@ -72,6 +72,8 @@ add_executable(${CMAKE_PROJECT_NAME}
         BSP/Inc/hmi.h
         APP/Src/hmi_app.c
         APP/Inc/hmi_app.h
+        APP/Inc/bfs.h
+        APP/Src/bfs.c
 )
 
 # Add STM32CubeMX generated sources

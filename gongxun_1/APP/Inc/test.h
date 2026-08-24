@@ -14,8 +14,10 @@ void lidar_test(void);
 void hwt_test(void);
 
 // 底盘测试代码 放入10ms中断
-void chassis_test(void);
+void chassis_move_test(void);
 // 提示装置测试代码 5ms定时中断
 void remind_test(void);
+// bfs路径规划测试（无实物，仅串口打印路径）
+void bfs_test(void);
 
 #endif //GONGXUN_1_TEST_H

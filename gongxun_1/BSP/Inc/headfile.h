@@ -12,6 +12,7 @@
 #include <string.h>
 #include <stdbool.h>
 #include <stdarg.h>     /* 为了使用可变参数 va_list */
+#include <math.h>
 
 #include "main.h"
 #include "gpio.h"
@@ -40,10 +41,11 @@
 
 
 #include "pid.h"        // PID控制算法
+#include "bfs.h"        // BFS广度优先搜索算法
 #include "chassis.h"    // 底盘控制
 #include "catch.h"      // 抓取装置
 #include "remind.h"     // 提醒装置（ws2812、蜂鸣器、LED）
-#include "hmi_app.h"  // hmi 应用层函数
+#include "hmi_app.h"    // hmi 应用层函数
 #include "test.h"       // 测试代码
 
 

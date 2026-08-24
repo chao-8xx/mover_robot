@@ -1,6 +1,6 @@
 #include "step_motor.h"
 
-#define MAX_SPEED 500
+#define MAX_SPEED 1500
 
 // 电机当前速度
 int16_t motor1_speed = 0;
@@ -14,13 +14,16 @@ static const uint8_t step_motor_addr[STEP_MOTOR_COUNT] = {1, 2, 3, 4, 5, 6};
 // 获取电机对应驱动器地址，非法编号返回 0
 static uint8_t step_motor_get_addr(Motor_Num motor_num)
 {
-    if ((int)motor_num < 0 || (int)motor_num > STEP_MOTOR_COUNT) {
+    // if ((int)motor_num < 0 || (int)motor_num > STEP_MOTOR_COUNT) {
+    //     return 0;
+    // }
+    if ((int)motor_num > STEP_MOTOR_COUNT) {
         return 0;
     }
     return step_motor_addr[motor_num];
 }
 
-// 同步当前速度到全局变量（只有前四个电机有对应变量）
+// 同步当前速度到全局变量（前四个电机有对应变量）
 static void step_motor_update_speed(Motor_Num motor_num, int16_t speed)
 {
     switch (motor_num)
@@ -45,7 +48,7 @@ void step_motor_init()
         Emm_V5_Reset_Clog_Pro(addr);              // 解除堵转保护
         Emm_V5_Modify_Ctrl_Mode(addr, false, 2);  // 闭环控制模式，不保存
         Emm_V5_En_Control(addr, true, false);     // 使能电机
-    } 
+    }
 }
 
 // 电机定速控制（非阻塞，可在主循环或定时器中断中调用,正：逆时针，负：顺时针）

@@ -69,8 +69,12 @@ static float hwt101_prev_wz = 0.0f;
 static uint32_t hwt101_prev_ms = 0;
 
 // 全局变量
-float yaw_rate = 0.0f;  // 全局偏航角角速度
-float my_yaw = 0.0f;    // 全局偏航角角度
+float yaw_rate = 0.0f;          // 全局偏航角角速度
+float now_yaw = 0.0f;           // 本次偏航角角度
+float last_yaw = 0.0f;          // 上次偏航角角度
+float my_yaw = 0.0f;            // 解算后求得的偏航角角度
+int32_t yaw_change_flag = 0;    // 角度变换标志
+
 
 // 读取小端序 int16：低字节在前，高字节在后
 static int16_t hwt101_get_i16(uint8_t offset)
@@ -344,4 +348,18 @@ void my_hwt101_init(void)
     }
 }
 
+// 获取陀螺仪数据
+void imu_get(void)
+{
+    yaw_rate = hwt101_get_yaw_rate();  // 偏航角角速度
+    now_yaw = hwt101_get_yaw();         // 偏航角
+    if (now_yaw - last_yaw > 180.0f) {
+        yaw_change_flag --;
+    }
+    else if (now_yaw - last_yaw < -180.0f) {
+        yaw_change_flag ++;
+    }
+    my_yaw = now_yaw + (float)yaw_change_flag * 360.0f;
+    last_yaw = now_yaw;
+}
 

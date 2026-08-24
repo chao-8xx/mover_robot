@@ -2,6 +2,19 @@
 #define GONGXUN_1_CATCH_H
 #include "headfile.h"
 
+// 夹爪当前模式：夹住/松开
+typedef enum {
+    CATCH,  // 夹住
+    LOOSE   // 松开
+} Claw_State;
+
+// 转盘当前模式：一号位/二号位/三号位
+typedef enum {
+    LOCATION_1,  // 一号位
+    LOCATION_2,  // 二号位
+    LOCATION_3   // 三号位
+} Turntable_Pos;
+
 // 抓取装置当前模式：夹住/松开
 typedef enum {
     Free,         // 空闲：等待Maix抓取指令
@@ -12,9 +25,14 @@ typedef enum {
 } Catch_Mode;
 
 extern Catch_Mode catch_mode;   // 抓取机构状态机（其它文件也能读写）
+extern Claw_State claw_state;   // 夹爪当前状态
+extern Turntable_Pos turn_pos;  // 转盘当前位置
 
 // 抓取装置位置复位
 void catch_init(void);
+
+// 抓取装置夹爪伸缩 正：伸出 负：缩回
+void catch_stretch(int16_t speed);
 
 // 抓取装置夹爪升降 单位：cm
 void catch_lift(float delta_cm);

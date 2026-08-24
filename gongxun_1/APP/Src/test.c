@@ -117,63 +117,62 @@ void lidar_test(void) {
 }
 
 // 底盘测试代码 放入10ms中断
-void chassis_test(void)
+void chassis_move_test(void)
 {
     // 初始化部分 放入主函数
     // timer_init();
     // step_motor_init();
     // my_hwt101_init();
     // chassis_init();
-
-    car_rotate_ctrl();
+    // HAL_Delay(100);
 
     static uint8_t step = 0;
-    static int16_t chassis_speed = 50;
+    static int16_t chassis_speed = 100;
+
+    if (car_is_busy()) {      // 空闲状态时，进入第2步
+        return;
+    }
 
     switch (step)
     {
         case 0:
             car_run_distance(chassis_speed,40.0f,0.0f);    // 发出指令，底盘进入忙状态，向右平移40cm
-            if (!car_is_busy()) {      // 空闲状态时，进入第1步
-                step = 1;
-            }
+            step = 1;
             break;
         case 1:
             car_run_distance(chassis_speed,-40.0f,0.0f);    // 发出指令，底盘进入忙状态，向左平移40cm
-            if (!car_is_busy()) {      // 空闲状态时，进入第2步
-                step = 2;
-            }
+            step = 2;
             break;
         case 2:
             car_run_distance(chassis_speed,0.0f,40.0f);    // 发出指令，底盘进入忙状态，向前平移40cm
-            if (!car_is_busy()) {      // 空闲状态时，进入第3步
-                step = 3;
-            }
+            step = 3;
             break;
         case 3:
             car_run_distance(chassis_speed,0.0f,-40.0f);    // 发出指令，底盘进入忙状态，向后平移40cm
-            if (!car_is_busy()) {      // 空闲状态时，进入第4步
-                step = 4;
-            }
+            step = 4;
             break;
         case 4:
-            car_rotate_angle(90.0f);   // 发出指令，底盘进入忙状态，向左旋转90°
-            if (!car_is_busy()) {      // 空闲状态时，进入第5步
-                step = 5;
-            }
+            car_run_distance(chassis_speed,40.0f,40.0f);    // 发出指令，底盘进入忙状态，向后平移40cm
+            step = 5;
             break;
         case 5:
-            car_rotate_angle(90.0f);   // 发出指令，底盘进入忙状态，向右旋转90°
-            if (!car_is_busy()) {      // 空闲状态时，进入第6步
-                step = 6;
-            }
+            car_run_distance(chassis_speed,-40.0f,-40.0f);    // 发出指令，底盘进入忙状态，向后平移40cm
+            step = 6;
             break;
         case 6:
+            car_run_distance(chassis_speed,40.0f,-40.0f);    // 发出指令，底盘进入忙状态，向后平移40cm
+            step = 7;
+            break;
+        case 7:
+            car_run_distance(chassis_speed,-40.0f,40.0f);    // 发出指令，底盘进入忙状态，向后平移40cm
+            step = 8;
+            break;
+        case 8:
             car_stop();                // 发出指令，底盘进入空闲状态，停车
             break;
         default:
             car_stop();                // 发出指令，底盘进入空闲状态，停车
-            step = 6;
+            step = 8;
             break;
     }
 }
@@ -275,4 +274,38 @@ void remind_test(void)
     }
 
     remind_control();
+}
+
+// bfs路径规划测试（无实物，仅串口打印路径）
+// 放主函数while外
+void bfs_test(void)
+{
+    uint8_t x, y;
+
+    // 1. 初始化地图
+    bfs_init();
+
+    // 2. 设几个障碍（比如中间挡路）
+    bfs_set_obstacle(0, 1, 1);
+    bfs_set_obstacle(3, 3, 1);
+
+    // 3. 规划路径
+    printf("BFS: (0,0) -> (3,4)\r\n");
+    printf("obstacle: (0,1) (3,3)\r\n");
+
+    if (bfs_find_path(0, 0, 3, 4) == 1)
+    {
+        printf("found, len=%d\r\n", bfs_get_path_len());
+
+        // 4. 把整条路径打出来
+        for (uint8_t i = 0; i < bfs_get_path_len(); i++)
+        {
+            bfs_get_path_step(i, &x, &y);
+            printf("step %d -> (%d,%d)\r\n", i, x, y);
+        }
+    }
+    else
+    {
+        printf("no path\r\n");
+    }
 }

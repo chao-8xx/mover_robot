@@ -7,7 +7,7 @@
 #define SERVO_MAX_PULSE_US  2500
 #define SERVO_MID_PULSE_US  1500
 #define SERVO_MIN_ANGLE     0.0f
-#define SERVO_MAX_ANGLE     360.0f
+#define SERVO_MAX_ANGLE     270.0f
 
 // 舵机编号对应的 TIM1 通道
 static const uint32_t servo_channel[SERVO_COUNT] = {

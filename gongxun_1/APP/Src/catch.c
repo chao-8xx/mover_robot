@@ -1,24 +1,24 @@
 #include "catch.h"
 
 // 夹爪舵机角度定义
-#define CLAW_CATCH  35.0f      // 夹爪夹取角度
-#define CLAW_LOOSE  125.0f    // 夹爪松开角度
+#define CLAW_CATCH  20.0f    // 夹爪夹取角度
+#define CLAW_LOOSE  80.0f    // 夹爪松开角度
 
 // 转盘舵机角度定义
 #define ONE_LOCATION   10.0f   // 一号物料存放角度
-#define TWO_LOCATION   70.0f   // 二号物料存放角度
-#define THREE_LOCATION 130.0f  // 三号物料存放角度
+#define TWO_LOCATION   130.0f  // 二号物料存放角度
+#define THREE_LOCATION 250.0f  // 三号物料存放角度
 
 // 云台舵机角度定义
-#define HOLDER_PUT    10.0f    // 云台放置物料角度
-#define HOLDER_CATCH  130.0f   // 云台抓取中间物料角度
-#define HOLDER_LEFT   100.0f   // 云台抓取左侧物料角度
-#define HOLDER_RIGHT  160.0f   // 云台抓取右侧物料角度
+#define HOLDER_PUT    225.0f   // 云台放置物料角度
+#define HOLDER_CATCH  90.0f    // 云台抓取中间物料角度
+#define HOLDER_RIGHT  60.0f    // 云台抓取右侧物料角度
+#define HOLDER_LEFT   120.0f   // 云台抓取左侧物料角度
 
 // 丝杆控制夹爪高度变化(闭环步进电机)
 #define PULSE_PER_CIRCLE   3200     // 一圈的脉冲数
 #define MM_PER_CIRCLE      2        // 一圈升降的距离mm
-#define HIGH_PICK_CM     (-8.0f)    // 夹爪从最高点到拿起位置
+#define HIGH_PICK_CM     (-8.0f)    // 夹爪从最高点到拿起位置cm
 #define PICK_HIGH_CM     (8.0f)     // 夹爪从拿起位置到最高点
 #define PICK_PUT_CM      (-2.0f)    // 拿起到放置
 #define PUT_PICK_CM      (2.0f)     // 放置到拿起
@@ -26,28 +26,17 @@
 #define CATCH_PICK_CM    (4.0f)     // 抓取到拿起
 
 // 电机速度
-#define STEP_MOVE_SPEED     120     // 丝杆电机移动速度
+#define STEP_MOVE_SPEED     1200     // 丝杆电机移动速度
 
-// 夹爪当前模式：夹住/松开
-typedef enum {
-    CATCH,  // 夹住
-    LOOSE   // 松开
-} Claw_Mode;
-
-// 转盘当前模式：一号位/二号位/三号位
-typedef enum {
-    LOCATION_1,  // 一号位
-    LOCATION_2,  // 二号位
-    LOCATION_3   // 三号位
-} Turntable_Mode;
-
-Catch_Mode catch_mode = Free;   // 抓取机构状态机
-// static volatile Claw_Mode claw_mode = LOOSE;
-// static volatile Turntable_Mode turn_mode = LOCATION_1;
+Catch_Mode catch_mode = Free;           // 抓取机构状态机
+Claw_State claw_state = LOOSE;          // 夹爪当前状态
+Turntable_Pos turn_pos = LOCATION_1;    // 转盘当前位置
 
 // 升降非阻塞计时：预计完成时刻 + busy 标志
-static volatile uint8_t catch_busy = 0;
+static volatile uint8_t catch_busy = 0;     // 升降装置
+static volatile uint8_t stretch_busy = 0;   // 伸缩装置
 static volatile uint32_t catch_deadline = 0;
+static volatile uint32_t stretch_deadline = 0;
 
 // 舵机等无反馈动作的通用非阻塞计时
 static volatile uint8_t catch_servo_busy = 0;
@@ -67,6 +56,49 @@ void catch_init(void)
     while (catch_is_busy() && (HAL_GetTick() - t0 < 2000)) {
         HAL_Delay(1);
     }
+}
+
+// 抓取装置夹爪伸缩 正：伸出 负：缩回
+void catch_stretch(int16_t speed)
+{
+    int16_t define_speed = (int16_t)(-speed);
+
+    motor_set_speed(Motor_6,define_speed);
+}
+
+// 抓取装置夹爪伸缩一定距离 单位：cm
+// 正：伸出 负：缩回  电机顺时针伸出（pulse为负）
+void catch_stretch_pos(float delta_cm)
+{
+    int32_t pulse = 0;
+    int32_t mm = (int32_t)(delta_cm * 10);
+    uint32_t pulses;
+    float pulses_per_ms;
+
+    // 升降装置处于忙状态，不执行
+    if (stretch_busy) {
+        return;
+    }
+
+    // 判断正负 pulse为负：顺时针、伸出
+    if (mm >= 0) {
+        pulse = -(mm * PULSE_PER_CIRCLE / MM_PER_CIRCLE);
+    }
+    else {
+        pulse = (-mm) * PULSE_PER_CIRCLE / MM_PER_CIRCLE;
+    }
+    motor_set_speedPos(Motor_6,STEP_MOVE_SPEED,pulse);
+
+    // 根据脉冲数和电机速度估算完成时间，1ms 中断里用 catch_tick() 清除 busy
+    pulses = (pulse < 0) ? (uint32_t)(-pulse) : (uint32_t)pulse;
+    pulses_per_ms = (float)STEP_MOVE_SPEED * PULSE_PER_CIRCLE / 60000.0f;
+    if (pulses_per_ms < 0.01f) {
+        pulses_per_ms = 0.01f;
+    }
+    stretch_deadline = HAL_GetTick()
+                       + (uint32_t)((float)pulses / pulses_per_ms)
+                       + 200;   // 200ms 余量
+    stretch_busy = 1;
 }
 
 // 抓取装置夹爪升降 单位：cm
@@ -147,6 +179,11 @@ void catch_tick(void)
     // 升降计时
     if (catch_busy && (int32_t)(HAL_GetTick() - catch_deadline) >= 0) {
         catch_busy = 0;
+    }
+
+    // 伸缩计时
+    if (stretch_busy && (int32_t)(HAL_GetTick() - stretch_deadline) >= 0) {
+        stretch_busy = 0;
     }
 
     // 舵机/夹爪动作计时

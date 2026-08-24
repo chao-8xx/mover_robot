@@ -55,4 +55,7 @@ void Emm_V5_Origin_Interrupt(uint8_t addr); // 强制中断并退出回零
 // 复位串口2发送队列（串口错误后调用，避免队列状态卡死）
 void Emm_V5_Tx_Reset(void);
 
+// 返回串口2发送队列里还没发完的帧数（0 = 队列空闲）
+uint8_t Emm_V5_Tx_Count(void);
+
 #endif

@@ -2,7 +2,7 @@
 
 // ==================== 机械参数（按实际底盘修改） ====================
 // 轮径(cm) 和电机转一圈对应的脉冲数，决定“距离 -> 脉冲”的换算
-#define CHASSIS_WHEEL_DIAM_CM        6.5f       // 麦轮直径
+#define CHASSIS_WHEEL_DIAM_CM        9.0f       // 麦轮直径
 #define CHASSIS_MOTOR_PULSE_PER_REV  3200       // 多少脉冲一圈
 #define CHASSIS_CM_PER_PULSE         ((3.14159265f * CHASSIS_WHEEL_DIAM_CM) / CHASSIS_MOTOR_PULSE_PER_REV)  // cm/脉冲
 
@@ -13,7 +13,7 @@
 #define CHASSIS_YAW_MAX_OUT  300
 #define CHASSIS_YAW_THRESH   1.0f
 #define CHASSIS_YAW_SETTLE   50        // 50 个 10ms = 稳定 500ms 后才算转到位
-#define CHASSIS_MOVE_MARGIN_MS 500     // 位置移动结束的额外余量
+#define CHASSIS_MOVE_MARGIN_MS 2000     // 位置移动结束的额外余量
 
 // 底盘四台电机速度（保留，便于查看）
 int16_t vel[4] = {0};
@@ -33,6 +33,13 @@ static volatile float chassis_target_yaw = 0.0f;
 static volatile uint8_t chassis_settle = 0;     // 角度稳定帧数
 static volatile uint32_t chassis_deadline = 0;
 static uint8_t chassis_inited = 0;
+
+// 分时发送状态：一次移动 = 4 条电机命令
+static int32_t chassis_wheel_cmd[4];     // 位置模式=脉冲，速度模式=速度
+static uint8_t  chassis_send_mode = 0;   // 0=速度模式，1=位置模式
+static int16_t chassis_move_speed = 0;   // 位置模式使用
+static uint8_t chassis_send_index = 0;   // 下一个要发送的电机下标
+static uint8_t chassis_sending = 0;      // 1 = 还在逐条发送命令
 
 // float 绝对值
 static float my_absf(float data)
@@ -84,8 +91,11 @@ static void chassis_solve(void)
 
     for (int i = 0; i < 4; i++) {
         vel[i] = (int16_t)wheel[i];
-        motor_set_speed((Motor_Num)i, (int16_t)wheel[i]);
+        chassis_wheel_cmd[i] = wheel[i];
     }
+    chassis_send_mode = 0;     // 速度模式
+    chassis_send_index = 0;
+    chassis_sending = 1;
 }
 
 // 停车
@@ -127,7 +137,7 @@ void car_rotate_angle(float target_angle)
 }
 
 // 10ms 周期调用（放 TIM2 中断或主循环）：
-// 用偏航 PID 闭环转到目标角度，到位后调用 hwt101_yaw_reset() 复位偏航角
+// 用偏航 PID 闭环转到目标角度，到位后调用 hwt101_yaw_reset() 复位偏航角，用于转完后复位
 void car_rotate_ctrl(void)
 {
     // 未初始化则初始化
@@ -145,11 +155,11 @@ void car_rotate_ctrl(void)
         return;
     }
 
-    float err = chassis_target_yaw - my_yaw;   // 不归一化，直接比较
+    float err = chassis_target_yaw - now_yaw;   // 不归一化，直接比较
 
     if (err > CHASSIS_YAW_THRESH || err < -CHASSIS_YAW_THRESH) {
         chassis_settle = 0;
-        Positional_PID_Cal(&yaw_pid, chassis_target_yaw, my_yaw);
+        Positional_PID_Cal(&yaw_pid, chassis_target_yaw, now_yaw);
         car_rotate((int16_t)yaw_pid.output);
     }
     else {
@@ -189,7 +199,8 @@ static void car_move_xy(int16_t speed, float x_cm, float y_cm)
     w[2] =  py - px;
     w[3] = -py - px;
 
-    // 发给四个电机（位置模式），脉冲数限制在 int32 范围内
+    // 不立即发送：先存下 4 个轮子的脉冲数，
+    // 由 car_move_send_tick() 在 1ms 里分时逐条发送，避免驱动器丢帧
     for (int i = 0; i < 4; i++) {
         if (w[i] > 2147483647) {
             w[i] = 2147483647;
@@ -197,8 +208,12 @@ static void car_move_xy(int16_t speed, float x_cm, float y_cm)
         if (w[i] < -2147483647) {
             w[i] = -2147483647;
         }
-        motor_set_speedPos((Motor_Num)i, speed, (int32_t)w[i]);   // pulse 正负决定方向
+        chassis_wheel_cmd[i] = w[i];
     }
+    chassis_send_mode = 1;     // 位置模式
+    chassis_move_speed = speed;
+    chassis_send_index = 0;
+    chassis_sending = 1;
 
     // 按最长轴估算移动耗时，作为 busy 结束时间
     max_cm = my_absf(x_cm) > my_absf(y_cm) ? my_absf(x_cm) : my_absf(y_cm);
@@ -219,6 +234,35 @@ void car_run_distance(int16_t speed, float x_cm, float y_cm)
     car_move_xy(speed, x_cm, y_cm);
 }
 
+// 1ms 周期调用：每个周期只发一条电机命令，保证串口上有足够帧间隔
+void car_move_send_tick(void)
+{
+    if (!chassis_sending) {
+        return;
+    }
+
+    // 上一帧还没发完就等下一拍，保证串口上有真正的帧间隔
+    if (Emm_V5_Tx_Count() != 0) {
+        return;
+    }
+
+    if (chassis_send_index < 4) {
+        if (chassis_send_mode == 1) {
+            motor_set_speedPos((Motor_Num)chassis_send_index,
+                               chassis_move_speed,
+                               chassis_wheel_cmd[chassis_send_index]);
+        }
+        else {
+            motor_set_speed((Motor_Num)chassis_send_index,
+                            (int16_t)chassis_wheel_cmd[chassis_send_index]);
+        }
+        chassis_send_index++;
+    }
+    else {
+        chassis_sending = 0;   // 4 条都入队了，剩下的交给 car_run_tick 计时
+    }
+}
+
 // 1ms 周期调用（可放在 1ms 定时器里）：
 // 只负责移动的非阻塞计时，到时间后清除 busy，不做旋转控制
 void car_run_tick(void)
@@ -233,6 +277,9 @@ void car_run_tick(void)
             chassis_mode = CHASSIS_IDLE;
         }
     }
+
+    // 1ms周期负责发送指令
+    car_move_send_tick();
 }
 
 // 是否还在执行旋转/移动
