@@ -19,5 +19,7 @@ void chassis_run_test(void);
 void remind_test(void);
 // bfs路径规划测试（无实物，仅串口打印路径）
 void bfs_test(void);
+// 用BFS算法让车子到达目标坐标处
+void bfs_track_test(void);
 
 #endif //GONGXUN_1_TEST_H

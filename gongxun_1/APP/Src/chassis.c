@@ -12,7 +12,7 @@
 #define CHASSIS_YAW_MAX_I    50.0f
 #define CHASSIS_YAW_MAX_OUT  120
 #define CHASSIS_YAW_THRESH   1.2f
-#define CHASSIS_YAW_SETTLE   50        // 100 个 10ms = 稳定 1000ms 后才算转到位
+#define CHASSIS_YAW_SETTLE   50        // 50 个 10ms = 稳定 500ms 后才算转到位
 #define CHASSIS_MOVE_MARGIN_MS 1000     // 位置移动结束的额外余量
 
 // 底盘四台电机速度（保留，便于查看）

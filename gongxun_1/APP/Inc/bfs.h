@@ -5,6 +5,9 @@
 
 // 纯搜索路径，不做控制
 
+// 每格的间隔cm
+#define BLOCK_DISTANCE 50
+
 // 地图尺寸：5x5
 #define BFS_MAP_SIZE  5
 
