@@ -13,8 +13,8 @@ void maix_blob_test(void);
 void lidar_test(void);
 void hwt_test(void);
 
-// 底盘测试代码 放入10ms中断
-void chassis_move_test(void);
+// 底盘绕场一周测试
+void chassis_run_test(void);
 // 提示装置测试代码 5ms定时中断
 void remind_test(void);
 // bfs路径规划测试（无实物，仅串口打印路径）

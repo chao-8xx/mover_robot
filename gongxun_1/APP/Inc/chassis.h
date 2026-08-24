@@ -10,6 +10,13 @@ typedef struct {
     int16_t omega; 			// 旋转角速度（偏航PID输出）
 } Chassis_Data;
 
+// 底盘当前模式：空闲 / 旋转 / 移动
+typedef enum {
+    CHASSIS_IDLE,
+    CHASSIS_ROTATE,
+    CHASSIS_MOVE
+} Chassis_Mode;
+
 // ---- 函数声明 ---- //
 
 // 初始化底盘（含偏航 PID）
@@ -28,6 +35,9 @@ void car_rotate_angle(float target_angle);
 // 10ms 周期调用（放 TIM2）：旋转闭环控制，到位后复位偏航角
 void car_rotate_ctrl(void);
 
+// 小车旋转目标角度（不复位角度版）
+void car_rotate_yaw(float target_yaw);
+
 // 一次调用：小车沿 X/Y 轴走固定距离（cm），位置模式
 // x_cm > 0 向右，x_cm < 0 向左；y_cm > 0 向前，y_cm < 0 向后
 void car_run_distance(int16_t speed, float x_cm, float y_cm);
@@ -37,6 +47,9 @@ void car_run_tick(void);
 
 // 是否还在执行旋转/移动
 uint8_t car_is_busy(void);
+
+// 获取底盘状态
+Chassis_Mode car_get_state(void);
 
 // ---- 结构体和枚举声明 ---- //
 extern Chassis_Data my_chassis;

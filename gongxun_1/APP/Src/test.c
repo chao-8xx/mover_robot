@@ -116,8 +116,8 @@ void lidar_test(void) {
     printf("================================\r\n");
 }
 
-// 底盘测试代码 放入10ms中断
-void chassis_move_test(void)
+// 底盘绕场一周测试 10ms中断
+void chassis_run_test(void)
 {
     // 初始化部分 放入主函数
     // timer_init();
@@ -126,53 +126,82 @@ void chassis_move_test(void)
     // chassis_init();
     // HAL_Delay(100);
 
+    static uint16_t work_time = 250;
     static uint8_t step = 0;
-    static int16_t chassis_speed = 100;
-
-    if (car_is_busy()) {      // 空闲状态时，进入第2步
-        return;
-    }
+    int16_t speed = 120;
 
     switch (step)
     {
-        case 0:
-            car_run_distance(chassis_speed,40.0f,0.0f);    // 发出指令，底盘进入忙状态，向右平移40cm
-            step = 1;
+        case 0:   // 开始前等待
+            work_time--;
+            if (work_time <= 0) {
+                work_time = 250;
+                step = 1;
+            }
             break;
-        case 1:
-            car_run_distance(chassis_speed,-40.0f,0.0f);    // 发出指令，底盘进入忙状态，向左平移40cm
-            step = 2;
+
+        case 1:   // 直行200
+            if (!car_is_busy()) {
+                car_run_distance(speed, 0.0f, 200.0f);
+                step = 2;
+            }
             break;
-        case 2:
-            car_run_distance(chassis_speed,0.0f,40.0f);    // 发出指令，底盘进入忙状态，向前平移40cm
-            step = 3;
+        case 2:   // 旋转 -90°（必须持续调用）
+            if (car_get_state() != CHASSIS_MOVE) {
+                car_rotate_yaw(-90.0f);
+                if (!car_is_busy()) {
+                    step = 3;
+                }
+            }
             break;
-        case 3:
-            car_run_distance(chassis_speed,0.0f,-40.0f);    // 发出指令，底盘进入忙状态，向后平移40cm
-            step = 4;
+        case 3:   // 直行200
+            if (!car_is_busy()) {
+                car_run_distance(speed, 0.0f, 200.0f);
+                step = 4;
+            }
             break;
-        case 4:
-            car_run_distance(chassis_speed,40.0f,40.0f);    // 发出指令，底盘进入忙状态，向后平移40cm
-            step = 5;
+        case 4:   // 旋转 -180°
+            if (car_get_state() != CHASSIS_MOVE) {
+                car_rotate_yaw(-180.0f);
+                if (!car_is_busy()) {
+                    step = 5;
+                }
+            }
             break;
-        case 5:
-            car_run_distance(chassis_speed,-40.0f,-40.0f);    // 发出指令，底盘进入忙状态，向后平移40cm
-            step = 6;
+        case 5:   // 直行200
+            if (!car_is_busy()) {
+                car_run_distance(speed, 0.0f, 200.0f);
+                step = 6;
+            }
             break;
-        case 6:
-            car_run_distance(chassis_speed,40.0f,-40.0f);    // 发出指令，底盘进入忙状态，向后平移40cm
-            step = 7;
+        case 6:   // 旋转 -270°
+            if (car_get_state() != CHASSIS_MOVE) {
+                car_rotate_yaw(-270.0f);
+                if (!car_is_busy()) {
+                    step = 7;
+                }
+            }
             break;
-        case 7:
-            car_run_distance(chassis_speed,-40.0f,40.0f);    // 发出指令，底盘进入忙状态，向后平移40cm
-            step = 8;
+        case 7:   // 直行200
+            if (!car_is_busy()) {
+                car_run_distance(speed, 0.0f, 200.0f);
+                step = 8;
+            }
             break;
-        case 8:
-            car_stop();                // 发出指令，底盘进入空闲状态，停车
+        case 8:   // 转回 0°
+            if (car_get_state() != CHASSIS_MOVE) {
+                car_rotate_yaw(0.0f);
+                if (!car_is_busy()) {
+                    step = 9;
+                }
+            }
+            break;
+        case 9:
+            car_stop();
             break;
         default:
-            car_stop();                // 发出指令，底盘进入空闲状态，停车
-            step = 8;
+            car_stop();
+            step = 9;
             break;
     }
 }

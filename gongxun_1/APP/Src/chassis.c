@@ -7,26 +7,19 @@
 #define CHASSIS_CM_PER_PULSE         ((3.14159265f * CHASSIS_WHEEL_DIAM_CM) / CHASSIS_MOTOR_PULSE_PER_REV)  // cm/脉冲
 
 // 偏航 PID：输出是电机速度(RPM)，正负方向按实际转向调整
-#define CHASSIS_YAW_KP       0.7f
-#define CHASSIS_YAW_KD       0.1f
+#define CHASSIS_YAW_KP       1.7f
+#define CHASSIS_YAW_KD       0.2f
 #define CHASSIS_YAW_MAX_I    50.0f
-#define CHASSIS_YAW_MAX_OUT  300
-#define CHASSIS_YAW_THRESH   1.0f
-#define CHASSIS_YAW_SETTLE   50        // 50 个 10ms = 稳定 500ms 后才算转到位
-#define CHASSIS_MOVE_MARGIN_MS 2000     // 位置移动结束的额外余量
+#define CHASSIS_YAW_MAX_OUT  120
+#define CHASSIS_YAW_THRESH   1.2f
+#define CHASSIS_YAW_SETTLE   50        // 100 个 10ms = 稳定 1000ms 后才算转到位
+#define CHASSIS_MOVE_MARGIN_MS 1000     // 位置移动结束的额外余量
 
 // 底盘四台电机速度（保留，便于查看）
 int16_t vel[4] = {0};
 
 // 底盘运动状态
 Chassis_Data my_chassis;
-
-// 底盘当前模式：空闲 / 旋转 / 移动
-typedef enum {
-    CHASSIS_IDLE,
-    CHASSIS_ROTATE,
-    CHASSIS_MOVE
-} Chassis_Mode;
 
 static volatile Chassis_Mode chassis_mode = CHASSIS_IDLE;
 static volatile float chassis_target_yaw = 0.0f;
@@ -109,16 +102,11 @@ void car_stop(void)
 // 原地旋转
 void car_rotate(int16_t omega)
 {
-    if (chassis_mode != CHASSIS_IDLE) {
-        return;   // 底盘忙（旋转/移动中）时不接受新目标，避免互相覆盖
-    }
-
     chassis_rotate(omega);
     chassis_solve();
-    chassis_mode = CHASSIS_ROTATE;
 }
 
-// 一次调用：设置目标角度
+// 一次调用：设置目标角度（复位角度版）
 // 非阻塞：只设置目标，实际由 car_rotate_ctrl() 每 10ms 驱动闭环
 void car_rotate_angle(float target_angle)
 {
@@ -163,13 +151,48 @@ void car_rotate_ctrl(void)
         car_rotate((int16_t)yaw_pid.output);
     }
     else {
-        // 误差小：先停住，连续稳定 50 帧（500ms）才算到位
+        // 误差小：先停住，连续稳定 100 帧（1000ms）才算到位
         car_rotate(0);
         chassis_settle++;
         if (chassis_settle >= CHASSIS_YAW_SETTLE) {
             car_stop();
             hwt101_yaw_reset();         // 到位后把偏航角复位为 0
             chassis_target_yaw = 0.0f;  // 底盘目标角度也复位
+        }
+    }
+}
+
+// 小车旋转目标角度（不复位角度版）
+void car_rotate_yaw(float target_yaw)
+{
+    // 未初始化则初始化
+    if (!chassis_inited) {
+        chassis_init();
+    }
+
+    // 陀螺仪没数据就不执行
+    if (!hwt101_data_valid()) {
+        return;
+    }
+
+    // 底盘状态为旋转
+    chassis_mode = CHASSIS_ROTATE;
+
+    float err = target_yaw - my_yaw;   // 不归一化，直接比较
+
+    if (err > CHASSIS_YAW_THRESH || err < -CHASSIS_YAW_THRESH) {
+        chassis_settle = 0;     // 等待时间清零
+        Positional_PID_Cal(&yaw_pid, target_yaw, my_yaw);
+        car_rotate((int16_t)(yaw_pid.output));
+    }
+    else {
+        // 误差小：先停住，连续稳定 100 帧（1000ms）才算到位
+        // car_rotate(0);
+        car_stop();
+        chassis_settle++;
+        if (chassis_settle >= CHASSIS_YAW_SETTLE) {
+            car_stop();
+            chassis_mode = CHASSIS_IDLE;    // 底盘空闲
         }
     }
 }
@@ -231,6 +254,10 @@ static void car_move_xy(int16_t speed, float x_cm, float y_cm)
 // 小车沿 X/Y 轴走固定距离（cm）
 void car_run_distance(int16_t speed, float x_cm, float y_cm)
 {
+    if (chassis_mode != CHASSIS_IDLE) {
+        return;   // 底盘忙时不接受新移动指令
+    }
+
     car_move_xy(speed, x_cm, y_cm);
 }
 
@@ -246,17 +273,31 @@ void car_move_send_tick(void)
         return;
     }
 
+    static uint16_t move_time_gap = 0;
+
     if (chassis_send_index < 4) {
         if (chassis_send_mode == 1) {
-            motor_set_speedPos((Motor_Num)chassis_send_index,
+            // 位置模式下每条指令隔2ms
+            move_time_gap ++;
+            if (move_time_gap >= 2) {
+                move_time_gap = 0;
+                motor_set_speedPos((Motor_Num)chassis_send_index,
                                chassis_move_speed,
                                chassis_wheel_cmd[chassis_send_index]);
+                chassis_send_index++;
+            }
+
         }
         else {
-            motor_set_speed((Motor_Num)chassis_send_index,
+            // 速度模式下每条指令隔3ms
+            move_time_gap ++;
+            if (move_time_gap >= 3) {
+                move_time_gap = 0;
+                motor_set_speed((Motor_Num)chassis_send_index,
                             (int16_t)chassis_wheel_cmd[chassis_send_index]);
+                chassis_send_index++;
+            }
         }
-        chassis_send_index++;
     }
     else {
         chassis_sending = 0;   // 4 条都入队了，剩下的交给 car_run_tick 计时
@@ -286,4 +327,10 @@ void car_run_tick(void)
 uint8_t car_is_busy(void)
 {
     return chassis_mode != CHASSIS_IDLE;
+}
+
+// 获取底盘状态
+Chassis_Mode car_get_state(void)
+{
+    return chassis_mode;
 }
