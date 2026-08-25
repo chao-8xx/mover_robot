@@ -46,8 +46,13 @@ void step_motor_init()
         uint8_t addr = step_motor_get_addr(motor_num);
 
         Emm_V5_Reset_Clog_Pro(addr);              // 解除堵转保护
+        HAL_Delay(10);
         Emm_V5_Modify_Ctrl_Mode(addr, false, 2);  // 闭环控制模式，不保存
+        HAL_Delay(10);
         Emm_V5_En_Control(addr, true, false);     // 使能电机
+        HAL_Delay(10);
+        motor_set_speed(addr,0);    // 电机速度设为0
+        HAL_Delay(10);
     }
 }
 

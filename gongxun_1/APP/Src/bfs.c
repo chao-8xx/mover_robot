@@ -4,15 +4,14 @@
 // 5x5 地图：0 = 可通行，1 = 障碍物
 static uint8_t bfs_map[BFS_MAP_SIZE][BFS_MAP_SIZE];
 
-// BFS 访问标记：1 = 已经搜索过
-static uint8_t bfs_visited[BFS_MAP_SIZE][BFS_MAP_SIZE];
-
 // 父节点记录：记录每个格子是从哪个格子走过来的，用于最后回溯路径
 static int8_t bfs_prev_x[BFS_MAP_SIZE][BFS_MAP_SIZE];
 static int8_t bfs_prev_y[BFS_MAP_SIZE][BFS_MAP_SIZE];
 
-// BFS 搜索队列：最多 25 个格子
-static BFS_Point bfs_queue[BFS_MAP_SIZE * BFS_MAP_SIZE];
+// 加权搜索：到每个格子的最小代价，以及进入该格子时的方向
+#define BFS_DIR_NONE 0xFF
+static uint16_t bfs_cost[BFS_MAP_SIZE][BFS_MAP_SIZE];
+static uint8_t  bfs_dir_in[BFS_MAP_SIZE][BFS_MAP_SIZE];
 
 // 找到的路径（起点 -> 终点）
 static BFS_Point bfs_path[BFS_MAP_SIZE * BFS_MAP_SIZE];
@@ -52,19 +51,15 @@ uint8_t bfs_is_obstacle(uint8_t x, uint8_t y)
     return 1;
 }
 
-// BFS 搜索主函数：
-// 从起点开始逐层向外扩展，第一次到达终点的那条路就是最短路径
+// 带转弯代价的最短路径搜索
 uint8_t bfs_find_path(uint8_t sx, uint8_t sy, uint8_t tx, uint8_t ty)
 {
-    uint8_t q_head = 0;      // 队列头：下一个要扩展的格子
-    uint8_t q_tail = 0;      // 队列尾：新格子入队的位置
     uint8_t i;
     uint8_t path_index;
-    int8_t nx, ny;           // 新扩展出来的邻居坐标
-    BFS_Point cur;           // 当前正在扩展的格子
-    BFS_Point tmp;
+    int8_t nx, ny;           // 邻居坐标（可能越界，用有符号类型）
+    BFS_Point tmp;           // 反转路径时的临时交换变量
 
-    // 起点或终点越界/是障碍 -> 直接失败
+    // 起点或终点越界，或者本身是障碍物 -> 无路可走
     if (!bfs_in_map((int8_t)sx, (int8_t)sy) ||
         !bfs_in_map((int8_t)tx, (int8_t)ty)) {
         return 0;
@@ -81,94 +76,118 @@ uint8_t bfs_find_path(uint8_t sx, uint8_t sy, uint8_t tx, uint8_t ty)
         return 1;
     }
 
-    // 清空访问标记和父节点记录
-    memset(bfs_visited, 0, sizeof(bfs_visited));
-    memset(bfs_prev_x, -1, sizeof(bfs_prev_x));
-    memset(bfs_prev_y, -1, sizeof(bfs_prev_y));
+    // 遍历所有格子：初始化代价、进入方向、父节点
+    for (uint8_t yy = 0; yy < BFS_MAP_SIZE; yy++) {
+        for (uint8_t xx = 0; xx < BFS_MAP_SIZE; xx++) {
+            bfs_cost[yy][xx] = 0xFFFF;          // 到达该格子的最小代价
+            bfs_dir_in[yy][xx] = BFS_DIR_NONE;  // 从哪个方向进入该格子（0右/1左/2上/3下），起点无方向
+            bfs_prev_x[yy][xx] = -1;            // 该格子的父节点坐标，用于最后回溯
+            bfs_prev_y[yy][xx] = -1;
+        }
+    }
+    bfs_cost[sy][sx] = 0;
 
-    // 起点入队并标记访问
-    bfs_queue[q_tail].x = sx;
-    bfs_queue[q_tail].y = sy;
-    q_tail++;
-    bfs_visited[sy][sx] = 1;
+    // 反复松弛：重复更新邻居代价，直到代价不再变化
+    for (int iter = 0; iter < BFS_MAP_SIZE * BFS_MAP_SIZE * 4; iter++) {
+        uint8_t changed = 0;
 
-    while (q_head < q_tail) {
-        // 出队（读队头）：每次从 q_head 位置取最前面的格子，然后 head 后移
-        cur = bfs_queue[q_head];
-        q_head++;
-
-        // 尝试上下左右四个方向
-        for (i = 0; i < 4; i++) {
-            // 搜索顺序：右、左、上、下
-            nx = (int8_t)(cur.x + bfs_dx[i]);
-            ny = (int8_t)(cur.y + bfs_dy[i]);
-
-            // 越界、访问过、是障碍 -> 跳过
-            if (!bfs_in_map(nx, ny)) {
-                continue;
-            }
-            if (bfs_visited[ny][nx]) {
-                continue;
-            }
-            if (bfs_is_obstacle((uint8_t)nx, (uint8_t)ny)) {
-                continue;
-            }
-
-            // 标记访问并记录“我是从哪个格子来的”
-            bfs_visited[ny][nx] = 1;
-            bfs_prev_x[ny][nx] = (int8_t)cur.x;
-            bfs_prev_y[ny][nx] = (int8_t)cur.y;
-
-            // 到达终点：回溯父节点得到完整路径
-            if ((uint8_t)nx == tx && (uint8_t)ny == ty) {
-                // 从终点倒推回起点，先存在 bfs_path 里（终点 -> 起点）
-                path_index = 0;
-                bfs_path[path_index].x = (uint8_t)nx;
-                bfs_path[path_index].y = (uint8_t)ny;
-                path_index++;
-
-                nx = bfs_prev_x[ty][tx];
-                ny = bfs_prev_y[ty][tx];
-
-                while (!(nx == (int8_t)sx && ny == (int8_t)sy) &&
-                       path_index < BFS_MAP_SIZE * BFS_MAP_SIZE) {
-                    bfs_path[path_index].x = (uint8_t)nx;
-                    bfs_path[path_index].y = (uint8_t)ny;
-                    path_index++;
-
-                    // 保存当前坐标再往前倒推一层
-                    uint8_t px = (uint8_t)nx;
-                    uint8_t py = (uint8_t)ny;
-                    nx = bfs_prev_x[py][px];
-                    ny = bfs_prev_y[py][px];
+        // 遍历每一行
+        for (uint8_t yy = 0; yy < BFS_MAP_SIZE; yy++) {
+            // 遍历每一列
+            for (uint8_t xx = 0; xx < BFS_MAP_SIZE; xx++) {
+                // 这个格子还没有可达代价，跳过
+                if (bfs_cost[yy][xx] == 0xFFFF) {
+                    continue;
                 }
 
-                // 把起点也加进去
-                bfs_path[path_index].x = sx;
-                bfs_path[path_index].y = sy;
-                path_index++;
+                // 尝试上下左右四个方向
+                for (i = 0; i < 4; i++) {
+                    // 邻居坐标：右、左、上、下
+                    nx = (int8_t)(xx + bfs_dx[i]);
+                    ny = (int8_t)(yy + bfs_dy[i]);
 
-                // 现在数组里是“终点 -> 起点”，反转成“起点 -> 终点”
-                for (i = 0; i < path_index / 2; i++) {
-                    tmp = bfs_path[i];
-                    bfs_path[i] = bfs_path[path_index - 1 - i];
-                    bfs_path[path_index - 1 - i] = tmp;
+                    // 越界或障碍物不可走
+                    if (!bfs_in_map(nx, ny)) {
+                        continue;
+                    }
+                    if (bfs_is_obstacle((uint8_t)nx, (uint8_t)ny)) {
+                        continue;
+                    }
+
+                    // 走一步的基本代价
+                    uint16_t nd = (uint16_t)(bfs_cost[yy][xx] + 1);
+
+                    // 如果进入 (yy,xx) 的方向和这次走向 (ny,nx) 的方向不同，
+                    // 说明在这里转了一次弯，额外加 BFS_TURN_COST
+                    if (bfs_dir_in[yy][xx] != BFS_DIR_NONE &&
+                        bfs_dir_in[yy][xx] != i) {
+                        nd += BFS_TURN_COST;
+                    }
+
+                    // 只有新代价更小才更新，保证 bfs_cost 一直是最小代价
+                    if (nd < bfs_cost[ny][nx]) {
+                        bfs_cost[ny][nx] = nd;
+                        bfs_dir_in[ny][nx] = i;
+                        bfs_prev_x[ny][nx] = (int8_t)xx;
+                        bfs_prev_y[ny][nx] = (int8_t)yy;
+                        changed = 1;
+                    }
                 }
-
-                bfs_path_len = path_index;
-                return 1;
             }
+        }
 
-            // 还没到终点：邻居入队，等下一层扩展  先入队的点先搜
-            bfs_queue[q_tail].x = (uint8_t)nx;
-            bfs_queue[q_tail].y = (uint8_t)ny;
-            q_tail++;   // 入队永远发生在队尾（q_tail）
+        if (!changed) {
+            break;   // 这一轮没有任何更新，代价已收敛
         }
     }
 
-    // 队列搜完还没到终点，说明被障碍挡住了
-    bfs_path_len = 0;
-    return 0;
+    // 终点代价还是无穷大 -> 被障碍挡死，无路可走
+    if (bfs_cost[ty][tx] == 0xFFFF) {
+        bfs_path_len = 0;
+        return 0;
+    }
+
+    // ============ 回溯路径 ============
+    // 从终点开始，不断找“我是从哪个格子来的”，一路倒推回起点。
+    // 先存成“终点 -> 起点”，最后再反转。
+    path_index = 0;
+    bfs_path[path_index].x = tx;
+    bfs_path[path_index].y = ty;
+    path_index++;
+
+    // 先取终点的父节点
+    nx = bfs_prev_x[ty][tx];
+    ny = bfs_prev_y[ty][tx];
+
+    // 一路倒推，直到回到起点
+    while (!(nx == (int8_t)sx && ny == (int8_t)sy) &&
+           path_index < BFS_MAP_SIZE * BFS_MAP_SIZE) {
+        bfs_path[path_index].x = (uint8_t)nx;
+        bfs_path[path_index].y = (uint8_t)ny;
+        path_index++;
+
+        // 保存当前坐标，再查当前坐标的父节点，继续往上倒推
+        uint8_t px = (uint8_t)nx;
+        uint8_t py = (uint8_t)ny;
+        nx = bfs_prev_x[py][px];
+        ny = bfs_prev_y[py][px];
+    }
+
+    // 把起点也加进去
+    bfs_path[path_index].x = sx;
+    bfs_path[path_index].y = sy;
+    path_index++;
+
+    // 反转数组，变成“起点 -> 终点”的行走顺序
+    for (i = 0; i < path_index / 2; i++) {
+        tmp = bfs_path[i];
+        bfs_path[i] = bfs_path[path_index - 1 - i];
+        bfs_path[path_index - 1 - i] = tmp;
+    }
+
+    // 记录路径长度（包含起点和终点）
+    bfs_path_len = path_index;
+    return 1;
 }
 
 // 获取路径长度

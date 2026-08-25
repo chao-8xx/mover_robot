@@ -5,11 +5,15 @@
 
 // 纯搜索路径，不做控制
 
-// 每格的间隔cm
-#define BLOCK_DISTANCE 50
+// 每格间隔cm
+#define BLOCK_DISTANCE  50.0f
 
 // 地图尺寸：5x5
 #define BFS_MAP_SIZE  5
+
+// 转弯代价：每转一次弯额外增加的代价
+// 0 = 和纯BFS一样只看步数；越大越优先走少转弯的路径
+#define BFS_TURN_COST 2
 
 // 地图格子状态
 #define BFS_FREE      0    // 可通行
