@@ -17,6 +17,12 @@ void openmv_qr_test(void)
 
     while (1)
     {
+        // 本测试是阻塞循环，必须在这里继续处理USART1 DMA中的新字节。
+        if (cam_rx_flag)
+        {
+            cam_rx_flag = 0;
+            cam_rx_handle();
+        }
         openmv_qr_task();
 
         if (key_getlongpress() == 1)
@@ -74,6 +80,7 @@ void maix_blob_test(void)
 {
     uint8_t started = 0;
     maix_vision_t vision;
+    maix_result_t result;
 
     while (1)
     {
@@ -85,11 +92,26 @@ void maix_blob_test(void)
             started = 1;
         }
 
+        // 本测试是阻塞循环，不能依赖main()中的摄像头接收处理。
+        if (cam_rx_flag)
+        {
+            cam_rx_flag = 0;
+            cam_rx_handle();
+        }
+        maix_result_task();
+
         if (maix_get_result(&vision))
         {
-            printf("Maix result: cmd=%02X target=%02X ok=%d dx=%d dy=%d tick=%lu\r\n",
-                   vision.cmd, vision.target, vision.ok,
+            printf("Maix result: cmd=%02X target=%02X frame=%u ok=%d dx=%d dy=%d tick=%lu\r\n",
+                   vision.cmd, vision.target, vision.frame_id, vision.ok,
                    vision.dx, vision.dy, vision.tick);
+        }
+
+        if (maix_get_filtered_result(&result))
+        {
+            printf("Maix filter: frame=%u samples=%u ok=%u valid=%u stable=%u dx=%d dy=%d\r\n",
+                   result.frame_id, result.sample_count, result.valid_count,
+                   result.valid, result.stable, result.dx, result.dy);
         }
 
         if (key_getlongpress() == 1)

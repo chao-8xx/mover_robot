@@ -1,13 +1,32 @@
-"""物料识别参数的默认值、校验和单套 JSON 持久化。"""
+"""三任务视觉参数的默认值、校验和单套 JSON 持久化。
+
+坐标契约：本文件保存的 ROI、中心点和面积范围一律属于 320x240 原图；
+RUN_PROCESS_WIDTH/HEIGHT 只是运行时优化尺寸，不能反向写入用户参数。
+"""
 
 import copy
 import json
 import os
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 3
 IMAGE_WIDTH = 320
 IMAGE_HEIGHT = 240
+
+# 调参和参数存储始终使用 320x240；RUN 只在内部按此尺寸处理。
+RUN_PROCESS_WIDTH = 240
+RUN_PROCESS_HEIGHT = 180
+
+MORPH_NONE = "NONE"
+MORPH_OPEN_ONLY = "OPEN_ONLY"
+MORPH_CLOSE_ONLY = "CLOSE_ONLY"
+MORPH_OPEN_CLOSE = "OPEN_CLOSE"
+VALID_MORPH_MODES = (
+    MORPH_NONE,
+    MORPH_OPEN_ONLY,
+    MORPH_CLOSE_ONLY,
+    MORPH_OPEN_CLOSE,
+)
 
 COLOR_ORDER = ("red", "yellow", "blue", "green", "black", "light_blue")
 COLOR_LABELS = {
@@ -30,15 +49,20 @@ COLOR_NUMBERS = {
 
 DEFAULT_CONFIG = {
     "schema_version": SCHEMA_VERSION,
+    # mode 和 target_color 决定每帧只使用哪一组阈值，不同时检测六种颜色。
     "mode": "LAB",
     "target_color": "red",
+    # 当前真机性能基线使用 OPEN_ONLY；仍保留另外三档供现场对比。
+    "morph_mode": MORPH_OPEN_ONLY,
+    # ROI 坐标相对于 320x240 原图。
     "roi": {"x": 0, "y": 0, "w": IMAGE_WIDTH, "h": IMAGE_HEIGHT},
-    # x/y 是 ROI 内的相对坐标。custom=False 表示使用 ROI 几何中心。
+    # center.x/y 是 ROI 内相对坐标；custom=False 表示使用 ROI 几何中心。
     "center": {
         "x": IMAGE_WIDTH // 2,
         "y": IMAGE_HEIGHT // 2,
         "custom": False,
     },
+    # 面积范围同样按 320x240 等效面积保存，RUN 内部会自动按像素比例换算。
     "blob": {"min_area": 300, "max_area": 60000},
     "thresholds": {
         "HSV": {
@@ -59,6 +83,27 @@ DEFAULT_CONFIG = {
             "light_blue": {"lower": [80, 90, 70], "upper": [255, 150, 135]},
         },
     },
+    # 任务二固定使用完整320x240；中心仍可独立标定，不能与任务一共用。
+    "ring": {
+        "target_number": 1,
+        "roi": {"x": 0, "y": 0, "w": IMAGE_WIDTH, "h": IMAGE_HEIGHT},
+        "center": {
+            "x": IMAGE_WIDTH // 2,
+            "y": IMAGE_HEIGHT // 2,
+            "custom": False,
+        },
+        # 灰度值不高于该值的像素作为黑色候选。
+        "black_v_max": 85,
+        # 普通页面只调节最终圆环组的外径范围，单位为320x240原图像素。
+        "min_diameter": 24,
+        "max_diameter": 220,
+        # 以下为同心候选内部默认值，后续有真机样本后再决定是否开放高级页面。
+        "min_contour_area": 45,
+        "max_contour_area": 50000,
+        "min_circularity": 0.20,
+        "min_layers": 3,
+        "center_tolerance": 8,
+    },
 }
 
 
@@ -69,6 +114,14 @@ def clone_config(config):
 def _clamp(value, low, high):
     try:
         value = int(value)
+    except (TypeError, ValueError):
+        value = low
+    return max(low, min(high, value))
+
+
+def _clamp_float(value, low, high):
+    try:
+        value = float(value)
     except (TypeError, ValueError):
         value = low
     return max(low, min(high, value))
@@ -108,6 +161,10 @@ def validate_config(value):
     target = source.get("target_color", result["target_color"])
     if target in COLOR_ORDER:
         result["target_color"] = target
+
+    morph_mode = str(source.get("morph_mode", result["morph_mode"])).upper()
+    if morph_mode in VALID_MORPH_MODES:
+        result["morph_mode"] = morph_mode
 
     roi_source = source.get("roi", {})
     if not isinstance(roi_source, dict):
@@ -151,6 +208,96 @@ def validate_config(value):
             result["thresholds"][threshold_mode][color_key] = _validated_threshold(
                 threshold_mode, mode_source.get(color_key), fallback
             )
+
+    ring_source = source.get("ring", {})
+    if not isinstance(ring_source, dict):
+        ring_source = {}
+    ring_result = result["ring"]
+    ring_result["target_number"] = _clamp(
+        ring_source.get("target_number", ring_result["target_number"]), 1, 3
+    )
+
+    # 三个圆环位置必须同时进入任务二画面，因此任务二固定处理完整320x240。
+    # 仍读取旧ROI的原点，只用于把旧版自定义中心迁移为全图坐标；保存时
+    # 一律写回全画面，避免隐藏ROI页面后继续受到旧JSON裁剪参数影响。
+    ring_roi_source = ring_source.get("roi", {})
+    if not isinstance(ring_roi_source, dict):
+        ring_roi_source = {}
+    old_ring_w = _clamp(
+        ring_roi_source.get("w", IMAGE_WIDTH), 20, IMAGE_WIDTH
+    )
+    old_ring_h = _clamp(
+        ring_roi_source.get("h", IMAGE_HEIGHT), 20, IMAGE_HEIGHT
+    )
+    old_ring_x = _clamp(
+        ring_roi_source.get("x", 0), 0, IMAGE_WIDTH - old_ring_w
+    )
+    old_ring_y = _clamp(
+        ring_roi_source.get("y", 0), 0, IMAGE_HEIGHT - old_ring_h
+    )
+    ring_result["roi"] = {
+        "x": 0, "y": 0, "w": IMAGE_WIDTH, "h": IMAGE_HEIGHT
+    }
+
+    ring_center_source = ring_source.get("center", {})
+    if not isinstance(ring_center_source, dict):
+        ring_center_source = {}
+    center_custom = bool(ring_center_source.get("custom", False))
+    ring_result["center"] = {
+        "x": _clamp(
+            old_ring_x + _clamp(
+                ring_center_source.get("x", old_ring_w // 2), 0, old_ring_w - 1
+            ),
+            0,
+            IMAGE_WIDTH - 1,
+        ),
+        "y": _clamp(
+            old_ring_y + _clamp(
+                ring_center_source.get("y", old_ring_h // 2), 0, old_ring_h - 1
+            ),
+            0,
+            IMAGE_HEIGHT - 1,
+        ),
+        "custom": center_custom,
+    }
+    if not ring_result["center"]["custom"]:
+        ring_result["center"]["x"] = IMAGE_WIDTH // 2
+        ring_result["center"]["y"] = IMAGE_HEIGHT // 2
+
+    ring_result["black_v_max"] = _clamp(
+        ring_source.get("black_v_max", ring_result["black_v_max"]), 0, 255
+    )
+    ring_min_diameter = _clamp(
+        ring_source.get("min_diameter", ring_result["min_diameter"]), 8, IMAGE_WIDTH
+    )
+    ring_max_diameter = _clamp(
+        ring_source.get("max_diameter", ring_result["max_diameter"]),
+        ring_min_diameter,
+        IMAGE_WIDTH,
+    )
+    ring_result["min_diameter"] = ring_min_diameter
+    ring_result["max_diameter"] = ring_max_diameter
+    ring_result["min_contour_area"] = _clamp(
+        ring_source.get("min_contour_area", ring_result["min_contour_area"]),
+        5,
+        IMAGE_WIDTH * IMAGE_HEIGHT,
+    )
+    ring_result["max_contour_area"] = _clamp(
+        ring_source.get("max_contour_area", ring_result["max_contour_area"]),
+        ring_result["min_contour_area"],
+        IMAGE_WIDTH * IMAGE_HEIGHT,
+    )
+    ring_result["min_circularity"] = _clamp_float(
+        ring_source.get("min_circularity", ring_result["min_circularity"]),
+        0.0,
+        1.0,
+    )
+    ring_result["min_layers"] = _clamp(
+        ring_source.get("min_layers", ring_result["min_layers"]), 2, 12
+    )
+    ring_result["center_tolerance"] = _clamp(
+        ring_source.get("center_tolerance", ring_result["center_tolerance"]), 2, 40
+    )
 
     result["schema_version"] = SCHEMA_VERSION
     return result

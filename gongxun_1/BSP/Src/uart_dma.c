@@ -4,36 +4,25 @@
 // UART 串口设备初始化
 void uart_init(void)
 {
-    openmv_uart_init(&huart1);
-    // Maix 后续改到串口1，目前串口3给 HWT101 陀螺仪用
-    // maix_uart_init(&huart3);
+    cam_init(&huart1);
     hwt101_init(&huart3);
     lidar_init(&huart4);
     hmi_init(&huart5);
 }
 
-// 普通中断接收完成
-void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
-{
-    if (huart->Instance == USART1) {
-        openmv_uart_rx_callback(huart);
-    }
-
-}
-
 // DMA空闲接收事件
 void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
 {
-    // // OpenMV 用 USART1
-    // if (huart->Instance == USART1)
-    // {
-    //     openmv_uart_rx_callback(huart);
-    // }
+    // OpenMV与Maix共用USART1；这里只转发DMA/IDLE事件。
+    if (huart->Instance == USART1)
+    {
+        cam_rx_callback(huart,Size);
+    }
 
     // HWT101 陀螺仪用 USART3
     if (huart->Instance == USART3)
     {
-        hwt101_rx_callback(huart, Size);
+        hwt101_rx_callback(huart,Size);
     }
     // // LiDAR 用 UART4
     // else if (huart->Instance == UART4)
@@ -52,17 +41,12 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 {
     if (huart->Instance == USART1)
     {
-        openmv_uart_error_callback(huart);
+        cam_error_callback(huart);
     }
     else if (huart->Instance == USART3)
     {
         hwt101_error_callback(huart);
     }
-    // // LiDAR的错误处理
-    // if (huart->Instance == UART4)
-    // {
-    //     // openmv_uart_error_callback(huart);
-    // }
 }
 
 

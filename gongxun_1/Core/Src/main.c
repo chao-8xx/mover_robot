@@ -111,7 +111,7 @@ int main(void)
 
   // HAL_Delay(1000);
 
-  // lidar_start();
+  lidar_start();
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -120,10 +120,18 @@ int main(void)
   while (1)
   {
 
-    hwt_test();
+    // hwt_test();
+
 
     // key_handle();     // 按键处理
-    // lidar_process();  // 激光雷达处理
+
+    if (cam_rx_flag) {
+      cam_rx_flag = 0;  // 先清除标志位
+      cam_rx_handle();
+    }
+    maix_result_task();  // 维护5帧VALID/STABLE 并处理视觉数据超时
+
+    lidar_process();  // 激光雷达处理
 
 
     // openmv_qr_task();
