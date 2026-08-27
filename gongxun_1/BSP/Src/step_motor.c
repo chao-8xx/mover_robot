@@ -1,6 +1,6 @@
 #include "step_motor.h"
 
-#define MAX_SPEED 1500
+#define MAX_SPEED 3000
 
 // 电机当前速度
 int16_t motor1_speed = 0;

@@ -105,7 +105,7 @@ int main(void)
   MX_TIM2_Init();
   MX_TIM4_Init();
   /* USER CODE BEGIN 2 */
-  HAL_Delay(1500);
+  HAL_Delay(1000);
 
 
   /* USER CODE END 2 */
@@ -115,7 +115,9 @@ int main(void)
 
   while (1)
   {
-    // key_handle();     // 按键处理
+
+    // hmi_SetValue("yaw",(int)(my_yaw * 100.0f));
+
     // lidar_process();  // 激光雷达处理
 
     // openmv_qr_task();

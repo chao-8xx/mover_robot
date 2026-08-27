@@ -24,7 +24,6 @@
 #include "usbd_cdc_if.h"
 
 
-
 #include "fun.h"
 #include "timer.h"
 #include "uart_dma.h"
@@ -44,10 +43,12 @@
 #include "bfs.h"        // BFS广度优先搜索算法
 #include "chassis.h"    // 底盘控制
 #include "catch.h"      // 抓取装置
-#include "remind.h"     // 提醒装置（ws2812、蜂鸣器、LED）
+#include "remind.h"     // 提示装置（ws2812、蜂鸣器、LED）
 #include "hmi_app.h"    // hmi 应用层函数
 #include "test.h"       // 测试代码
 
+
+#include "system.h"     // 车辆系统
 
 
 #endif //GONGXUN_1_HEADFILE_H

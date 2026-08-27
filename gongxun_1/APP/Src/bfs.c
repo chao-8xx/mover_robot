@@ -52,10 +52,11 @@ uint8_t bfs_is_obstacle(uint8_t x, uint8_t y)
 }
 
 // 带转弯代价的最短路径搜索
+// 注意：实际是带转弯代价的加权最短路径（Dijkstra算法），保留bfs名字是为了兼容旧调用
 uint8_t bfs_find_path(uint8_t sx, uint8_t sy, uint8_t tx, uint8_t ty)
 {
     uint8_t i;
-    uint8_t path_index;
+    uint8_t path_index = 0;
     int8_t nx, ny;           // 邻居坐标（可能越界，用有符号类型）
     BFS_Point tmp;           // 反转路径时的临时交换变量
 

@@ -183,7 +183,7 @@ void car_rotate_yaw(float target_yaw)
     if (err > CHASSIS_YAW_THRESH || err < -CHASSIS_YAW_THRESH) {
         chassis_settle = 0;     // 等待时间清零
         Positional_PID_Cal(&yaw_pid, target_yaw, my_yaw);
-        car_rotate((int16_t)(yaw_pid.output));
+        car_rotate((int16_t)(-yaw_pid.output));
     }
     else {
         // 误差小：先停住，连续稳定 100 帧（1000ms）才算到位

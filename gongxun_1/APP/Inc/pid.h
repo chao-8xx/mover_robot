@@ -24,6 +24,7 @@ void Positional_PID_Cal(PID *pid,float set_value, float get_value);
 void PID_Reset(PID *pid);
 
 extern PID yaw_pid;     // 偏航角PID，用于转向
+extern PID follow_pid;	// 车子定位校准控制pid，用于麦轮和物料y坐标闭环
 extern PID x_pid;		// 物料x坐标PID，用于麦轮和物料x坐标闭环
 extern PID y_pid;		// 物料y坐标PID，用于直线模组伸缩于物料y坐标闭环
 

@@ -8,6 +8,9 @@
 
 #define HMI_END_CMD_LEN     3       // 串口屏指令结束符 连续三个0xFF
 
+extern uint8_t hmi_rxbuffer[HMI_RX_SIZE];   // hmi 接收缓冲区
+extern char hmi_txbuffer[HMI_TX_SIZE];   // hmi 发送缓冲区
+
 // 屏幕触摸事件结构体
 typedef struct {
     uint8_t page_id;        // 触摸发生在哪一页

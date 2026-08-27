@@ -20,9 +20,9 @@ void Incremental_PID_Cal(PID *pid, float set_value,float get_value)
 		pid->lastError = pid->error;	           											// 保存上一次偏差
 
 		if (pid->output > pid->maxOutput)
-					pid->output = pid->maxOutput;                                           // 输出限幅
-			else if (pid->output < pid->minOutput)
-					pid->output = pid->minOutput;													//输出限幅
+			pid->output = pid->maxOutput;                                           // 输出限幅
+		else if (pid->output < pid->minOutput)
+			pid->output = pid->minOutput;													//输出限幅
 
 }
 
@@ -35,7 +35,7 @@ void Positional_PID_Init (PID *pid, float p, float i, float d, float maxI,float 
     pid->kd = d;
     pid->maxIntegral = maxI;
     pid->maxOutput = maxOutput;
-		pid->minOutput = minOutput;
+	pid->minOutput = minOutput;
 }
 
 // 位置式PID控制器
@@ -78,5 +78,6 @@ void PID_Reset(PID *pid)
 }
 
 PID yaw_pid;	// 偏航角PID，用于转向
+PID follow_pid;	// 车子定位校准控制pid，用于麦轮和物料y坐标闭环
 PID x_pid;		// 物料x坐标PID，用于麦轮和物料x坐标闭环
 PID y_pid;		// 物料y坐标PID，用于直线模组伸缩于物料y坐标闭环
