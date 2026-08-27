@@ -60,10 +60,20 @@ add_executable(${CMAKE_PROJECT_NAME}
         BSP/Src/hwt101.c
         BSP/Src/led_buzzer.c
         BSP/Inc/led_buzzer.h
+        APP/Inc/chassis.h
+        APP/Src/chassis.c
+        APP/Inc/pid.h
+        APP/Src/pid.c
+        APP/Inc/catch.h
+        APP/Src/catch.c
+        APP/Inc/remind.h
+        APP/Src/remind.c
         BSP/Src/hmi.c
         BSP/Inc/hmi.h
         APP/Src/hmi_app.c
         APP/Inc/hmi_app.h
+        APP/Inc/bfs.h
+        APP/Src/bfs.c
         APP/Src/track_map.c
         APP/Inc/track_map.h
         APP/Src/planner.c
@@ -72,6 +82,7 @@ add_executable(${CMAKE_PROJECT_NAME}
         APP/Inc/grid.h
         APP/Src/map_test.c
         APP/Inc/map_test.h
+
 )
 
 # Add STM32CubeMX generated sources

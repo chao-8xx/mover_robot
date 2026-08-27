@@ -1,6 +1,8 @@
 #ifndef GONGXUN_1_HWT101_H
 #define GONGXUN_1_HWT101_H
 
+#define PI 3.14159265358979323846f
+
 #include "headfile.h"
 
 // HWT101 解析结果（角度单位 °，角速度单位 °/s，加速度单位 g）
@@ -41,5 +43,14 @@ void hwt101_yaw_reset_request(void);// 中断安全版复位请求：可在任�
 
 void hwt101_tick(void);             // 1ms 定时中断里调用，驱动“解锁→归零→保存”非阻塞状态机
 void my_hwt101_init(void);          // HWT101初始化（串口3） 初始化加偏航角复位
+
+
+// 获取陀螺仪数据
+void imu_get(void);
+
+// 全局变量
+extern float yaw_rate;  // 全局偏航角角速度
+extern float now_yaw;   // 全局偏航角角度
+extern float my_yaw;    // 解算后的偏航角
 
 #endif //GONGXUN_1_HWT101_H

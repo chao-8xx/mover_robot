@@ -7,7 +7,16 @@ void uart_init(void)
     cam_init(&huart1);
     hwt101_init(&huart3);
     lidar_init(&huart4);
-    hmi_init(&huart5);
+    hmi_init(&huart5);          // 串口屏
+}
+
+// 普通中断接收完成
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+    // if (huart->Instance == USART1) {
+    //     openmv_uart_rx_callback(huart);
+    // }
+
 }
 
 // DMA空闲接收事件
@@ -36,6 +45,7 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
     }
 }
 
+
 // UART 错误回调函数
 void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 {
@@ -47,6 +57,11 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
     {
         hwt101_error_callback(huart);
     }
+    // // LiDAR的错误处理
+    // if (huart->Instance == UART4)
+    // {
+    //     // openmv_uart_error_callback(huart);
+    // }
 }
 
 

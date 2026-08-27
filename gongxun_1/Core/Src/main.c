@@ -109,7 +109,7 @@ int main(void)
   // hmi_SetText("t1", "工训赛");
   // hmi_SetText("t1", "240V");
 
-  // HAL_Delay(1000);
+  HAL_Delay(1500);
 
   lidar_start();
   /* USER CODE END 2 */

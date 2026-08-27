@@ -1,8 +1,4 @@
-//
-// Created by mechreuo on 2026/8/18.
-//
-
-#include "../Inc/hmi_app.h"
+#include "hmi_app.h"
 
 
 // 触摸串口屏事件

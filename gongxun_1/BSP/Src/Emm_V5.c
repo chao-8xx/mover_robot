@@ -206,6 +206,12 @@ void Emm_V5_Tx_Reset(void)
   __set_PRIMASK(primask);
 }
 
+// 返回发送队列里还没发完的帧数（0 = 空闲）
+uint8_t Emm_V5_Tx_Count(void)
+{
+  return emm_v5_tx_count;
+}
+
 /**
   * @brief    将当前位置清零
   * @param    addr  电机地址

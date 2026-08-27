@@ -80,6 +80,7 @@ void ws2812_init(void)
     // 这里无需再初始化 DMA，直接清空颜色缓冲
     ws2812_set_led(0, 255, 255, 255); // 第0个灯坏了，给白色，不用
     ws2812_clear();
+    ws2812_show();
 }
 
 // 设置单个灯珠颜色
@@ -186,7 +187,7 @@ void ws2812_on(uint8_t index,LED_Color color)
             ws2812_set_led(index,0,0,0);
             break;
     }
-    ws2812_show();
+    // ws2812_show();
 }
 
 // ws2812统一启动

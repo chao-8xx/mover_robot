@@ -1,7 +1,3 @@
-//
-// Created by mechreuo on 2026/8/17.
-//
-
 #ifndef GONGXUN_1_HMI_H
 #define GONGXUN_1_HMI_H
 
