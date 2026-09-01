@@ -15,9 +15,12 @@
 #define HOLDER_RIGHT  60.0f    // 云台抓取右侧物料角度
 #define HOLDER_LEFT   120.0f   // 云台抓取左侧物料角度
 
+// 伸缩机构
+#define S_MM_PER_CIRCLE     2         // 一圈伸缩的距离mm
+
 // 丝杆控制夹爪高度变化(闭环步进电机)
 #define PULSE_PER_CIRCLE  3200      // 一圈的脉冲数
-#define MM_PER_CIRCLE     2         // 一圈升降的距离mm
+#define MM_PER_CIRCLE     8         // 一圈升降的距离mm
 #define HIGH_PICK_CM     (-8.0f)    // 夹爪从最高点到拿起位置cm
 #define PICK_HIGH_CM     (8.0f)     // 夹爪从拿起位置到最高点
 #define PICK_PUT_CM      (-2.0f)    // 拿起到放置
@@ -115,12 +118,12 @@ void catch_stretch_pos(float delta_cm)
 
     // 判断正负 pulse为负：顺时针、伸出
     if (mm >= 0) {
-        pulse = -(mm * PULSE_PER_CIRCLE / MM_PER_CIRCLE);
+        pulse = -(mm * PULSE_PER_CIRCLE / S_MM_PER_CIRCLE);
     }
     else {
-        pulse = (-mm) * PULSE_PER_CIRCLE / MM_PER_CIRCLE;
+        pulse = (-mm) * PULSE_PER_CIRCLE / S_MM_PER_CIRCLE;
     }
-    motor_set_speedPos(Motor_6,STEP_MOVE_SPEED,pulse);
+    motor_set_speedPos(Motor_6,STEP_MOVE_SPEED,-pulse);
 
     // 根据脉冲数和电机速度估算完成时间，1ms 中断里用 catch_tick() 清除 busy
     pulses = (pulse < 0) ? (uint32_t)(-pulse) : (uint32_t)pulse;
@@ -222,5 +225,10 @@ void catch_tick(void)
     // 舵机/夹爪动作计时
     if (claw_busy && (int32_t)(HAL_GetTick() - claw_deadline) >= 0) {
         claw_busy = 0;
+    }
+
+    // 未发车时，hmi可控制夹取装置
+    if (!car_run) {
+        hmi_control_send_tick();    // 串口屏控制发送指令
     }
 }

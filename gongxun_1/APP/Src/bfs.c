@@ -34,12 +34,26 @@ void bfs_init(void)
     bfs_path_len = 0;
 }
 
-// 设置/清除障碍物
+// 设置/清除障碍物 1 设障碍 0 清除
 void bfs_set_obstacle(uint8_t x, uint8_t y, uint8_t obstacle)
 {
     if (x < BFS_MAP_SIZE && y < BFS_MAP_SIZE) {
         bfs_map[y][x] = obstacle ? BFS_OBSTACLE : BFS_FREE;   // 内部存储为了直观 y行 x列
     }
+}
+
+// 清除所有障碍物（除了特定点）
+void bfs_obstacle_clear(void)
+{
+    for(int x = 0; x < BFS_MAP_SIZE; x++) {
+        for(int y = 0; y < BFS_MAP_SIZE; y++) {
+            bfs_set_obstacle(x,y,0);
+        }
+    }
+    bfs_set_obstacle(1,1,1);
+    bfs_set_obstacle(3,1,1);
+    bfs_set_obstacle(1,3,1);
+    bfs_set_obstacle(3,3,1);
 }
 
 // 查询某格是否为障碍，越界按障碍处理

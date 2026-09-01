@@ -34,6 +34,10 @@ void catch_init(void);
 // 抓取装置夹爪伸缩 正：伸出 负：缩回
 void catch_stretch(int16_t speed);
 
+// 抓取装置夹爪伸缩一定距离 单位：cm
+// 正：伸出 负：缩回  电机顺时针伸出（pulse为负）
+void catch_stretch_pos(float delta_cm);
+
 // 抓取装置夹爪升降 单位：cm
 void catch_lift(float delta_cm);
 

@@ -37,6 +37,6 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
         imu_get();
     }
     else if (htim ->Instance == TIM2) {    // 10ms中断
-
+        bfs_multi_track_test();
     }
 }

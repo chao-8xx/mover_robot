@@ -35,6 +35,10 @@ void system_control(void)
 }
 
 // ============ 定义全局变量 ============ //
-// 车辆启停标志位
-bool car_run = false;   // 发车总开关
-bool car_reset = false; // 车辆复位标志 false表示未复位
+// 车辆启停、复位标志位
+bool car_run = false;       // 发车总开关
+bool car_reset = false;     // 车辆复位标志 false表示未复位
+// 位置状态
+float stretch_pos = 0.0f;       // 伸缩装置当前伸缩位置cm
+uint8_t cur_x = 0, cur_y = 0;   // 当前车辆坐标
+uint8_t next_x = 0, next_y = 0; // 下一次的车辆坐标

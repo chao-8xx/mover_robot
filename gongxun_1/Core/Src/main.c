@@ -106,6 +106,18 @@ int main(void)
   MX_TIM4_Init();
   /* USER CODE BEGIN 2 */
   HAL_Delay(1000);
+  timer_init();       // 定时器初始化
+  my_hwt101_init();   // 陀螺仪
+  my_hmi_init();      // 串口屏
+  HAL_Delay(10);      // 等待一会儿
+  step_motor_init();  // 闭环步进电机
+  HAL_Delay(100);     // 等待一会儿
+  chassis_init();     // 底盘装置
+  HAL_Delay(100);     // 等待一会儿
+  bfs_init();
+
+  int8_t x_ = 0;
+  int8_t y_ = 0;
 
 
   /* USER CODE END 2 */
@@ -115,8 +127,31 @@ int main(void)
 
   while (1)
   {
+    hmi_SetValue("yaw",(int)(my_yaw * 100.0f));
+    HAL_Delay(5);
+    if (my_yaw < 10.0f && my_yaw > -10.0f) {
+      x_ = 0;
+      y_ = 1;
+    }
+    else if (my_yaw < 100.0f && my_yaw > 80.0f) {
+      x_ = 1;
+      y_ = 0;
+    }
+    else if (my_yaw < 190.0f && my_yaw > 170.0f) {
+      x_ = 0;
+      y_ = -1;
+    }
+    else if (my_yaw < 280.0f && my_yaw > 260.0f) {
+      x_ = -1;
+      y_ = 0;
+    }
+    hmi_SetValue("X_",x_);
+    HAL_Delay(1);
+    hmi_SetValue("Y_",y_);
+    HAL_Delay(1);
 
-    // hmi_SetValue("yaw",(int)(my_yaw * 100.0f));
+    HAL_Delay(5);
+
 
     // lidar_process();  // 激光雷达处理
 

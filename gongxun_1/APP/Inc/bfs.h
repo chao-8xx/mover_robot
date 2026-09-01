@@ -34,6 +34,9 @@ void bfs_set_obstacle(uint8_t x, uint8_t y, uint8_t obstacle);
 // 查询某格是否为障碍
 uint8_t bfs_is_obstacle(uint8_t x, uint8_t y);
 
+// 清除所有障碍物（除了特定点）
+void bfs_obstacle_clear(void);
+
 // BFS 搜索：从 (sx,sy) 到 (tx,ty)
 // 返回 1 = 找到路径，0 = 无路可走
 uint8_t bfs_find_path(uint8_t sx, uint8_t sy, uint8_t tx, uint8_t ty);

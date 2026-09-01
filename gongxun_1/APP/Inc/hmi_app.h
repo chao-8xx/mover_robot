@@ -19,6 +19,9 @@ void hmi_stop(void);
 // 在hmi.c的hmi_rx_callback回调函数内调用
 void hmi_solve(UART_HandleTypeDef *huart, uint16_t Size);
 
+// 串口屏控制发送指令 放入1ms中断
+void hmi_control_send_tick(void);
+
 #endif //GONGXUN_1_HMI_APP_H
 
 // 发车：0x65 0x01 0x04 0x00 0xFF 0xFF 0xFF
