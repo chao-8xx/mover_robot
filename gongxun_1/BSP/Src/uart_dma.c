@@ -27,21 +27,13 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
     {
         cam_rx_callback(huart,Size);
     }
-
-    // HWT101 陀螺仪用 USART3
-    if (huart->Instance == USART3)
+    else if (huart->Instance == USART3)
     {
-        hwt101_rx_callback(huart,Size);
+        hwt101_dma_rx_event(Size);
     }
-    // // LiDAR 用 UART4
-    // else if (huart->Instance == UART4)
-    // {
-    //     AX_LIDAR_RxCallback(huart);
-    // }
-
-    // HMI 串口屏 用 UART5
-    if (huart->Instance == UART5) {
-        hmi_rx_callback(huart,Size);
+    else if (huart->Instance == UART5)
+    {
+        hmi_rx_callback(huart, Size);
     }
 }
 
@@ -55,7 +47,7 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
     }
     else if (huart->Instance == USART3)
     {
-        hwt101_error_callback(huart);
+        hwt101_uart_error_callback(huart);
     }
     // // LiDAR的错误处理
     // if (huart->Instance == UART4)
@@ -63,8 +55,6 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
     //     // openmv_uart_error_callback(huart);
     // }
 }
-
-
 
 
 // 串口打印十进制数字（定宽，末尾自动补回车换行）
@@ -103,8 +93,6 @@ void UART_PrintNumber(UART_HandleTypeDef *UART_X, int16_t num, uint8_t len)
 
     HAL_UART_Transmit(UART_X, (uint8_t *)buf, idx, 50);
 }
-
-
 
 
 // 重定向 printf 到 串口6  可以无线串口 调参

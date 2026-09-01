@@ -110,6 +110,7 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user defined include paths
         BSP/Inc
         APP/Inc
+        Control/Inc
 )
 
 # Add include paths for STM32 HAL and USB middleware

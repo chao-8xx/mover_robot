@@ -40,22 +40,19 @@
 #include "hmi.h"        // 串口屏
 
 
-#include "../../APP/Inc/test.h"     // 各模块测试函数
-#include "../../APP/Inc/hmi_app.h"  // hmi 应用层函数
-#include "../../APP/Inc/grid.h"       // 48x48占据栅格
-#include "../../APP/Inc/track_map.h"  // 5x5赛道拓扑
-#include "../../APP/Inc/planner.h"    // BFS与动态重规划
-#include "../../APP/Inc/map_test.h"   // 地图/规划软件测试
+#include "test.h"     // 各模块测试函数
+#include "hmi_app.h"  // hmi 应用层函数
+#include "grid.h"       // 48x48占据栅格
+#include "track_map.h"  // 5x5赛道拓扑
+#include "planner.h"    // BFS与动态重规划
+#include "map_test.h"   // 地图/规划软件测试
 #include "pid.h"        // PID控制算法
 #include "bfs.h"        // BFS广度优先搜索算法
 #include "chassis.h"    // 底盘控制
 #include "catch.h"      // 抓取装置
 #include "remind.h"     // 提示装置（ws2812、蜂鸣器、LED）
 #include "hmi_app.h"    // hmi 应用层函数
-#include "test.h"       // 测试代码
-
 
 #include "system.h"     // 车辆系统
-
 
 #endif //GONGXUN_1_HEADFILE_H

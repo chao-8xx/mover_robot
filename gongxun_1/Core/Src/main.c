@@ -214,12 +214,12 @@ void SystemClock_Config(void)
 /* USER CODE BEGIN 4 */
 
 // 重定向 printf 到 串口6  可以无线串口 调参
-int _write(int file,char *ptr,int len)
-{
-  HAL_UART_Transmit(&huart6,(uint8_t *)ptr,len,100);
-
-  return len;
-}
+// int _write(int file,char *ptr,int len)
+// {
+//   HAL_UART_Transmit(&huart6,(uint8_t *)ptr,len,100);
+//
+//   return len;
+// }
 
 // // 重定向 printf 到 虚拟串口 CDC
 // extern USBD_HandleTypeDef hUsbDeviceFS;
