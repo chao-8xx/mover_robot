@@ -1,12 +1,41 @@
- MaixCam 主要任务: 识别物料色块、圆环数字以及圆环中心、堆放物料顶部
+# 当前阶段正式入口：三任务首页、任务调度、B2物料识别和F407任务控制。
+# B3圆环数字和B4码垛只接入安全占位页，本轮不运行旧原型算法。
 # 协议: AA 55 CMD LEN DATA SUM
-# 返回坐标包 DATA: TARGET OK dxL dxH dyL dyH
+# 返回坐标包 DATA: FRAME_ID RAW_OK dxL dxH dyL dyH
 
-from maix import camera, display, app, time, image, uart, pinmap
+from maix import camera, display, app, time, image, touchscreen, uart
 import cv2
 import numpy as np
 import math
-from struct import pack
+
+from vision_config import (
+    COLOR_NUMBERS,
+    IMAGE_HEIGHT,
+    IMAGE_WIDTH,
+    RUN_PROCESS_HEIGHT,
+    RUN_PROCESS_WIDTH,
+    VisionConfigStore,
+    clone_config,
+)
+from vision_blob import (
+    build_mask,
+    expand_roi_mask,
+    find_largest_blob,
+    make_preview,
+    make_run_geometry,
+    map_run_result_to_source,
+    resize_run_roi,
+)
+from vision_ui import TouchInput, VisionUI
+from vision_tasks import (
+    TASK_LABELS,
+    TASK_MATERIAL,
+    TASK_NONE,
+    TASK_RING,
+    TASK_STACK,
+    TaskManager,
+)
+from vision_ring import make_ring_preview
 
 # 通信协议
 HEAD1 = 0XAA
@@ -34,8 +63,8 @@ SUM_2    = 0xD2
 SUM_3    = 0xD3
 
 # 全局变量
-image_width = 320
-image_height = 240
+image_width = IMAGE_WIDTH
+image_height = IMAGE_HEIGHT
 center_x = image_width // 2
 center_y = image_height // 2
 
@@ -62,15 +91,42 @@ SEARCH_Y1 = 0
 SEARCH_X2 = image_width
 SEARCH_Y2 = image_height
 
-SEND_TIME_MS = 20   # 数据帧发送间隔 20ms 也就是50Hz 发送一次
+SEND_TIME_MS = 50   # 与已完成的 B2 测试一致：平均 20Hz 发送最新单帧结果
 TX_DEBUG_TIME_MS = 1000    # 调试打印发送数据包间隔，避免串口打印过多影响识别速度 在maix端打印
+DISPLAY_TIME_MS = 100      # 调试画面最多 10Hz，不拖慢识别主循环
+RING_PERF_TIME_MS = 1000   # 任务二每秒输出一次采集/检测/显示耗时
+MAX_RX_DATA_LEN = 32
 
 # 初始化
 cam = camera.Camera(image_width, image_height)
 disp = display.Display()
+ts = touchscreen.TouchScreen()
 
-device = "/dev/serial0"         # 教程里写的是serial1  但是实测是serial0 真他妈草了
-serial = uart.UART(device, 115200)
+try:
+    screen_w = int(disp.width())
+    screen_h = int(disp.height())
+except Exception:
+    screen_w = 480
+    screen_h = 640
+
+try:
+    data_dir = app.get_app_data_path()
+except Exception:
+    data_dir = "./data"
+
+config_store = VisionConfigStore(data_dir)
+vision_config, config_status = config_store.load()
+ui = VisionUI(screen_w, screen_h, vision_config, config_status)
+touch_input = TouchInput(ts)
+task_manager = TaskManager()
+
+device = "/dev/serial0"
+try:
+    serial = uart.UART(device, 115200)
+    serial_status = "ready"
+except Exception as error:
+    serial = None
+    serial_status = "disabled: {}".format(error)
 
 # pinmap.set_pin_function("A18", "UART1_RX")
 # pinmap.set_pin_function("A19", "UART1_TX")    # serial1 配置方法
@@ -80,38 +136,53 @@ serial = uart.UART(device, 115200)
 mode = CMD_NONE
 target = COLOR_NONE
 rx_buf = bytearray()
-last_send_time = 0
+# 发送截止时间必须从当前时刻起算，不能从0开始追赶系统运行时间。
+next_send_time = time.ticks_ms()
 last_tx_debug_time = 0
+last_display_time = 0
+vision_frame_id = 0
+uart_control_active = False
+blob_runtime_target = None
+blob_runtime_config = None
+blob_run_geometry = None
+
+print("[VISION CONFIG]", config_status)
+print("[VISION UART] {} @ 115200: {}".format(device, serial_status))
+print("[VISION UI] display: {}x{}".format(screen_w, screen_h))
+print("[VISION UI] touchscreen available:", hasattr(ts, "available"))
+print("[VISION BUILD] B3_DILATE7_RECT_PROFILE_B2_RUN240_V4")
 
 
 ###################################### 通信函数 ############################
 # 数据包校验和
-def checksum(cmd,length,data):
-    sum = cmd + length
+def checksum(cmd, length, data):
+    total = cmd + length
     for byte in data:
-        sum += byte
-    return sum & 0xFF
+        total += byte
+    return total & 0xFF
 
-# 构建并发送数据包   格式: AA 55 CMD 06 TARGET OK dxL dxH dyL dyH SUM
-def send_frame(cmd,data):
+# 构建并发送数据包：AA 55 CMD LEN DATA SUM。
+def send_frame(cmd, data):
     length = len(data)       # 数据长度
 
     frame = bytearray([HEAD1, HEAD2, cmd, length])  # 帧头 + 命令字 + 长度
     frame.extend(data)  # 添加数据
     frame.append(checksum(cmd, length, data))  # 添加校验和
 
-    serial.write(bytes(frame))  # 发送数据包  注: 这里的serial.write(bytes(frame))只能返回int型 不能返回数组
+    if serial is not None:
+        serial.write(bytes(frame))
     return bytes(frame)
 
-# 发送坐标
-def send_xy_result(cmd, target, ok, dx, dy):
+# 发送当前单帧原始坐标。DATA 与 F407 camera.c 保持一致：
+# FRAME_ID RAW_OK dxL dxH dyL dyH
+def send_xy_result(cmd, frame_id, raw_ok, dx, dy):
     global last_tx_debug_time
 
     data = bytearray()
-    data.append(target & 0xFF)
-    data.append(1 if ok else 0)     # 是否找到的标志位
-    data.extend(pack("<h", int(dx)))    # 拼接坐标
-    data.extend(pack("<h", int(dy)))    # 2字节 小端序
+    data.append(int(frame_id) & 0xFF)
+    data.append(1 if raw_ok else 0)
+    append_i16_le(data, dx)
+    append_i16_le(data, dy)
     frame = send_frame(cmd, data)
     now = time.ticks_ms()
 
@@ -119,22 +190,35 @@ def send_xy_result(cmd, target, ok, dx, dy):
     if (now - last_tx_debug_time) >= TX_DEBUG_TIME_MS:
         print("Maix TX:", " ".join("%02X" % b for b in frame))
         last_tx_debug_time = now
+    return frame
+
+
+def append_i16_le(data, value):
+    value = max(-32768, min(32767, int(value)))
+    if value < 0:
+        value += 0x10000
+    data.append(value & 0xFF)
+    data.append((value >> 8) & 0xFF)
 
 # 处理串口接收数据
 def rx_handle():
-    global rx_buf, mode
+    global rx_buf, uart_control_active
+
+    # 这一赋值是“正式模式”的开关：只要主循环调用本函数，就必须等待 F407。
+    # 调试 B2 时只需注释主循环中的 rx_handle()，无需改 mode/target。
+    uart_control_active = True
+
+    if serial is None:
+        return
 
     # # 非阻塞读取串口数据
     # buf = serial.read(-1, 2)
     # if not buf:
     #     return
 
-    # 非阻塞读取串口数据 打印接收到的内容
+    # 非阻塞读取串口数据。
     buf = serial.read()
-    if buf:
-        print("UART1 RX:", " ".join("%02X" % b for b in buf))
-
-    else:
+    if not buf:
         return
 
     rx_buf.extend(buf)
@@ -148,6 +232,9 @@ def rx_handle():
         # 命令字和帧长
         cmd = rx_buf[2]
         length = rx_buf[3]
+        if length > MAX_RX_DATA_LEN:
+            del rx_buf[0]
+            continue
         frame_len = 2 + 1 + 1 + length + 1
 
         if len(rx_buf) < frame_len:
@@ -159,39 +246,81 @@ def rx_handle():
 
         if rx_checksum == checksum(cmd, length, data):
             handle_cmd(cmd, data)
-
-        # 删除已处理帧
-        del rx_buf[:frame_len]
+            del rx_buf[:frame_len]
+        else:
+            # 校验失败只丢一个字节，下一轮重新搜索 AA 55，避免吞掉后续好帧。
+            del rx_buf[0]
 
 # 命令处理
 def handle_cmd(cmd, data):
-    global mode, target
+    global mode, target, vision_frame_id, next_send_time
+    global blob_runtime_target, blob_runtime_config, blob_run_geometry
 
-    if cmd == CMD_NONE:
-        mode = CMD_NONE
-        target = COLOR_NONE
-        print("Maix停止识别")
+    next_mode = mode
+    next_target = target
 
-    elif cmd == CMD_BLOB:
-        # print("ENTER CMD_BLOB SET")
-        if len(data) >= 1:
-            mode = CMD_BLOB
-            target = data[0]    # 颜色编号 1~6
-            # print("mode=",mode)
-            # print("target=",target)
-            # print("Maix物料识别,物料颜色为:", target)
+    if cmd == CMD_NONE and len(data) == 0:
+        next_mode = CMD_NONE
+        next_target = COLOR_NONE
 
-    elif cmd == CMD_RING:
-        if len(data) >= 1:
-            mode = CMD_RING
-            target = data[0]    # 圆环编号 1~3
-        print("Maix圆环识别,圆环编号为:", target)
+    elif cmd == CMD_BLOB and len(data) == 1:
+        color = clear_color_target(data[0])
+        if color != COLOR_NONE:
+            next_mode = CMD_BLOB
+            next_target = color
 
-    elif cmd == CMD_ONUP:
-        if len(data) >= 1:
-            mode = CMD_ONUP
-            target = data[0]    # 颜色编号 1~6
-        print("Maix码垛识别,码垛颜色为:", target)
+    elif cmd == CMD_RING and len(data) == 1:
+        ring = clear_ring_target(data[0])
+        if ring != SUM_NONE:
+            next_mode = CMD_RING
+            next_target = ring
+
+    elif cmd == CMD_ONUP and len(data) == 1:
+        color = clear_color_target(data[0])
+        if color != COLOR_NONE:
+            next_mode = CMD_ONUP
+            next_target = color
+    else:
+        return
+
+    if next_mode == mode and next_target == target:
+        return
+
+    mode = next_mode
+    target = next_target
+    vision_frame_id = 0
+    # 新任务可以立即发送首个识别结果，之后按50ms累计截止时间调度。
+    next_send_time = time.ticks_ms()
+    blob_runtime_target = None
+    blob_runtime_config = None
+    blob_run_geometry = None
+    print("[VISION CMD] mode=0x%02X target=0x%02X" % (mode, target))
+
+
+def active_task():
+    """正式模式返回F407状态；本机模式由三任务首页决定当前任务。"""
+    if uart_control_active:
+        return mode, target
+    local_task = ui.current_task()
+    if local_task == TASK_MATERIAL:
+        color_number = COLOR_NUMBERS.get(ui.detection_config()["target_color"], 1)
+        return CMD_BLOB, clear_color_target(color_number)
+    if local_task == TASK_RING:
+        ring_number = ui.detection_config()["ring"]["target_number"]
+        return CMD_RING, clear_ring_target(ring_number)
+    if local_task == TASK_STACK:
+        return CMD_ONUP, COLOR_NONE
+    return CMD_NONE, COLOR_NONE
+
+
+def mode_to_task_id(active_mode):
+    if active_mode == CMD_BLOB:
+        return TASK_MATERIAL
+    if active_mode == CMD_RING:
+        return TASK_RING
+    if active_mode == CMD_ONUP:
+        return TASK_STACK
+    return TASK_NONE
 
 
 ################################## 辅助函数 ##################################
@@ -213,6 +342,7 @@ def cv_normalize_contour(contour):
     return np.ascontiguousarray(points, dtype=np.int32)
 
 
+# 轮廓匹配 最外层匹配
 def cv_find_contours_external(mask):
     result = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     if len(result) == 2:
@@ -226,7 +356,7 @@ def cv_find_contours_external(mask):
             normalized.append(contour)
     return normalized
 
-# 同上
+# 轮廓匹配 树形结构
 def cv_find_contours_tree(mask):
     result = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
     if len(result) == 2:
@@ -294,8 +424,8 @@ def color_name(color):
 
 # 在图像中心画一个小十字
 def draw_center_cross(cv_img):
-    cv2.line(cv_img, (center_x - 8, center_x), (center_x + 8, center_y), (255, 255, 255), 1)
-    cv2.line(cv_img, (center_x, center_x - 8), (center_x, center_y + 8), (255, 255, 255), 1)
+    cv2.line(cv_img, (center_x - 8, center_y), (center_x + 8, center_y), (255, 255, 255), 1)
+    cv2.line(cv_img, (center_x, center_y - 8), (center_x, center_y + 8), (255, 255, 255), 1)
 
 
 
@@ -474,7 +604,7 @@ def build_digit_templates():
     return templates
 
 
-DIGIT_TEMPLATES = build_digit_templates()
+DIGIT_TEMPLATES = None
 
 
 def normalize_digit_image(binary):
@@ -516,8 +646,14 @@ def normalize_digit_image(binary):
 
 
 def recognize_digit_bruteforce(roi_bgr):
+    global DIGIT_TEMPLATES
+
     if roi_bgr is None or roi_bgr.size == 0:
         return 0, 999999, None
+
+    # B2 启动时不预生成数百张 OCR 模板；第一次真正进入 B3 时再创建。
+    if DIGIT_TEMPLATES is None:
+        DIGIT_TEMPLATES = build_digit_templates()
 
     gray = cv2.cvtColor(roi_bgr, cv2.COLOR_BGR2GRAY)
     gray = cv2.GaussianBlur(gray, (3, 3), 0)
@@ -657,10 +793,8 @@ def crop_digit_roi(cv_img, ring):
 def find_ring(img, target_code):
     target_code = clear_ring_target(target_code)
     target_num = target_to_num(target_code)
-
     candidates, debug_img = scan_ring(img)
     draw_center_cross(debug_img)
-
     best_target = None
 
     for ring in candidates:
@@ -727,13 +861,87 @@ def find_ring(img, target_code):
 
 
 ######################################## 视觉主处理 ################################
-#物料识别  找色块 核心函数
-def find_blobs(img, target_color):
-    target_color = clear_color_target(target_color)
-    if BLOB_WAY == "LAB":
-        return find_blobs_lab(img, target_color)
-    else:
-        return find_blobs_hsv(img, target_color)
+COLOR_CODE_TO_KEY = {
+    COLOR_RED: "red",
+    COLOR_YELLOW: "yellow",
+    COLOR_BLUE: "blue",
+    COLOR_GREEN: "green",
+    COLOR_BLACK: "black",
+    COLOR_LIGHTBLUE: "light_blue",
+}
+
+
+def prepare_blob_runtime(target_color):
+    """只在 B2/B4 目标变化时重建 240x180 RUN 几何参数。"""
+    global blob_runtime_target, blob_runtime_config, blob_run_geometry
+
+    normalized_target = clear_color_target(target_color)
+    color_key = COLOR_CODE_TO_KEY.get(normalized_target)
+    if color_key is None:
+        return False
+    if blob_runtime_target == normalized_target:
+        return True
+
+    blob_runtime_config = clone_config(vision_config)
+    blob_runtime_config["target_color"] = color_key
+    blob_run_geometry = make_run_geometry(
+        blob_runtime_config,
+        IMAGE_WIDTH,
+        IMAGE_HEIGHT,
+        RUN_PROCESS_WIDTH,
+        RUN_PROCESS_HEIGHT,
+    )
+    blob_runtime_target = normalized_target
+    print("[VISION BLOB] target={} process={}x{}".format(
+        color_key, RUN_PROCESS_WIDTH, RUN_PROCESS_HEIGHT
+    ))
+    return True
+
+
+def find_blobs(img, target_color, need_debug=False):
+    """使用已完成的 B2 路径：RUN 240x180，结果恢复为 320x240。"""
+    if not prepare_blob_runtime(target_color):
+        return 0, 0, 0, img
+
+    cv_bgr = image.image2cv(img, ensure_bgr=True, copy=True)
+    process_bgr = resize_run_roi(cv_bgr, blob_run_geometry)
+    process_config = blob_run_geometry["config"]
+    mask = build_mask(process_bgr, process_config)
+    process_result = find_largest_blob(
+        mask, process_config, blob_run_geometry["process_roi"]
+    )
+    result = map_run_result_to_source(
+        process_result, blob_runtime_config, blob_run_geometry
+    )
+
+    debug_img = img
+    if need_debug:
+        # 调试预览只画 ROI、抓取中心和目标框，不生成整图 mask。
+        preview = make_preview(
+            cv_bgr, None, result, blob_runtime_config, view_mode="RAW"
+        )
+        cv2.putText(
+            preview,
+            "B2 {} OK:{} DX:{} DY:{}".format(
+                blob_runtime_config["target_color"],
+                1 if result["found"] else 0,
+                result["dx"],
+                result["dy"],
+            ),
+            (5, 18),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.43,
+            (255, 255, 255),
+            1,
+        )
+        debug_img = image.cv2image(preview)
+
+    return (
+        1 if result["found"] else 0,
+        result["dx"],
+        result["dy"],
+        debug_img,
+    )
 
 
 # def find_ring(img, pos):
@@ -758,9 +966,9 @@ def find_blobs(img, target_color):
 #         return 0, 0, 0
 
 
-# def find_stack(img, target_color):
-#     # 暂时和物料识别用同一个函数；后面如果要专门找顶部，再单独替换这里
-#     return find_blobs(img, target_color)
+def find_stack(img, target_color, need_debug=False):
+    # 暂时和物料识别用同一个函数；后面如果要专门找顶部，再单独替换这里
+    return find_blobs(img, target_color, need_debug)
 
 
 # # 数据打包
@@ -782,331 +990,681 @@ def find_blobs(img, target_color):
 #     data.append(num)
 #     return data
 
-############################### 主循环：通信调度 ###########################
+
+############################### B2 UI + F407 主循环 ###########################
+# HOME/调参页面低频刷新；RUN 页面只显示一次静态页面，识别保持高速。
+vision_fps_value = 0.0
+display_fps_value = 0.0
+vision_fps_frames = 0
+display_fps_frames = 0
+fps_tick = time.ticks_ms()
+last_display_time = fps_tick - DISPLAY_TIME_MS
+force_display = True
+run_screen_shown = False
+previous_run_mode = False
+ring_perf_tick = fps_tick
+ring_perf_capture_ms = 0
+ring_perf_detect_ms = 0
+ring_perf_display_ms = 0
+ring_perf_mask_ms = 0
+ring_perf_group_ms = 0
+ring_perf_contour_ms = 0
+ring_perf_filter_ms = 0
+ring_perf_frames = 0
+ring_perf_displays = 0
+
+
 while not app.need_exit():
-    rx_handle()
+    loop_tick = time.ticks_ms()
 
-    img = cam.read()
-    debug_img = img
+    # 正式运行保留下一行：F407的B0/B2/B3/B4选择当前视觉任务。
+    # 本地调试只注释下一行：由三任务首页和任务内按钮控制。
+    # rx_handle()
 
-    now = time.ticks_ms()
-    can_send = (now - last_send_time) >= SEND_TIME_MS
+    active_mode, active_target = active_task()
+    active_task_id = mode_to_task_id(active_mode)
+    if uart_control_active:
+        if active_task_id == TASK_MATERIAL:
+            runtime_color = COLOR_CODE_TO_KEY.get(clear_color_target(active_target))
+            if runtime_color is not None:
+                ui.set_runtime_target(runtime_color)
+        elif active_task_id == TASK_RING:
+            ring_number = target_to_num(active_target)
+            if ring_number:
+                ui.set_runtime_ring_target(ring_number)
+        ui.set_external_task(active_task_id)
+        run_mode = active_task_id in (TASK_MATERIAL, TASK_RING)
+    else:
+        # 注释 rx_handle() 后，由三任务首页选择任务；任务一和任务二都有高速RUN。
+        run_mode = ui.is_run_mode()
 
-    if mode == CMD_NONE:
-        disp.show(img)
-        time.sleep_ms(10)
-        continue
+    task_changed = task_manager.switch(active_task_id, active_target)
+    if task_changed or run_mode != previous_run_mode:
+        previous_run_mode = run_mode
+        run_screen_shown = False
+        force_display = not run_mode
+        vision_frame_id = 0
+        next_send_time = loop_tick
+        vision_fps_value = 0.0
+        display_fps_value = 0.0
+        vision_fps_frames = 0
+        display_fps_frames = 0
+        fps_tick = loop_tick
+        ring_perf_tick = loop_tick
+        ring_perf_capture_ms = 0
+        ring_perf_detect_ms = 0
+        ring_perf_display_ms = 0
+        ring_perf_mask_ms = 0
+        ring_perf_group_ms = 0
+        ring_perf_contour_ms = 0
+        ring_perf_filter_ms = 0
+        ring_perf_frames = 0
+        ring_perf_displays = 0
+        print("[VISION TASK]", TASK_LABELS.get(active_task_id, "未知任务"),
+              "target=0x%02X" % int(active_target),
+              "RUN" if run_mode else "UI/PLACEHOLDER")
 
-    if mode == CMD_BLOB:
-        ok, dx, dy, debug_img = find_blobs(img,target)
-        if can_send:
-            send_xy_result(CMD_BLOB, target, ok, dx, dy)
-            last_send_time = now
+    display_due = (
+        not run_mode and
+        (force_display or loop_tick - last_display_time >= DISPLAY_TIME_MS)
+    )
 
-    elif mode == CMD_RING:
-        ok, dx, dy, debug_img, num = find_ring(img, target)
-        if can_send:
-            send_xy_result(CMD_RING, target, ok, dx, dy)
-            last_send_time = now
+    # UI 页面需要实时画面；正式 B2/B3 RUN 使用相同相机，只关闭周期预览刷新。
+    capture_tick = time.ticks_ms()
+    camera_image = cam.read()
+    cv_bgr = image.image2cv(camera_image, ensure_bgr=True, copy=True)
+    capture_ms = time.ticks_ms() - capture_tick
+    active_config = ui.detection_config()
+    detect_tick = time.ticks_ms()
+    task_frame = task_manager.process(cv_bgr, active_config, run_mode)
+    detect_ms = time.ticks_ms() - detect_tick
+    blob_result = task_frame["result"]
+    mask_roi = task_frame["mask_roi"]
+    roi_rect = task_frame["roi_rect"]
 
-    # elif mode == CMD_ONUP:
-    #     ok, dx, dy, debug_img = find_stack(img, target)
-    #     if can_send:
-    #         send_xy_result(CMD_ONUP, target, ok, dx, dy)
-    #         last_send_time = now
+    # 当前只有已经验收的B2结果允许发送；B3候选阶段不能冒充最终圆心结果。
+    if run_mode and active_task_id == TASK_MATERIAL:
+        vision_frame_id = (vision_frame_id + 1) & 0xFF
+        result_tick = time.ticks_ms()
+        if result_tick >= next_send_time:
+            send_xy_result(
+                CMD_BLOB,
+                vision_frame_id,
+                blob_result["found"],
+                blob_result["dx"],
+                blob_result["dy"],
+            )
+            while next_send_time <= result_tick:
+                next_send_time += SEND_TIME_MS
 
-    disp.show(debug_img)
-    time.sleep_ms(5)
+    # RUN 只生成一次静态页面；HOME 和各调参页保持原来的实时菜单预览。
+    screen_was_shown = False
+    display_ms = 0
+    if run_mode and not run_screen_shown:
+        display_tick = time.ticks_ms()
+        screen_image = ui.render(cv_bgr, blob_result, 0.0, 0.0)
+        disp.show(screen_image)
+        display_ms = time.ticks_ms() - display_tick
+        run_screen_shown = True
+        screen_was_shown = True
+        print("[VISION RUN] static page ready; live display refresh disabled")
+    elif display_due:
+        display_tick = time.ticks_ms()
+        mask_full = None
+        if active_task_id == TASK_MATERIAL and ui.needs_mask_for_display():
+            mask_full = expand_roi_mask(mask_roi, cv_bgr.shape, roi_rect)
+        if active_task_id == TASK_MATERIAL:
+            preview_bgr = make_preview(
+                cv_bgr,
+                mask_full,
+                blob_result,
+                active_config,
+                ui.current_view_mode(),
+            )
+        elif active_task_id == TASK_RING:
+            preview_bgr = make_ring_preview(
+                cv_bgr,
+                mask_roi,
+                blob_result,
+                active_config["ring"],
+                ui.current_view_mode(),
+            )
+        else:
+            preview_bgr = cv_bgr
+        screen_image = ui.render(
+            preview_bgr, blob_result, vision_fps_value, display_fps_value
+        )
+        disp.show(screen_image)
+        display_ms = time.ticks_ms() - display_tick
+        last_display_time = time.ticks_ms()
+        force_display = False
+        screen_was_shown = True
+        display_fps_frames += 1
+
+    vision_fps_frames += 1
+    fps_now = time.ticks_ms()
+    fps_elapsed = fps_now - fps_tick
+    if fps_elapsed >= 500:
+        vision_fps_value = vision_fps_frames * 1000.0 / fps_elapsed
+        display_fps_value = display_fps_frames * 1000.0 / fps_elapsed
+        vision_fps_frames = 0
+        display_fps_frames = 0
+        fps_tick = fps_now
+
+    if active_task_id == TASK_RING:
+        ring_perf_capture_ms += capture_ms
+        ring_perf_detect_ms += detect_ms
+        ring_perf_mask_ms += blob_result.get("mask_ms", 0.0)
+        ring_perf_group_ms += blob_result.get("group_ms", 0.0)
+        ring_perf_contour_ms += blob_result.get("contour_ms", 0.0)
+        ring_perf_filter_ms += blob_result.get("filter_ms", 0.0)
+        ring_perf_frames += 1
+        if screen_was_shown:
+            ring_perf_display_ms += display_ms
+            ring_perf_displays += 1
+        ring_perf_elapsed = fps_now - ring_perf_tick
+        if ring_perf_elapsed >= RING_PERF_TIME_MS and ring_perf_frames > 0:
+            print(
+                "[RING PERF] {} FPS:{:.1f} CAP:{:.1f}ms DET:{:.1f}ms "
+                "DSP:{:.1f}ms MASK:{:.1f} GRP:{:.1f} CTR:{:.1f} FLT:{:.1f} "
+                "CAND:{} CNT:{} RAY:{}".format(
+                    "RUN" if run_mode else "UI",
+                    ring_perf_frames * 1000.0 / ring_perf_elapsed,
+                    ring_perf_capture_ms / float(ring_perf_frames),
+                    ring_perf_detect_ms / float(ring_perf_frames),
+                    (ring_perf_display_ms / float(ring_perf_displays)
+                     if ring_perf_displays else 0.0),
+                    ring_perf_mask_ms / float(ring_perf_frames),
+                    ring_perf_group_ms / float(ring_perf_frames),
+                    ring_perf_contour_ms / float(ring_perf_frames),
+                    ring_perf_filter_ms / float(ring_perf_frames),
+                    blob_result.get("candidate_count", 0),
+                    blob_result.get("contour_count", 0),
+                    blob_result.get("feature_count", 0),
+                )
+            )
+            ring_perf_tick = fps_now
+            ring_perf_capture_ms = 0
+            ring_perf_detect_ms = 0
+            ring_perf_display_ms = 0
+            ring_perf_mask_ms = 0
+            ring_perf_group_ms = 0
+            ring_perf_contour_ms = 0
+            ring_perf_filter_ms = 0
+            ring_perf_frames = 0
+            ring_perf_displays = 0
+
+    # RUN 期间也持续读触摸；本地调试可点“返回”，正式 F407 B2 会保持 RUN。
+    touch_event = touch_input.poll()
+    if touch_event is not None:
+        action = ui.handle_touch(touch_event[0], touch_event[1], touch_event[2])
+        if not touch_event[2] and not run_mode:
+            force_display = True
+        if action is not None and action.get("type") == "save":
+            saved_config, save_status = config_store.save(action["config"])
+            if saved_config is None:
+                ui.save_failed(save_status)
+            elif action.get("stay", False):
+                ui.set_saved_config(saved_config, save_status)
+            else:
+                ui.save_succeeded(saved_config, save_status)
+            # 下次进入任务一RUN时重新按最新ROI、中心点和阈值生成缩放参数。
+            task_manager.invalidate_material_geometry()
+            force_display = True
+
+    time.sleep_ms(1)
 
 
 
 
-# ################################ 物料识别测试 #################################################################################
-# from maix import camera, display, app, time, image
-# import cv2
-# import numpy as np
+# # ################################ 物料识别触摸调参程序 #########################################################################
+# from maix import camera, display, app, time, image, touchscreen, uart
 #
-# # ================== 图像参数 ==================
-# IMG_W = 320
-# IMG_H = 240
-# CENTER_X = IMG_W // 2
-# CENTER_Y = IMG_H // 2
-#
-# # ================== 颜色编号 ==================
-# COLOR_RED = 0xC1
-# COLOR_YELLOW = 0xC2
-# COLOR_BLUE = 0xC3
-# COLOR_GREEN = 0xC4
-# COLOR_BLACK = 0xC5
-# COLOR_LIGHTBLUE = 0xC6
-#
-# # ================== 测试选择 ==================
-# # 这里切换 HSV / LAB
-# TEST_METHOD = "HSV"
-# # TEST_METHOD = "LAB"
-#
-# # 这里切换要识别的颜色
-# # TEST_COLOR = COLOR_RED
-# # TEST_COLOR = COLOR_YELLOW
-# # TEST_COLOR = COLOR_BLUE
-# TEST_COLOR = COLOR_GREEN
-# # TEST_COLOR = COLOR_BLACK
-# # TEST_COLOR = COLOR_LIGHTBLUE
+# from vision_config import (
+#     IMAGE_WIDTH,
+#     IMAGE_HEIGHT,
+#     MORPH_CLOSE_ONLY,
+#     MORPH_OPEN_CLOSE,
+#     MORPH_OPEN_ONLY,
+#     RUN_PROCESS_HEIGHT,
+#     RUN_PROCESS_WIDTH,
+#     VisionConfigStore,
+# )
+# from vision_blob import (
+#     apply_color_threshold,
+#     close_mask,
+#     convert_color_space,
+#     expand_roi_mask,
+#     extract_roi,
+#     find_largest_blob,
+#     make_run_geometry,
+#     make_preview,
+#     map_run_result_to_source,
+#     open_mask,
+#     resize_run_roi,
+# )
+# from vision_ui import TouchInput, VisionUI
 #
 #
-# # ================== 面积过滤 ==================
-# MIN_BLOB_AREA = 300
-# MAX_BLOB_AREA = 60000
+# # 当前阶段只发送 B2 单帧原始结果，仍由触摸 RUN 控制是否运行。
+# # 后续接入 F407 状态机时，再增加 B0/B2/B3/B4 的接收与任务切换。
+# FRAME_HEAD_1 = 0xAA
+# FRAME_HEAD_2 = 0x55
+# CMD_BLOB = 0xB2
+# RESULT_DATA_LEN = 6
+# RESULT_SEND_INTERVAL_MS = 50
+# TX_DEBUG_INTERVAL_MS = 1000
+# SERIAL_DEVICE = "/dev/serial0"
 #
-# # ================== 初始化 ==================
-# cam = camera.Camera(IMG_W, IMG_H)
+# def _result_checksum(cmd, data):
+#     """计算 AA 55 CMD LEN DATA SUM 协议中的单字节和校验。"""
+#     total = int(cmd) + len(data)
+#     for value in data:
+#         total += int(value)
+#     return total & 0xFF
+#
+#
+# def _append_i16_le(data, value):
+#     """把有符号坐标限制在 int16 范围并按小端序追加。"""
+#     value = max(-32768, min(32767, int(value)))
+#     if value < 0:
+#         value += 0x10000
+#     data.append(value & 0xFF)
+#     data.append((value >> 8) & 0xFF)
+#
+#
+# def build_blob_result_frame(frame_id, raw_ok, dx, dy):
+#     """构造 11 字节B2原始帧；dx/dy始终属于320x240坐标系。"""
+#     data = bytearray()
+#     data.append(int(frame_id) & 0xFF)
+#     data.append(1 if raw_ok else 0)
+#     _append_i16_le(data, dx)
+#     _append_i16_le(data, dy)
+#
+#     frame = bytearray([FRAME_HEAD_1, FRAME_HEAD_2, CMD_BLOB, RESULT_DATA_LEN])
+#     frame.extend(data)
+#     frame.append(_result_checksum(CMD_BLOB, data))
+#     return frame
+#
+#
+# def send_blob_result_if_due(now_tick, frame_id, raw_ok, dx, dy):
+#     """按 50 ms 平均节拍发送最新快照，不阻塞或降低视觉识别帧率。"""
+#     global next_result_send_tick, last_tx_debug_tick, result_tx_count
+#
+#     if vision_serial is None:
+#         return
+#     if now_tick < next_result_send_tick:
+#         return
+#
+#     frame = build_blob_result_frame(frame_id, raw_ok, dx, dy)
+#     vision_serial.write(bytes(frame))
+#     result_tx_count += 1
+#
+#     # 使用累计截止时间而不是 now + 50，避免 30 FPS 时退化为约 15 Hz。
+#     # 单线程只能在某一识别帧结束后发送，所以单次间隔会有一帧以内的抖动。
+#     while next_result_send_tick <= now_tick:
+#         next_result_send_tick += RESULT_SEND_INTERVAL_MS
+#
+#     # 限频打印只用于首轮联调；比赛版可整体关闭。
+#     if now_tick - last_tx_debug_tick >= TX_DEBUG_INTERVAL_MS:
+#         debug_elapsed = max(1, now_tick - last_tx_debug_tick)
+#         tx_hz = result_tx_count * 1000.0 / debug_elapsed
+#         print("[VISION TX] TXHZ:{:.1f}".format(tx_hz),
+#               " ".join("%02X" % value for value in frame))
+#         last_tx_debug_tick = now_tick
+#         result_tx_count = 0
+#
+#
+# cam = camera.Camera(IMAGE_WIDTH, IMAGE_HEIGHT)
 # disp = display.Display()
+# ts = touchscreen.TouchScreen()
 #
-# # =============== 辅助函数 ===============
-# # 显示颜色字符串  将颜色编号转换成可读的字符串名称，用于串口打印和屏幕显示
-# def color_name(color):
-#     if color == COLOR_RED:
-#         return "RED"
-#     elif color == COLOR_YELLOW:
-#         return "YELLOW"
-#     elif color == COLOR_BLUE:
-#         return "BLUE"
-#     elif color == COLOR_GREEN:
-#         return "GREEN"
-#     elif color == COLOR_BLACK:
-#         return "BLACK"
-#     elif color == COLOR_LIGHTBLUE:
-#         return "LIGHTBLUE"
-#     else:
-#         return "NONE"
+# try:
+#     vision_serial = uart.UART(SERIAL_DEVICE, 115200)
+#     serial_status = "ready"
+# except Exception as error:
+#     vision_serial = None
+#     serial_status = "disabled: {}".format(error)
 #
-# # 兼容cv库里的 cv2.findContours 查找轮廓
-# def cv_find_contours(mask):
-#     result = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+# try:
+#     screen_w = int(disp.width())
+#     screen_h = int(disp.height())
+# except Exception:
+#     screen_w = 480
+#     screen_h = 640
 #
-#     if len(result) == 2:
-#         contours, hierarchy = result
-#     else:
-#         _, contours, hierarchy = result
-#     return contours
+# try:
+#     data_dir = app.get_app_data_path()
+# except Exception:
+#     data_dir = "./data"
 #
-# # 在图像上画调试信息   (屏幕中心十字、最大物料框、物料中心点、屏幕中心到物料中心连线、坐标和面积信息)
-# def draw_debug(cv_img, ok, target_color, cx, cy, dx, dy, area, rect, method, mask=None):
-#     # 画屏幕中心点 (白色十字)
-#     cv2.drawMarker(cv_img,(CENTER_X, CENTER_Y),(255, 255, 255),
-#         markerType=cv2.MARKER_CROSS,thickness=1)
+# config_store = VisionConfigStore(data_dir)
+# vision_config, config_status = config_store.load()
+# ui = VisionUI(screen_w, screen_h, vision_config, config_status)
+# touch_input = TouchInput(ts)
 #
-#     # 左上角显示当前模式METHOD和目标颜色
-#     info1 = "METHOD:{}  COLOR:{}".format(method, color_name(target_color))
-#     cv2.putText(cv_img, info1, (5, 18), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1)
+# print("[VISION UI] display: {}x{}".format(screen_w, screen_h))
+# print("[VISION UI] config:", config_status)
+# print("[VISION CONFIG] morphology:", vision_config["morph_mode"])
+# print("[VISION RUN] process: {}x{}; config coordinates: {}x{}".format(
+#     RUN_PROCESS_WIDTH, RUN_PROCESS_HEIGHT, IMAGE_WIDTH, IMAGE_HEIGHT
+# ))
+# print("[VISION UART] {} @ 115200: {}".format(SERIAL_DEVICE, serial_status))
+# print("[VISION BUILD] B2_RAW6_TX_50MS_V2")
+# print("[VISION UI] touchscreen available:", hasattr(ts, "available"))
 #
-#     if ok:
-#         x, y, w, h = rect
+# # HOME/调参页低频刷新屏幕；RUN 页进入时只显示一次静态状态页。
+# DISPLAY_INTERVAL_MS = 100
+# PERF_WARMUP_MS = 5000
+# vision_fps_value = 0.0
+# display_fps_value = 0.0
+# vision_fps_frames = 0
+# display_fps_frames = 0
+# fps_tick = time.ticks_ms()
+# last_display_tick = fps_tick - DISPLAY_INTERVAL_MS
+# force_display = True
+# run_screen_shown = False
+# previous_run_mode = ui.is_run_mode()
+# run_geometry = None
+# vision_frame_id = 0
+# next_result_send_tick = fps_tick
+# last_tx_debug_tick = fps_tick - TX_DEBUG_INTERVAL_MS
+# result_tx_count = 0
 #
-#         # 最大物料外接框
-#         cv2.rectangle(cv_img, (x, y), (x + w, y + h), (0, 255, 0), 2)
-#
-#         # 物料中心点
-#         cv2.circle(cv_img, (cx, cy), 5, (0, 0, 255), -1)
-#
-#         # 屏幕中心到物料中心连线
-#         cv2.line(cv_img, (CENTER_X, CENTER_Y), (cx, cy), (255, 0, 0), 1)
-#
-#         info2 = "cx:{} cy:{} dx:{} dy:{}".format(cx, cy, dx, dy)
-#         info3 = "area:{}".format(int(area))
-#
-#         cv2.putText(cv_img, info2, (5, 38), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 0), 1)
-#         cv2.putText(cv_img, info3, (5, 58), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 0), 1)
-#
-#     else:
-#         cv2.putText(cv_img, "NO TARGET", (5, 42), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 0, 255), 2)
-#
-#     return cv_img
-#
-# # 找最大色块  返回: ok, dx, dy, debug_img
-# def find_blob_from_mask(cv_img, mask, target_color, method):
-#     # 形态学处理
-#     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
-#
-#     # 开闭运算  找轮廓
-#     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=1)
-#     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=2)
-#
-#     contours = cv_find_contours(mask)
-#
-#     max_area = 0
-#     best_contour = None
-#
-#     # 遍历轮廓 找最大轮廓
-#     for c in contours:
-#         area = cv2.contourArea(c)
-#
-#         # 面积限制
-#         if (area < MIN_BLOB_AREA) or (area > MAX_BLOB_AREA):
-#             continue
-#
-#         if area > max_area:
-#             max_area = area
-#             best_contour = c
-#
-#     if best_contour is None:
-#         draw_debug(cv_img, 0, target_color, 0, 0, 0, 0, 0, (0, 0, 0, 0), method)
-#         return 0, 0, 0, image.cv2image(cv_img)
-#
-#     M = cv2.moments(best_contour)
-#
-#     if M["m00"] == 0:
-#         draw_debug(cv_img, 0, target_color, 0, 0, 0, 0, 0, (0, 0, 0, 0), method)
-#         return 0, 0, 0, image.cv2image(cv_img)
-#
-#     cx = int(M["m10"] / M["m00"])
-#     cy = int(M["m01"] / M["m00"])
-#
-#     dx = cx - CENTER_X
-#     dy = cy - CENTER_Y
-#
-#     rect = cv2.boundingRect(best_contour)
-#
-#     # 画最大轮廓
-#     cv2.drawContours(cv_img, [best_contour], -1, (0, 255, 0), 2)
-#
-#     draw_debug(cv_img, 1, target_color, cx, cy, dx, dy, max_area, rect, method)
-#
-#     return 1, dx, dy, image.cv2image(cv_img)
-#
-#
-# def find_blobs_hsv(img, target_color):
-#     """
-#     HSV 版本物料识别。
-#     """
-#
-#     cv_img = image.image2cv(img, ensure_bgr=True, copy=True)
-#     hsv_img = cv2.cvtColor(cv_img, cv2.COLOR_BGR2HSV)
-#
-#     hsv_ranges = {
-#         # 红色需要两段
-#         COLOR_RED: [
-#             (np.array([0, 80, 50]), np.array([10, 255, 255])),
-#             (np.array([160, 80, 50]), np.array([180, 255, 255])),
-#         ],
-#
-#         COLOR_YELLOW: [
-#             (np.array([18, 80, 60]), np.array([35, 255, 255])),
-#         ],
-#
-#         COLOR_BLUE: [
-#             (np.array([100, 70, 40]), np.array([130, 255, 255])),
-#         ],
-#
-#         COLOR_GREEN: [
-#             (np.array([35, 50, 40]), np.array([85, 255, 255])),
-#         ],
-#
-#         COLOR_BLACK: [
-#             (np.array([0, 0, 0]), np.array([180, 255, 60])),
-#         ],
-#
-#         COLOR_LIGHTBLUE: [
-#             (np.array([85, 40, 60]), np.array([105, 255, 255])),
-#         ],
-#     }
-#
-#     if target_color not in hsv_ranges:
-#         draw_debug(cv_img, 0, target_color, 0, 0, 0, 0, 0, (0, 0, 0, 0), "HSV")
-#         return 0, 0, 0, image.cv2image(cv_img)
-#
-#     mask = None
-#
-#     for lower, upper in hsv_ranges[target_color]:
-#         temp_mask = cv2.inRange(hsv_img, lower, upper)
-#
-#         if mask is None:
-#             mask = temp_mask
-#         else:
-#             mask = cv2.bitwise_or(mask, temp_mask)
-#
-#     return find_blob_from_mask(cv_img, mask, target_color, "HSV")
-#
-#
-# def find_blobs_lab(img, target_color):
-#     """
-#     LAB 版本物料识别。
-#     """
-#
-#     cv_img = image.image2cv(img, ensure_bgr=True, copy=True)
-#     lab_img = cv2.cvtColor(cv_img, cv2.COLOR_BGR2LAB)
-#
-#     lab_ranges = {
-#         COLOR_RED: [
-#             (np.array([20, 145, 130]), np.array([255, 210, 210])),
-#         ],
-#
-#         COLOR_YELLOW: [
-#             (np.array([80, 115, 145]), np.array([255, 160, 230])),
-#         ],
-#
-#         COLOR_BLUE: [
-#             (np.array([20, 110, 60]), np.array([220, 170, 130])),
-#         ],
-#
-#         COLOR_GREEN: [
-#             (np.array([20, 60, 80]), np.array([220, 125, 170])),
-#         ],
-#
-#         COLOR_BLACK: [
-#             (np.array([0, 0, 0]), np.array([70, 255, 255])),
-#         ],
-#
-#         COLOR_LIGHTBLUE: [
-#             (np.array([80, 90, 70]), np.array([255, 150, 135])),
-#         ],
-#     }
-#
-#     if target_color not in lab_ranges:
-#         draw_debug(cv_img, 0, target_color, 0, 0, 0, 0, 0, (0, 0, 0, 0), "LAB")
-#         return 0, 0, 0, image.cv2image(cv_img)
-#
-#     mask = None
-#
-#     for lower, upper in lab_ranges[target_color]:
-#         lower = lower.astype(np.uint8)
-#         upper = upper.astype(np.uint8)
-#
-#         temp_mask = cv2.inRange(lab_img, lower, upper)
-#
-#         if mask is None:
-#             mask = temp_mask
-#         else:
-#             mask = cv2.bitwise_or(mask, temp_mask)
-#
-#     return find_blob_from_mask(cv_img, mask, target_color, "LAB")
-#
-#
-# def find_blobs_test(img, target_color):
-#     if TEST_METHOD == "HSV":
-#         return find_blobs_hsv(img, target_color)
-#     elif TEST_METHOD == "LAB":
-#         return find_blobs_lab(img, target_color)
-#     else:
-#         return find_blobs_hsv(img, target_color)
-#
+# # 每次切换 RUN/UI 路径后重新预热，避免首次字体、缓存和 OpenCV 开销污染统计。
+# warmup_tick = fps_tick
+# perf_ready = False
+# perf_tick = fps_tick
+# perf_vision_frames = 0
+# perf_screen_frames = 0
+# perf_camera_ms = 0
+# perf_resize_ms = 0
+# perf_mask_ms = 0
+# perf_convert_ms = 0
+# perf_threshold_ms = 0
+# perf_open_ms = 0
+# perf_close_ms = 0
+# perf_blob_ms = 0
+# perf_preview_ms = 0
+# perf_ui_ms = 0
+# perf_display_ms = 0
 #
 # while not app.need_exit():
-#     img = cam.read()
+#     loop_tick = time.ticks_ms()
+#     run_mode = ui.is_run_mode()
 #
-#     ok, dx, dy, debug_img = find_blobs_test(img, TEST_COLOR)
+#     # 运行与调参是两条真实执行路径。切换后重置计数器，分别观察纯识别和带 UI 的性能。
+#     if run_mode != previous_run_mode:
+#         previous_run_mode = run_mode
+#         run_screen_shown = False
+#         force_display = not run_mode
+#         vision_fps_value = 0.0
+#         display_fps_value = 0.0
+#         vision_fps_frames = 0
+#         display_fps_frames = 0
+#         fps_tick = loop_tick
+#         warmup_tick = loop_tick
+#         perf_ready = False
+#         perf_tick = loop_tick
+#         perf_vision_frames = 0
+#         perf_screen_frames = 0
+#         perf_camera_ms = 0
+#         perf_resize_ms = 0
+#         perf_mask_ms = 0
+#         perf_convert_ms = 0
+#         perf_threshold_ms = 0
+#         perf_open_ms = 0
+#         perf_close_ms = 0
+#         perf_blob_ms = 0
+#         perf_preview_ms = 0
+#         perf_ui_ms = 0
+#         perf_display_ms = 0
+#         # RUN 期间保存参数不会变化，因此缩放坐标和面积阈值只在进入时计算一次。
+#         if run_mode:
+#             run_geometry = make_run_geometry(
+#                 ui.detection_config(), IMAGE_WIDTH, IMAGE_HEIGHT,
+#                 RUN_PROCESS_WIDTH, RUN_PROCESS_HEIGHT
+#             )
+#             vision_frame_id = 0
+#             # 进入 RUN 后，第一帧识别完成即可立即发送，不额外等待 50 ms。
+#             next_result_send_tick = loop_tick
+#         else:
+#             run_geometry = None
+#         print("[VISION MODE]", "RUN FAST" if run_mode else "UI/CALIBRATE")
 #
-#     disp.show(debug_img)
+#     # RUN 不使用周期刷新；非 RUN 页面才根据时间决定是否生成预览和显示。
+#     display_due = (
+#         not run_mode and
+#         (force_display or loop_tick - last_display_tick >= DISPLAY_INTERVAL_MS)
+#     )
 #
-#     # 串口监视器里也打印一下，方便看坐标稳定性
-#     print("method:", TEST_METHOD,
-#           "color:", color_name(TEST_COLOR),
-#           "ok:", ok,
-#           "dx:", dx,
-#           "dy:", dy)
+#     # 1. 获取 320x240 相机画面并转换为 OpenCV BGR。
+#     camera_image = cam.read()
+#     cv_bgr = image.image2cv(camera_image, ensure_bgr=True, copy=True)
+#     camera_done_tick = time.ticks_ms()
 #
-#     time.sleep_ms(30)
-
+#     # 2. 调参保持 320x240；RUN 只缩放 ROI，并用专用配置在小图坐标系识别。
+#     active_config = ui.detection_config()
+#     if run_mode:
+#         if run_geometry is None:
+#             run_geometry = make_run_geometry(
+#                 active_config, IMAGE_WIDTH, IMAGE_HEIGHT,
+#                 RUN_PROCESS_WIDTH, RUN_PROCESS_HEIGHT
+#             )
+#         process_config = run_geometry["config"]
+#         roi_bgr = resize_run_roi(cv_bgr, run_geometry)
+#         roi_rect = run_geometry["process_roi"]
+#     else:
+#         process_config = active_config
+#         roi_bgr, roi_rect = extract_roi(cv_bgr, active_config)
+#     resize_done_tick = time.ticks_ms()
+#
+#     # 颜色转换、阈值、形态学继续分段计时，缩放耗时独立记入 RSZ。
+#     converted_roi = convert_color_space(roi_bgr, process_config["mode"])
+#     convert_done_tick = time.ticks_ms()
+#     raw_mask_roi = apply_color_threshold(converted_roi, process_config)
+#     threshold_done_tick = time.ticks_ms()
+#     morph_mode = process_config.get("morph_mode", MORPH_OPEN_CLOSE)
+#
+#     # 四个实验档位必须在主识别链路中真正分流；跳过的阶段计时固定为 0 ms。
+#     if morph_mode in (MORPH_OPEN_ONLY, MORPH_OPEN_CLOSE):
+#         opened_mask_roi = open_mask(raw_mask_roi)
+#         open_done_tick = time.ticks_ms()
+#     else:
+#         opened_mask_roi = raw_mask_roi
+#         open_done_tick = threshold_done_tick
+#
+#     if morph_mode in (MORPH_CLOSE_ONLY, MORPH_OPEN_CLOSE):
+#         mask_roi = close_mask(opened_mask_roi)
+#         mask_done_tick = time.ticks_ms()
+#     else:
+#         mask_roi = opened_mask_roi
+#         mask_done_tick = open_done_tick
+#     process_result = find_largest_blob(mask_roi, process_config, roi_rect)
+#     if run_mode:
+#         blob_result = map_run_result_to_source(
+#             process_result, active_config, run_geometry
+#         )
+#     else:
+#         blob_result = process_result
+#     blob_done_tick = time.ticks_ms()
+#
+#     # 每个 RUN 识别帧只更新一次 FRAME_ID；50 ms 发送器读取当时的最新结果。
+#     # F407 仍需按 FRAME_ID 去重，为以后独立发送调度或重复发送保留兼容性。
+#     if run_mode:
+#         vision_frame_id = (vision_frame_id + 1) & 0xFF
+#         send_blob_result_if_due(
+#             blob_done_tick,
+#             vision_frame_id,
+#             blob_result["found"],
+#             blob_result["dx"],
+#             blob_result["dy"],
+#         )
+#
+#     # 3. RUN 页面只在进入时绘制一次；高速循环不创建 preview/mask_full，也不调用 UI/show。
+#     preview_cost = 0
+#     ui_cost = 0
+#     display_cost = 0
+#     screen_was_shown = False
+#     if run_mode and not run_screen_shown:
+#         run_render_tick = time.ticks_ms()
+#         screen_image = ui.render(cv_bgr, blob_result, 0.0, 0.0)
+#         run_ui_done_tick = time.ticks_ms()
+#         disp.show(screen_image)
+#         display_done_tick = time.ticks_ms()
+#         ui_cost = run_ui_done_tick - run_render_tick
+#         display_cost = display_done_tick - run_ui_done_tick
+#         run_screen_shown = True
+#         screen_was_shown = True
+#         print("[VISION RUN] static screen ready; preview and display refresh disabled")
+#     elif display_due:
+#         mask_full = None
+#         if ui.needs_mask_for_display():
+#             mask_full = expand_roi_mask(mask_roi, cv_bgr.shape, roi_rect)
+#         preview_bgr = make_preview(
+#             cv_bgr, mask_full, blob_result, active_config, ui.current_view_mode()
+#         )
+#         preview_done_tick = time.ticks_ms()
+#         screen_image = ui.render(
+#             preview_bgr, blob_result, vision_fps_value, display_fps_value
+#         )
+#         ui_done_tick = time.ticks_ms()
+#         # screen_image 已经与屏幕同尺寸，先测试默认 show，避免额外 FIT_FILL 路径。
+#         disp.show(screen_image)
+#         display_done_tick = time.ticks_ms()
+#         preview_cost = preview_done_tick - blob_done_tick
+#         ui_cost = ui_done_tick - preview_done_tick
+#         display_cost = display_done_tick - ui_done_tick
+#         # 从 show 完成时开始计下一次间隔，避免显示本身耗时导致下一轮立刻再次到期。
+#         last_display_tick = display_done_tick
+#         force_display = False
+#         screen_was_shown = True
+#         display_fps_frames += 1
+#     else:
+#         display_done_tick = blob_done_tick
+#
+#     vision_fps_frames += 1
+#     fps_elapsed = display_done_tick - fps_tick
+#     if fps_elapsed >= 500:
+#         vision_fps_value = vision_fps_frames * 1000.0 / fps_elapsed
+#         display_fps_value = display_fps_frames * 1000.0 / fps_elapsed
+#         vision_fps_frames = 0
+#         display_fps_frames = 0
+#         fps_tick = display_done_tick
+#
+#     if not perf_ready:
+#         if display_done_tick - warmup_tick >= PERF_WARMUP_MS:
+#             perf_ready = True
+#             perf_tick = display_done_tick
+#     else:
+#         perf_vision_frames += 1
+#         perf_camera_ms += camera_done_tick - loop_tick
+#         perf_resize_ms += resize_done_tick - camera_done_tick
+#         perf_mask_ms += mask_done_tick - resize_done_tick
+#         perf_convert_ms += convert_done_tick - resize_done_tick
+#         perf_threshold_ms += threshold_done_tick - convert_done_tick
+#         perf_open_ms += open_done_tick - threshold_done_tick
+#         perf_close_ms += mask_done_tick - open_done_tick
+#         perf_blob_ms += blob_done_tick - mask_done_tick
+#         if screen_was_shown:
+#             perf_screen_frames += 1
+#             perf_preview_ms += preview_cost
+#             perf_ui_ms += ui_cost
+#             perf_display_ms += display_cost
+#
+#         if display_done_tick - perf_tick >= 2000:
+#             vision_count = max(1, perf_vision_frames)
+#             base_roi = active_config["roi"]
+#             base_roi_width, base_roi_height = base_roi["w"], base_roi["h"]
+#             process_roi_width, process_roi_height = roi_rect[2], roi_rect[3]
+#             mode_name = active_config["mode"]
+#             color_name = active_config["target_color"]
+#             if run_mode:
+#                 print(("[VISION RUN PERF] RFPS:{:.1f} {}/{} ROI:{}x{}->{}x{} MORPH:{} "
+#                        "CAM:{:.1f}ms RSZ:{:.1f}ms "
+#                        "MASK:{:.1f}ms(CVT:{:.1f} THR:{:.1f} OPN:{:.1f} CLS:{:.1f}) "
+#                        "BLOB:{:.1f}ms OK:{} XY:{},{} DXY:{},{} AREA:{}").format(
+#                     vision_fps_value,
+#                     mode_name,
+#                     color_name,
+#                     base_roi_width,
+#                     base_roi_height,
+#                     process_roi_width,
+#                     process_roi_height,
+#                     morph_mode,
+#                     perf_camera_ms / vision_count,
+#                     perf_resize_ms / vision_count,
+#                     perf_mask_ms / vision_count,
+#                     perf_convert_ms / vision_count,
+#                     perf_threshold_ms / vision_count,
+#                     perf_open_ms / vision_count,
+#                     perf_close_ms / vision_count,
+#                     perf_blob_ms / vision_count,
+#                     1 if blob_result["found"] else 0,
+#                     blob_result["cx"],
+#                     blob_result["cy"],
+#                     blob_result["dx"],
+#                     blob_result["dy"],
+#                     blob_result["area"],
+#                 ))
+#             else:
+#                 screen_count = max(1, perf_screen_frames)
+#                 print(("[VISION UI PERF] VFPS:{:.1f} SFPS:{:.1f} {}/{} ROI:{}x{} MORPH:{} "
+#                        "CAM:{:.1f}ms "
+#                        "MASK:{:.1f}ms(CVT:{:.1f} THR:{:.1f} OPN:{:.1f} CLS:{:.1f}) "
+#                        "BLOB:{:.1f}ms PREV:{:.1f}ms "
+#                        "UI:{:.1f}ms DISP:{:.1f}ms").format(
+#                     vision_fps_value,
+#                     display_fps_value,
+#                     mode_name,
+#                     color_name,
+#                     base_roi_width,
+#                     base_roi_height,
+#                     morph_mode,
+#                     perf_camera_ms / vision_count,
+#                     perf_mask_ms / vision_count,
+#                     perf_convert_ms / vision_count,
+#                     perf_threshold_ms / vision_count,
+#                     perf_open_ms / vision_count,
+#                     perf_close_ms / vision_count,
+#                     perf_blob_ms / vision_count,
+#                     perf_preview_ms / screen_count,
+#                     perf_ui_ms / screen_count,
+#                     perf_display_ms / screen_count,
+#                 ))
+#             perf_tick = display_done_tick
+#             perf_vision_frames = 0
+#             perf_screen_frames = 0
+#             perf_camera_ms = 0
+#             perf_resize_ms = 0
+#             perf_mask_ms = 0
+#             perf_convert_ms = 0
+#             perf_threshold_ms = 0
+#             perf_open_ms = 0
+#             perf_close_ms = 0
+#             perf_blob_ms = 0
+#             perf_preview_ms = 0
+#             perf_ui_ms = 0
+#             perf_display_ms = 0
+#
+#     # 4. RUN 虽不刷新屏幕，仍持续轮询触摸，因此静态“返回”按钮可以正常退出。
+#     touch_event = touch_input.poll()
+#     if touch_event is not None:
+#         action = ui.handle_touch(touch_event[0], touch_event[1], touch_event[2])
+#         if not touch_event[2] and not run_mode:
+#             force_display = True
+#         if action is not None and action.get("type") == "save":
+#             saved_config, save_status = config_store.save(action["config"])
+#             if saved_config is None:
+#                 ui.save_failed(save_status)
+#             elif action.get("stay", False):
+#                 ui.set_saved_config(saved_config, save_status)
+#             else:
+#                 ui.save_succeeded(saved_config, save_status)
+#             force_display = True
+#
+#     time.sleep_ms(1)
+#
 # ############################ 圆环检测测试 ############################################################################
 
 # from maix import camera, display, app, time, image

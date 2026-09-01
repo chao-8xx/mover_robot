@@ -76,6 +76,15 @@ add_executable(${CMAKE_PROJECT_NAME}
         APP/Src/bfs.c
         Control/Inc/system.h
         Control/Src/system.c
+        APP/Src/track_map.c
+        APP/Inc/track_map.h
+        APP/Src/planner.c
+        APP/Inc/planner.h
+        APP/Src/grid.c
+        APP/Inc/grid.h
+        APP/Src/map_test.c
+        APP/Inc/map_test.h
+
 )
 
 # Add STM32CubeMX generated sources
@@ -101,7 +110,6 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user defined include paths
         BSP/Inc
         APP/Inc
-        Control/Inc
 )
 
 # Add include paths for STM32 HAL and USB middleware

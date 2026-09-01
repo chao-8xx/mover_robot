@@ -22,48 +22,96 @@
 #define MAIX_RING_2    0xD2
 #define MAIX_RING_3    0xD3
 
-// maix 定长通信协议帧
+// maix 视觉任务窗口滤波参数
+#define MAIX_WINDOW_SIZE       5
+#define MAIX_VALID_MIN         3
+#define MAIX_STABLE_DX_SPAN    8
+#define MAIX_STABLE_DY_SPAN    8
+#define MAIX_TIMEOUT_MS        300
+
+// cam 状态机状态枚举
+typedef enum {
+    cam_wait_aa = 0,
+    cam_wait_55,
+    cam_wait_cmd,
+    cam_wait_len,
+    cam_wait_data,
+    cam_wait_sum
+} cam_state_t;
+
+// Maix单帧原始结果缓存，用于窗口判定
+typedef struct
+{
+    uint8_t ok;
+    int16_t dx;
+    int16_t dy;
+} maix_filter_t;
+
+// Maix 单帧原始定长通信协议帧
 typedef struct
 {
     uint8_t cmd;        // 命令码
-    uint8_t target;     // 目标任务
-    uint8_t ok;         // 结果标志位
+    uint8_t target;     // 目标任务  F407 当前下发的颜色/数字目标
+    uint8_t frame_id;   // Maix 单字节视觉帧ID
+    uint8_t ok;         // 当前单帧识别结果
     int16_t dx;         // X偏差值
     int16_t dy;         // Y偏差值
-    uint32_t tick;      // 结果时间戳
+    uint32_t tick;      // F407 接收此原始帧的时间
     uint8_t new_data;   // 是否有新数据
 } maix_vision_t;
 
-extern maix_vision_t maix_vision;
+// F407根据最近5个不重复FRAME_ID计算的控制层结果
+// valid：窗口内至少3帧OK；stable：至少3个OK坐标落在设定跨度内
+typedef struct
+{
+    uint8_t cmd;
+    uint8_t target;
+    uint8_t frame_id;    // 最近参与窗口计算的单帧ID
+    uint8_t valid;
+    uint8_t stable;
+    uint8_t valid_count;
+    uint8_t sample_count;
+    int16_t dx;          // stable时取最佳三帧中值，否则取全部有效帧中值
+    int16_t dy;
+    uint32_t tick;       // 最近一个不重复原始帧的F407接收时间
+    uint8_t new_data;
+} maix_result_t;
 
-///////////////////////////////////// 通信协议解析 //////////////////////////////
-uint8_t check_sum(uint8_t cmd, uint8_t len, const uint8_t *p);
+//////////////////////////////////// 摄像头共用USART1接收层 //////////////////////////////
+void cam_init(UART_HandleTypeDef *huart);
+void cam_rx_callback(UART_HandleTypeDef *huart, uint16_t Size);
+void cam_error_callback(UART_HandleTypeDef *huart);
 
-void openmv_byte_handle(uint8_t byte);
-void maix_byte_handle(uint8_t byte);
-
-uint8_t is_maix_cmd(uint8_t cmd);
+///////////////////////////////////// 通信协议解析 ////////////////////////////////////////
 int16_t read_i16_le(const uint8_t *p);
-void maix_swap_rx_buffer(void);
-void maix_parse_ready_frame(void);
+uint8_t check_sum(uint8_t cmd, uint8_t len, const uint8_t *p);
+void cam_byte_handle(uint8_t byte);
+void cam_rx_handle(void);
+void cam_frame_handle(uint8_t cmd, const uint8_t *data, uint8_t len);
+void openmv_frame_handle(const uint8_t *data, uint8_t len);
+void maix_frame_handle(uint8_t cmd, const uint8_t *data, uint8_t len);
 
-///////////////////////////////////// openmv扫码任务 //////////////////////////////
-void openmv_uart_init(UART_HandleTypeDef *huart);
-void openmv_uart_rx_callback(UART_HandleTypeDef *huart);
-void openmv_uart_error_callback(UART_HandleTypeDef *huart);
+///////////////////////////////////// maix稳定化处理 ////////////////////////////////////////
+void maix_filter_reset(void);
+void maix_filter_handle(const maix_vision_t *raw);
+
+///////////////////////////////////// OpenMV扫码任务 //////////////////////////////
 void openmv_send_start_scan(void);
 void openmv_send_stop_scan(void);
 void openmv_qr_task(void);
 
 //////////////////////////////////// maix 视觉任务 ///////////////////////////////////////////
-void maix_uart_init(UART_HandleTypeDef *huart);
-void maix_uart_rx_callback(UART_HandleTypeDef *huart);
-void maix_uart_error_callback(UART_HandleTypeDef *huart);
 void maix_send_frame(uint8_t cmd, const uint8_t *data, uint8_t len);
 void maix_stop(void);
 void maix_start_blob(uint8_t color);
 void maix_start_ring(uint8_t number);
 void maix_start_onup(uint8_t color);
+void maix_result_task(void);
 uint8_t maix_get_result(maix_vision_t *out);
+uint8_t maix_get_filtered_result(maix_result_t *out);
+
+extern maix_vision_t maix_vision;
+extern maix_result_t maix_result;
+extern volatile uint8_t cam_rx_flag;   // 接收完成标志位
 
 #endif //GONGXUN_1_CAMERA_H

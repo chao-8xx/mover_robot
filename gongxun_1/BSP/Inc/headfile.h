@@ -12,6 +12,7 @@
 #include <string.h>
 #include <stdbool.h>
 #include <stdarg.h>     /* 为了使用可变参数 va_list */
+#include <stddef.h>
 #include <math.h>
 
 #include "main.h"
@@ -39,6 +40,12 @@
 #include "hmi.h"        // 串口屏
 
 
+#include "../../APP/Inc/test.h"     // 各模块测试函数
+#include "../../APP/Inc/hmi_app.h"  // hmi 应用层函数
+#include "../../APP/Inc/grid.h"       // 48x48占据栅格
+#include "../../APP/Inc/track_map.h"  // 5x5赛道拓扑
+#include "../../APP/Inc/planner.h"    // BFS与动态重规划
+#include "../../APP/Inc/map_test.h"   // 地图/规划软件测试
 #include "pid.h"        // PID控制算法
 #include "bfs.h"        // BFS广度优先搜索算法
 #include "chassis.h"    // 底盘控制
