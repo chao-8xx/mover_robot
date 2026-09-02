@@ -4,24 +4,6 @@
 
 #include "headfile.h"
 
-// cam 通信协议
-// 协议: AA 55 CMD LEN DATA SUM
-// DATA数据: TARGET OK dxL dxH dyL dyH
-#define HEAD1    0xAA           // 帧头
-#define HEAD2    0x55
-#define CMD_MV   0xB1           // 命令位 让openmv 扫码
-#define CMD_QR   0xBB           // 命令位 接收openmv 二维码数据
-#define MAIX_CMD_NONE  0xB0
-#define MAIX_CMD_BLOB  0xB2     // 物料识别
-#define MAIX_CMD_RING  0xB3     // 圆环识别
-#define MAIX_CMD_ONUP  0xB4     // 码垛检测
-
-#define CAM_LEN         256   // cam 接收缓冲区长度
-#define CAM_DATA_LEN    32    // cam 协议层最大帧长
-#define QR_DATA_LEN     15    // openmv 扫码数据帧长度
-#define MAIX_DATA_LEN   6     // maix 数据帧长
-
-
 static UART_HandleTypeDef *cam_uart = NULL;
 
 // 通信协议变量
@@ -44,6 +26,7 @@ volatile uint8_t cam_error_flag = 0; // 错误回调标志位
 uint8_t qr_tx_frame[6];          // OpenMV控制命令发送缓冲区
 uint8_t qr_data[QR_DATA_LEN + 1];// 接收到的二维码数据
 uint8_t qr_ok = 0;               // 接收到二维码数据的标志位
+uint32_t qr_tick = 0;             // F407收到二维码结果的时间
 
 
 
@@ -247,6 +230,7 @@ void openmv_frame_handle(const uint8_t *data, uint8_t len)
 
     memcpy(qr_data, data, QR_DATA_LEN); // 复制数据到 qr_data
     qr_data[QR_DATA_LEN] = '\0';    // 字符串结束符
+    qr_tick = HAL_GetTick();
     qr_ok = 1;                      // 标记收到二维码数据
 
 }
@@ -289,6 +273,7 @@ void cam_init(UART_HandleTypeDef *huart)
     cam_sum = 0;
 
     qr_ok = 0;
+    qr_tick = 0;
 
     memset(&maix_vision, 0, sizeof(maix_vision));   // 内存清空
     maix_now_cmd = MAIX_CMD_NONE;
@@ -298,6 +283,31 @@ void cam_init(UART_HandleTypeDef *huart)
     // 开启DMA空闲中断接收 IDLE只通知主循环批量处理新字节
     HAL_UARTEx_ReceiveToIdle_DMA(cam_uart, cam_rx_buf, CAM_LEN);
     __HAL_DMA_DISABLE_IT(cam_uart->hdmarx,DMA_IT_HT);      // 禁止半传输中断
+}
+
+// 串口接收缓冲区清空，丢弃所有未处理的字节
+void cam_empty_rx(void)
+{
+    uint16_t wr = 0;
+
+    if (cam_uart != NULL && cam_uart->hdmarx != NULL)
+    {
+        wr = CAM_LEN - __HAL_DMA_GET_COUNTER(cam_uart->hdmarx);
+        if (wr >= CAM_LEN)
+            wr = 0;
+    }
+
+    cam_rd = wr;
+    cam_state = cam_wait_aa;
+    cam_cmd = 0;
+    cam_len = 0;
+    cam_idx = 0;
+    cam_sum = 0;
+    cam_rx_flag = 0;
+
+    qr_ok = 0;
+    qr_tick = 0;
+    qr_data[0] = '\0';
 }
 
 // cam 串口接收中断回调   USART1
@@ -471,7 +481,7 @@ void maix_filter_handle(const maix_vision_t *raw)
         }
     }
 
-    maix_result.new_data = 1U;
+    maix_result.new_data = 1;
 }
 
 
@@ -492,11 +502,12 @@ void openmv_send_start_scan(void)
     qr_tx_frame[5] = check_sum(CMD_MV, 1, &dat);  // 校验
 
     qr_ok = 0;  // 清除旧结果
+    qr_tick = 0;
 
     // 阻塞发送直接确认发送结果
     HAL_StatusTypeDef status =
         HAL_UART_Transmit(cam_uart, qr_tx_frame, sizeof(qr_tx_frame), 100);
-    printf("OpenMV start status=%d: AA 55 B1 01 01 %02X\r\n",
+    printf("[OpenMV] 开始扫码   发送指令=%d: AA 55 B1 01 01 %02X\r\n",
            status, qr_tx_frame[5]);
 }
 
@@ -516,18 +527,32 @@ void openmv_send_stop_scan(void)
 
     HAL_StatusTypeDef status =
         HAL_UART_Transmit(cam_uart, qr_tx_frame, sizeof(qr_tx_frame), 100);
-    printf("OpenMV stop status=%d: AA 55 B1 01 00 %02X\r\n",
-           status, qr_tx_frame[5]);
+    printf("[OpenMV] 停止扫码   发送指令=%d: AA 55 B1 01 00 %02X\r\n",
+        status, qr_tx_frame[5]);
 }
 
 // openmv 扫码任务
 void openmv_qr_task(void)
 {
-    if (!qr_ok) return;
+    qr_result_t result;
 
-    qr_ok = 0;   // 重复标志位
+    if (!openmv_get_qr_result(&result)) return;
+
     led_on();    // 亮灯提示收到码
-    printf("OpenMV 扫码结果: %s\r\n", qr_data);
+    printf("OpenMV 扫码结果: %s\r\n", result.qr_data);
+}
+
+// 读取OpenMV任务码结果
+uint8_t openmv_get_qr_result(qr_result_t *out)
+{
+    if (out == NULL || !qr_ok)
+        return 0;
+
+    memcpy(out->qr_data, qr_data, QR_DATA_LEN + 1);
+    out->qr_tick = qr_tick;
+    out->qr_ok = qr_ok;
+    qr_ok = 0;  // 一帧BB只允许上层消费一次
+    return 1;
 }
 
 //////////////////////////////////// maix 视觉任务 ///////////////////////////////////////////

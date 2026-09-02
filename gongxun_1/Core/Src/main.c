@@ -109,9 +109,17 @@ int main(void)
   // hmi_SetText("t1", "工训赛");
   // hmi_SetText("t1", "240V");
 
-  HAL_Delay(1500);
+  // HAL_Delay(1500);
 
-  lidar_start();
+  // camera_maix_b2_test();
+  // camera_openmv_test();
+  cam_all_test();
+
+  // lidar_start();
+
+  // tf2d_test_polar();
+  // tf2d_test_base();
+  // tf2d_test_map();
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -122,6 +130,7 @@ int main(void)
 
     // hwt_test();
 
+    // tf2d_test();  // Maix B2单项测试期间禁用周期日志，避免干扰USART6观察
 
     // key_handle();     // 按键处理
 

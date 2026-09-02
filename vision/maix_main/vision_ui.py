@@ -30,7 +30,6 @@ from vision_tasks import (
 PAGE_TASKS = "TASKS"
 PAGE_HOME = "HOME"
 PAGE_RUN = "RUN"
-PAGE_PLACEHOLDER = "PLACEHOLDER"
 PAGE_CALIBRATE = "CALIBRATE"
 PAGE_ROI = "ROI"
 PAGE_CENTER = "CENTER"
@@ -198,16 +197,19 @@ class VisionUI:
         return self.saved_config
 
     def _task_config(self, config=None):
-        """ROI/中心编辑器复用页面，但任务一和任务二使用完全独立参数。"""
+        """复用ROI/中心编辑器，同时保持三个任务的几何参数相互独立。"""
         value = config if config is not None else self.draft_config
         if self.selected_task == TASK_RING:
             return value["ring"]
+        if self.selected_task == TASK_STACK:
+            return value["stack"]
         return value
 
     def is_run_mode(self):
-        """运行页使用独立高速循环，主程序据此跳过预览和屏幕刷新。"""
+        """运行页使用高速识别循环，主程序据此限制预览刷新频率。"""
         return (
-            (self.selected_task == TASK_MATERIAL and self.page == PAGE_RUN) or
+            (self.selected_task in (TASK_MATERIAL, TASK_STACK) and
+             self.page == PAGE_RUN) or
             (self.selected_task == TASK_RING and self.page == PAGE_RING_RUN)
         )
 
@@ -216,7 +218,7 @@ class VisionUI:
         return self.selected_task if self.page != PAGE_TASKS else TASK_NONE
 
     def set_external_task(self, task_id):
-        """F407拥有任务选择权时，直接切换到对应运行或占位状态页。"""
+        """F407拥有任务选择权时，直接切换到对应高速运行页。"""
         task_id = task_id if task_id in (TASK_MATERIAL, TASK_RING, TASK_STACK) else TASK_NONE
         target_page = PAGE_TASKS
         if task_id == TASK_MATERIAL:
@@ -224,7 +226,7 @@ class VisionUI:
         elif task_id == TASK_RING:
             target_page = PAGE_RING_RUN
         elif task_id == TASK_STACK:
-            target_page = PAGE_PLACEHOLDER
+            target_page = PAGE_RUN
 
         changed = (
             not self.external_control or
@@ -244,9 +246,9 @@ class VisionUI:
         elif task_id == TASK_MATERIAL:
             self.message = "F407 已启动物料识别"
         elif task_id == TASK_RING:
-            self.message = "F407 已启动圆环候选检测"
+            self.message = "F407 已启动2号圆环定位"
         else:
-            self.message = TASK_LABELS[task_id] + "尚未实现"
+            self.message = "F407 已启动码垛物料识别"
         self._invalidate()
 
     def set_external_run(self, enabled):
@@ -265,11 +267,12 @@ class VisionUI:
         self._invalidate()
 
     def set_runtime_ring_target(self, target_number):
-        target_number = _clamp(target_number, 1, 3)
-        if self.saved_config["ring"]["target_number"] == target_number:
+        # 新版B3固定确认数字2；保留入口兼容旧主程序调用。
+        target_number = 2
+        if self.saved_config["ring"]["target_number"] == 2:
             return
         self.saved_config["ring"]["target_number"] = target_number
-        self.message = "F407 圆环目标：{}".format(target_number)
+        self.message = "F407 圆环目标：2"
         self._invalidate()
 
     def current_view_mode(self):
@@ -318,7 +321,7 @@ class VisionUI:
         elif task_id == TASK_RING:
             self.page = PAGE_RING_HOME
         else:
-            self.page = PAGE_PLACEHOLDER
+            self.page = PAGE_HOME
         self.message = TASK_LABELS[task_id]
         self.mode_popup = False
         self.color_popup = False
@@ -451,8 +454,8 @@ class VisionUI:
 
         items = (
             ("SELECT_TASK_1", "任务一  物料识别", True),
-            ("SELECT_TASK_2", "任务二  数字与圆环定位", False),
-            ("SELECT_TASK_3", "任务三  码垛堆放", False),
+            ("SELECT_TASK_2", "任务二  2号圆环定位", True),
+            ("SELECT_TASK_3", "任务三  码垛堆放", True),
         )
         if self.portrait:
             start_y = 118
@@ -468,45 +471,17 @@ class VisionUI:
                 rect = (16 + index * (button_w + gap), 128, button_w, self.screen_h - 190)
                 self._button(canvas, item[0], rect, item[1], active=item[2], font="small")
 
-        self._text("任务一已验收 · 任务二/三为安全占位", 0, 0, ACCENT, "small",
+        self._text("B2/B4共享颜色识别 · B3仅确认数字2", 0, 0, ACCENT, "small",
                    (10, self.screen_h - 54, self.screen_w - 20, 36))
         self.preview_rect = None
 
-    def _draw_placeholder(self, canvas):
-        title = TASK_LABELS.get(self.selected_task, "视觉任务")
-        self._header(canvas, title, back=not self.external_control)
-        card_w = min(420, self.screen_w - 30)
-        card_h = min(260, self.screen_h - 150)
-        card_x = (self.screen_w - card_w) // 2
-        card_y = max(82, (self.screen_h - card_h) // 2)
-        self._round_rect(canvas, (card_x, card_y, card_w, card_h), PANEL, 16)
-        self._round_rect(canvas, (card_x, card_y, card_w, card_h), BORDER, 16, 2)
-        self._text("任务框架已接入", 0, 0, WHITE, "title",
-                   (card_x + 10, card_y + 40, card_w - 20, 48))
-        self._text("当前阶段不运行旧原型算法", 0, 0, MUTED, "normal",
-                   (card_x + 10, card_y + 108, card_w - 20, 42))
-        self._text("下一阶段单独开发并真机验收", 0, 0, ACCENT, "small",
-                   (card_x + 10, card_y + card_h - 68, card_w - 20, 36))
-        self.preview_rect = None
-
-    def _draw_ring_target_buttons(self, canvas, y, x=10, width=None):
-        width = self.screen_w - 20 if width is None else width
-        gap = 8
-        button_w = (width - gap * 2) // 3
-        target = self.saved_config["ring"]["target_number"]
-        for index, number in enumerate((1, 2, 3)):
-            self._button(
-                canvas,
-                "RING_TARGET_" + str(number),
-                (x + index * (button_w + gap), y, button_w, 44),
-                "目标 " + str(number),
-                active=target == number,
-                font="small",
-            )
-
     def _draw_ring_view_buttons(self, canvas, y, x=10, width=None):
         width = self.screen_w - 20 if width is None else width
-        items = ((VIEW_RAW, "原图"), (VIEW_MASK, "MASK"), (VIEW_OVERLAY, "候选"))
+        items = (
+            (VIEW_RAW, "原图"),
+            (VIEW_MASK, "MASK"),
+            (VIEW_OVERLAY, "候选"),
+        )
         gap = 8
         button_w = (width - gap * 2) // 3
         for index, item in enumerate(items):
@@ -520,31 +495,29 @@ class VisionUI:
             )
 
     def _draw_ring_home(self, canvas, preview_bgr, result):
-        self._header(canvas, "任务二 数字与圆环定位", back=True)
+        self._header(canvas, "任务二 2号圆环定位", back=True)
         if self.portrait:
             rect = self._preview(canvas, preview_bgr, (8, 55, self.screen_w - 16, 292))
             y = rect[1] + rect[3] + 8
-            self._draw_ring_target_buttons(canvas, y)
-            self._draw_ring_view_buttons(canvas, y + 52)
-            self._button(canvas, "START_RING_RUN", (12, y + 104, self.screen_w - 24, 54),
-                         "开始候选检测", active=True, font="normal")
+            self._draw_ring_view_buttons(canvas, y)
+            self._button(canvas, "START_RING_RUN", (12, y + 52, self.screen_w - 24, 54),
+                         "开始定位2号圆环", active=True, font="normal")
             self._button(canvas, "OPEN_RING_CALIBRATE",
-                         (12, y + 166, self.screen_w - 24, 54),
+                         (12, y + 114, self.screen_w - 24, 54),
                          "任务二调参", font="normal")
         else:
             rect = self._preview(canvas, preview_bgr,
                                  (8, 55, int(self.screen_w * 0.62), self.screen_h - 63))
             panel_x = rect[0] + rect[2] + 10
             panel_w = self.screen_w - panel_x - 8
-            self._draw_ring_target_buttons(canvas, 66, panel_x, panel_w)
-            self._draw_ring_view_buttons(canvas, 120, panel_x, panel_w)
-            self._button(canvas, "START_RING_RUN", (panel_x, 182, panel_w, 64),
-                         "开始检测", active=True, font="small")
-            self._button(canvas, "OPEN_RING_CALIBRATE", (panel_x, 258, panel_w, 64),
+            self._draw_ring_view_buttons(canvas, 66, panel_x, panel_w)
+            self._button(canvas, "START_RING_RUN", (panel_x, 128, panel_w, 64),
+                         "定位数字2", active=True, font="small")
+            self._button(canvas, "OPEN_RING_CALIBRATE", (panel_x, 204, panel_w, 64),
                          "任务二调参", font="small")
 
     def _draw_ring_run(self, canvas, preview_bgr, result):
-        self._header(canvas, "圆环候选检测", back=not self.external_control)
+        self._header(canvas, "2号圆环定位", back=not self.external_control)
         area = ((8, 55, self.screen_w - 16, self.screen_h - 67) if self.portrait else
                 (8, 55, self.screen_w - 16, self.screen_h - 63))
         self._preview(canvas, preview_bgr, area)
@@ -646,7 +619,7 @@ class VisionUI:
             self._button(canvas, "RESTORE_EDITOR", (x, 388, w, 48), "恢复上次")
 
     def _draw_home(self, canvas, preview_bgr, result):
-        self._header(canvas, "任务一 物料识别", back=True)
+        self._header(canvas, TASK_LABELS.get(self.selected_task, "颜色识别"), back=True)
         cv2.circle(canvas, (18, 25), 6, ACCENT, -1)
         self._text("LIVE", 29, 14, ACCENT, "small")
 
@@ -758,33 +731,11 @@ class VisionUI:
         self.preview_rect = None
 
     def _draw_run(self, canvas, preview_bgr, result):
-        """运行页是静态状态页；进入时显示一次，之后不参与识别循环绘制。"""
-        self._header(canvas, "运行中", exit_run=True)
-        config = self.saved_config
-        center_x = self.screen_w // 2
-        center_y = self.screen_h // 2 - (38 if self.portrait else 8)
-
-        # 大面积静态状态卡让比赛现场一眼可见当前确实处于高速识别状态。
-        card_w = min(420, self.screen_w - 28)
-        card_h = min(300, self.screen_h - 150)
-        card_x = (self.screen_w - card_w) // 2
-        card_y = max(66, center_y - card_h // 2)
-        self._round_rect(canvas, (card_x, card_y, card_w, card_h), PANEL, 16)
-        self._round_rect(canvas, (card_x, card_y, card_w, card_h), ACCENT, 16, 2)
-        cv2.circle(canvas, (center_x, card_y + 72), 26, ACCENT, -1)
-        cv2.circle(canvas, (center_x, card_y + 72), 36, (45, 88, 75), 3)
-        self._text("高速识别已启动", 0, 0, WHITE, "title",
-                   (card_x + 8, card_y + 112, card_w - 16, 44))
-        self._text(
-            "{} · {}{}".format(
-                config["mode"], COLOR_LABELS[config["target_color"]],
-                COLOR_NUMBERS[config["target_color"]]
-            ), 0, 0, ACCENT, "normal",
-            (card_x + 12, card_y + 166, card_w - 24, 38)
-        )
-        self._text("屏幕停止刷新，视觉持续识别", 0, 0, MUTED, "small",
-                   (card_x + 10, card_y + card_h - 58, card_w - 20, 34))
-        self.preview_rect = None
+        """B2/B4运行页；主循环限频粘贴实时预览。"""
+        self._header(canvas, TASK_LABELS.get(self.selected_task, "运行中"), exit_run=True)
+        area = ((8, 55, self.screen_w - 16, self.screen_h - 67) if self.portrait else
+                (8, 55, self.screen_w - 16, self.screen_h - 63))
+        self._preview(canvas, preview_bgr, area)
 
     def _draw_calibrate(self, canvas, preview_bgr):
         self._header(canvas, "调参", back=True)
@@ -921,7 +872,12 @@ class VisionUI:
             self._button(canvas, reset_id, (x, 388, w, 45), reset_label, font="small")
 
     def _draw_roi(self, canvas, preview_bgr):
-        title = "圆环 ROI" if self.selected_task == TASK_RING else "ROI 识别区域"
+        if self.selected_task == TASK_RING:
+            title = "圆环 ROI"
+        elif self.selected_task == TASK_STACK:
+            title = "码垛 ROI"
+        else:
+            title = "ROI 识别区域"
         self._header(canvas, title, back=True)
         area = ((8, 55, self.screen_w - 16, 348) if self.portrait else
                 (8, 55, int(self.screen_w * 0.64), self.screen_h - 63))
@@ -943,7 +899,12 @@ class VisionUI:
         cv2.circle(canvas, (sx, sy), 13, color, 2)
 
     def _draw_center(self, canvas, preview_bgr):
-        title = "圆环对准中心" if self.selected_task == TASK_RING else "取中心点"
+        if self.selected_task == TASK_RING:
+            title = "圆环对准中心"
+        elif self.selected_task == TASK_STACK:
+            title = "码垛对准中心"
+        else:
+            title = "取中心点"
         self._header(canvas, title, back=True)
         area = ((8, 55, self.screen_w - 16, 348) if self.portrait else
                 (8, 55, int(self.screen_w * 0.64), self.screen_h - 63))
@@ -1097,8 +1058,6 @@ class VisionUI:
             self._draw_home(canvas, preview_bgr, result)
         elif self.page == PAGE_RUN:
             self._draw_run(canvas, preview_bgr, result)
-        elif self.page == PAGE_PLACEHOLDER:
-            self._draw_placeholder(canvas)
         elif self.page == PAGE_RING_HOME:
             self._draw_ring_home(canvas, preview_bgr, result)
         elif self.page == PAGE_RING_RUN:
@@ -1188,10 +1147,10 @@ class VisionUI:
                     (x + 9, y + 20),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.43, (80, 255, 170), 1)
         if self.selected_task == TASK_RING:
-            info = "TARGET:{}  CAND:{}  CNT:{}".format(
-                result.get("target_number", self.saved_config["ring"]["target_number"]),
+            info = "C:{} TWO:{} {}".format(
                 result.get("candidate_count", 0),
-                result.get("contour_count", 0),
+                1 if result.get("is_two_confirmed", False) else 0,
+                result.get("state", "SEARCH"),
             )
         elif result["found"]:
             info = "AREA:{}  DX:{}  DY:{}".format(
@@ -1456,11 +1415,6 @@ class VisionUI:
             value = copy.deepcopy(self.saved_config)
             value["target_color"] = color_key
             self.color_popup = False
-            return {"type": "save", "config": value, "stay": True}
-        elif button_id.startswith("RING_TARGET_"):
-            number = int(button_id.split("_")[-1])
-            value = copy.deepcopy(self.saved_config)
-            value["ring"]["target_number"] = number
             return {"type": "save", "config": value, "stay": True}
         elif button_id.startswith("RING_VIEW_"):
             self.ring_view_mode = button_id[len("RING_VIEW_"):]
