@@ -1,6 +1,5 @@
 #ifndef GONGXUN_1_CATCH_H
 #define GONGXUN_1_CATCH_H
-#include "headfile.h"
 
 // 夹爪当前模式：夹住/松开
 typedef enum {
@@ -15,18 +14,21 @@ typedef enum {
     LOCATION_3   // 三号位
 } Turntable_Pos;
 
-// 抓取装置当前模式：夹住/松开
+// 升降装置当前高度
 typedef enum {
-    Free,         // 空闲：等待Maix抓取指令
-    Search,       // 搜寻：获取物料坐标，等待抓取
-    Calibration,  // 校准：根据物料校准车身姿态和位置
-    Catch,        // 抓取：从开始抓取到抓着物料上升
-    Put           // 放置：旋转到转盘位置并放置到转盘处
-} Catch_Mode;
+    PUT_HEIGHT,     // 放置高度
+    PICK_HEIGHT,    // 升起高度（默认高度）
+    CATCH_HEIGHT    // 抓取高度
+} Lift_Height;
 
-extern Catch_Mode catch_mode;   // 抓取机构状态机（其它文件也能读写）
-extern Claw_State claw_state;   // 夹爪当前状态
-extern Turntable_Pos turn_pos;  // 转盘当前位置
+// 伸缩装置当前伸出距离
+typedef enum {
+    PUT_DIST,       // 放置距离
+    SEARCH_DIST,    // 原料区搜索距离
+    ORIGIN_DIST     // 原点距离
+} Stretch_Dist;
+
+#include "headfile.h"
 
 // 抓取装置位置复位
 void catch_init(void);

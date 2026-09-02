@@ -21,19 +21,13 @@
 // 丝杆控制夹爪高度变化(闭环步进电机)
 #define PULSE_PER_CIRCLE  3200      // 一圈的脉冲数
 #define MM_PER_CIRCLE     8         // 一圈升降的距离mm
-#define HIGH_PICK_CM     (-8.0f)    // 夹爪从最高点到拿起位置cm
-#define PICK_HIGH_CM     (8.0f)     // 夹爪从拿起位置到最高点
-#define PICK_PUT_CM      (-2.0f)    // 拿起到放置
-#define PUT_PICK_CM      (2.0f)     // 放置到拿起
-#define PICK_CATCH_CM    (-4.0f)    // 拿起到抓取
-#define CATCH_PICK_CM    (4.0f)     // 抓取到拿起
+#define PICK_PUT_CM      (-1.5f)    // 拿起到放置
+#define PUT_PICK_CM      (1.5f)     // 放置到拿起
+#define PICK_CATCH_CM    (-15.0f)   // 拿起到抓取
+#define CATCH_PICK_CM    (15.0f)    // 抓取到拿起
 
 // 电机速度
-#define STEP_MOVE_SPEED     1500     // 丝杆电机位置模式移动速度
-
-Catch_Mode catch_mode = Free;           // 抓取机构状态机
-Claw_State claw_state = LOOSE;          // 夹爪当前状态
-Turntable_Pos turn_pos = LOCATION_1;    // 转盘当前位置
+#define STEP_MOVE_SPEED     1700     // 丝杆电机位置模式移动速度
 
 // 升降非阻塞计时：预计完成时刻 + busy 标志
 static volatile uint8_t lift_busy = 0;      // 升降装置

@@ -94,6 +94,8 @@ add_executable(${CMAKE_PROJECT_NAME}
         Test/Inc/run_test.h
         Test/Src/bfs_test.c
         Test/Inc/bfs_test.h
+        Control/Src/task.c
+        Control/Inc/task.h
 
 )
 
