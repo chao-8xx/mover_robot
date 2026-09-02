@@ -5,7 +5,7 @@
 void uart_init(void)
 {
     cam_init(&huart1);
-    hwt101_init(&huart3);
+    my_hwt101_init();
     lidar_init(&huart4);
     hmi_init(&huart5);          // 串口屏
 }

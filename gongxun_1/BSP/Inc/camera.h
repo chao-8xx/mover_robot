@@ -7,6 +7,19 @@
 
 #include "headfile.h"
 
+
+// cam 通信协议
+// 协议: AA 55 CMD LEN DATA SUM
+// Maix DATA数据: FRAME_ID OK dxL dxH dyL dyH
+#define HEAD1    0xAA           // 帧头
+#define HEAD2    0x55
+#define CMD_MV   0xB1           // 命令位 让openmv 扫码
+#define CMD_QR   0xBB           // 命令位 接收openmv 二维码数据
+#define MAIX_CMD_NONE  0xB0
+#define MAIX_CMD_BLOB  0xB2     // 物料识别
+#define MAIX_CMD_RING  0xB3     // 圆环识别
+#define MAIX_CMD_ONUP  0xB4     // 码垛检测
+
 // 颜色指令码
 #define MAIX_COLOR_NONE       0xC0
 #define MAIX_COLOR_RED        0xC1
@@ -21,6 +34,12 @@
 #define MAIX_RING_1    0xD1
 #define MAIX_RING_2    0xD2
 #define MAIX_RING_3    0xD3
+
+// 缓冲区及数据帧字节定长
+#define CAM_LEN         256   // cam 接收缓冲区长度
+#define CAM_DATA_LEN    32    // cam 协议层最大帧长
+#define QR_DATA_LEN     15    // openmv 扫码数据帧长度
+#define MAIX_DATA_LEN   6     // maix 数据帧长
 
 // maix 视觉任务窗口滤波参数
 #define MAIX_WINDOW_SIZE       5
@@ -77,10 +96,19 @@ typedef struct
     uint8_t new_data;
 } maix_result_t;
 
+// OpenMV固定15字节任务码及其在F407上的接收时间
+typedef struct
+{
+    char qr_data[QR_DATA_LEN + 1];
+    uint8_t qr_ok;
+    uint32_t qr_tick;
+} qr_result_t;
+
 //////////////////////////////////// 摄像头共用USART1接收层 //////////////////////////////
 void cam_init(UART_HandleTypeDef *huart);
 void cam_rx_callback(UART_HandleTypeDef *huart, uint16_t Size);
 void cam_error_callback(UART_HandleTypeDef *huart);
+void cam_empty_rx(void);
 
 ///////////////////////////////////// 通信协议解析 ////////////////////////////////////////
 int16_t read_i16_le(const uint8_t *p);
@@ -99,6 +127,7 @@ void maix_filter_handle(const maix_vision_t *raw);
 void openmv_send_start_scan(void);
 void openmv_send_stop_scan(void);
 void openmv_qr_task(void);
+uint8_t openmv_get_qr_result(qr_result_t *out);
 
 //////////////////////////////////// maix 视觉任务 ///////////////////////////////////////////
 void maix_send_frame(uint8_t cmd, const uint8_t *data, uint8_t len);

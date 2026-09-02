@@ -1,13 +1,16 @@
 files:
+  - app.png
+  - app.yaml
   - main.py
-  - vision_config.py
   - vision_blob.py
+  - vision_config.py
+  - vision_ocr.py
   - vision_ring.py
   - vision_tasks.py
   - vision_ui.py
 id: gongxun_1
 name: 工训文件_1
-version: 1.0.0
+version: 1.0.1
 author: chao
 icon: app.png
 desc: gongxun

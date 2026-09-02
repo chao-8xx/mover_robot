@@ -1,9 +1,9 @@
-# 当前阶段正式入口：三任务首页、任务调度、B2物料识别和F407任务控制。
-# B3圆环数字和B4码垛只接入安全占位页，本轮不运行旧原型算法。
+# 当前阶段正式入口：B2/B4共享颜色识别，B3只确认2号后跟踪圆心。
+# B2/B3/B4均以20Hz发送坐标结果。
 # 协议: AA 55 CMD LEN DATA SUM
 # 返回坐标包 DATA: FRAME_ID RAW_OK dxL dxH dyL dyH
 
-from maix import camera, display, app, time, image, touchscreen, uart
+from maix import camera, display, app, time, image, touchscreen, uart, pinmap, gpio, err
 import cv2
 import numpy as np
 import math
@@ -34,8 +34,10 @@ from vision_tasks import (
     TASK_RING,
     TASK_STACK,
     TaskManager,
+    safe_xy_result,
 )
 from vision_ring import make_ring_preview
+from vision_ocr import warmup_two_templates
 
 # 通信协议
 HEAD1 = 0XAA
@@ -94,8 +96,60 @@ SEARCH_Y2 = image_height
 SEND_TIME_MS = 50   # 与已完成的 B2 测试一致：平均 20Hz 发送最新单帧结果
 TX_DEBUG_TIME_MS = 1000    # 调试打印发送数据包间隔，避免串口打印过多影响识别速度 在maix端打印
 DISPLAY_TIME_MS = 100      # 调试画面最多 10Hz，不拖慢识别主循环
+RUN_DISPLAY_TIME_MS = 200  # RUN 画面限制为 5Hz，优先保障识别和 20Hz 串口回包
 RING_PERF_TIME_MS = 1000   # 任务二每秒输出一次采集/检测/显示耗时
 MAX_RX_DATA_LEN = 32
+
+SERIAL_DEVICE = "/dev/serial0"
+SERIAL_BAUD = 115200
+UART_TX_PIN = "A16"             # MaixCAM UART0_TX
+UART_TX_GPIO = "GPIOA16"
+UART_TX_FUNCTION = "UART0_TX"
+UART_TX_SETTLE_MS = 1
+UART_TX_DRAIN_MS = 3
+
+
+# 共享PA10时，未获得总线所有权的Maix TX必须是GPIO输入高阻。
+uart_tx_gpio = None
+uart_tx_owned = False
+
+
+def uart_tx_release():
+    global uart_tx_gpio, uart_tx_owned
+    if uart_tx_owned:
+        # MaixPy未暴露tcdrain；11字节结果帧在115200下约1ms，这里留3ms保护。
+        time.sleep_ms(UART_TX_DRAIN_MS)
+    err.check_raise(
+        pinmap.set_pin_function(UART_TX_PIN, UART_TX_GPIO),
+        "release {} to {} failed".format(UART_TX_PIN, UART_TX_GPIO),
+    )
+    # 释放函数会在早期启动、UART打开后和B0命令中重复调用。
+    # GPIOA16已经申请时必须复用原对象；重复gpio.GPIO()会报
+    # "IO error: get gpio line failed"，并使上层误判UART初始化失败。
+    if uart_tx_gpio is None:
+        uart_tx_gpio = gpio.GPIO(UART_TX_GPIO, gpio.Mode.IN)
+    uart_tx_owned = False
+
+
+def uart_tx_acquire():
+    global uart_tx_gpio, uart_tx_owned
+    if uart_tx_owned:
+        return
+    uart_tx_gpio = None
+    err.check_raise(
+        pinmap.set_pin_function(UART_TX_PIN, UART_TX_FUNCTION),
+        "acquire {} as {} failed".format(UART_TX_PIN, UART_TX_FUNCTION),
+    )
+    time.sleep_ms(UART_TX_SETTLE_MS)
+    uart_tx_owned = True
+
+
+# 尽量在相机、屏幕和模型初始化前释放TX；Python启动前的UART0日志另行验收。
+try:
+    uart_tx_release()
+except Exception as error:
+    print("[VISION BUS] early release failed:", error)
+
 
 # 初始化
 cam = camera.Camera(image_width, image_height)
@@ -120,10 +174,12 @@ ui = VisionUI(screen_w, screen_h, vision_config, config_status)
 touch_input = TouchInput(ts)
 task_manager = TaskManager()
 
-device = "/dev/serial0"
+device = SERIAL_DEVICE
 try:
-    serial = uart.UART(device, 115200)
-    serial_status = "ready"
+    serial = uart.UART(device, SERIAL_BAUD)
+    # UART对象打开后再次强制释放A16，确保初始所有权为NONE。
+    uart_tx_release()
+    serial_status = "ready, TX Hi-Z"
 except Exception as error:
     serial = None
     serial_status = "disabled: {}".format(error)
@@ -147,10 +203,23 @@ blob_runtime_config = None
 blob_run_geometry = None
 
 print("[VISION CONFIG]", config_status)
-print("[VISION UART] {} @ 115200: {}".format(device, serial_status))
+print("[VISION UART] {} @ {}: {}".format(device, SERIAL_BAUD, serial_status))
+print("[VISION BUS] A16 TX={}, A17 RX=UART0".format(
+    "UART0" if uart_tx_owned else "HI-Z"
+))
 print("[VISION UI] display: {}x{}".format(screen_w, screen_h))
 print("[VISION UI] touchscreen available:", hasattr(ts, "available"))
-print("[VISION BUILD] B3_DILATE7_RECT_PROFILE_B2_RUN240_V4")
+print("[VISION BUILD] B234_TX20_LIVE5_STACK_TXHIZ_V15")
+try:
+    ocr_warmup = warmup_two_templates()
+    print(
+        "[VISION OCR] warmup ready templates:{} cost:{:.1f}ms".format(
+            ocr_warmup["template_count"], ocr_warmup["cost_ms"]
+        )
+    )
+except Exception as error:
+    # 预热失败不阻止主程序启动；首次实际确认仍会再次尝试初始化。
+    print("[VISION OCR] warmup failed:", error)
 
 
 ###################################### 通信函数 ############################
@@ -169,8 +238,9 @@ def send_frame(cmd, data):
     frame.extend(data)  # 添加数据
     frame.append(checksum(cmd, length, data))  # 添加校验和
 
-    if serial is not None:
-        serial.write(bytes(frame))
+    if serial is None or not uart_tx_owned:
+        return None
+    serial.write(bytes(frame))
     return bytes(frame)
 
 # 发送当前单帧原始坐标。DATA 与 F407 camera.c 保持一致：
@@ -184,6 +254,8 @@ def send_xy_result(cmd, frame_id, raw_ok, dx, dy):
     append_i16_le(data, dx)
     append_i16_le(data, dy)
     frame = send_frame(cmd, data)
+    if frame is None:
+        return None
     now = time.ticks_ms()
 
     # 调试 打印在maix端的串口输出
@@ -205,7 +277,7 @@ def rx_handle():
     global rx_buf, uart_control_active
 
     # 这一赋值是“正式模式”的开关：只要主循环调用本函数，就必须等待 F407。
-    # 调试 B2 时只需注释主循环中的 rx_handle()，无需改 mode/target。
+    # 本地触屏调试时只需注释主循环中的 rx_handle()，无需改 mode/target。
     uart_control_active = True
 
     if serial is None:
@@ -271,9 +343,10 @@ def handle_cmd(cmd, data):
 
     elif cmd == CMD_RING and len(data) == 1:
         ring = clear_ring_target(data[0])
-        if ring != SUM_NONE:
+        # 新版任务二只接受2号圆环，1/3不再进入视觉任务。
+        if ring == SUM_2:
             next_mode = CMD_RING
-            next_target = ring
+            next_target = SUM_2
 
     elif cmd == CMD_ONUP and len(data) == 1:
         color = clear_color_target(data[0])
@@ -283,8 +356,25 @@ def handle_cmd(cmd, data):
     else:
         return
 
+    next_active = next_mode in (CMD_BLOB, CMD_RING, CMD_ONUP)
+
     if next_mode == mode and next_target == target:
+        # 重复命令也用于修复异常所有权状态。
+        try:
+            if next_active and not uart_tx_owned:
+                uart_tx_acquire()
+            elif not next_active and uart_tx_owned:
+                uart_tx_release()
+        except Exception as error:
+            print("[VISION BUS] owner repair failed:", error)
         return
+
+    if next_active and not uart_tx_owned:
+        try:
+            uart_tx_acquire()
+        except Exception as error:
+            print("[VISION BUS] acquire failed:", error)
+            return
 
     mode = next_mode
     target = next_target
@@ -296,6 +386,15 @@ def handle_cmd(cmd, data):
     blob_run_geometry = None
     print("[VISION CMD] mode=0x%02X target=0x%02X" % (mode, target))
 
+    if not next_active:
+        try:
+            uart_tx_release()
+            print("[VISION BUS] A16 TX=HI-Z")
+        except Exception as error:
+            print("[VISION BUS] release failed:", error)
+    elif uart_tx_owned:
+        print("[VISION BUS] A16 TX=UART0 owner=0x%02X" % mode)
+
 
 def active_task():
     """正式模式返回F407状态；本机模式由三任务首页决定当前任务。"""
@@ -306,10 +405,10 @@ def active_task():
         color_number = COLOR_NUMBERS.get(ui.detection_config()["target_color"], 1)
         return CMD_BLOB, clear_color_target(color_number)
     if local_task == TASK_RING:
-        ring_number = ui.detection_config()["ring"]["target_number"]
-        return CMD_RING, clear_ring_target(ring_number)
+        return CMD_RING, SUM_2
     if local_task == TASK_STACK:
-        return CMD_ONUP, COLOR_NONE
+        color_number = COLOR_NUMBERS.get(ui.detection_config()["target_color"], 1)
+        return CMD_ONUP, clear_color_target(color_number)
     return CMD_NONE, COLOR_NONE
 
 
@@ -992,7 +1091,7 @@ def find_stack(img, target_color, need_debug=False):
 
 
 ############################### B2 UI + F407 主循环 ###########################
-# HOME/调参页面低频刷新；RUN 页面只显示一次静态页面，识别保持高速。
+# HOME/调参页面最多10Hz；RUN页面最多5Hz，串口收发与识别持续运行。
 vision_fps_value = 0.0
 display_fps_value = 0.0
 vision_fps_frames = 0
@@ -1000,7 +1099,6 @@ display_fps_frames = 0
 fps_tick = time.ticks_ms()
 last_display_time = fps_tick - DISPLAY_TIME_MS
 force_display = True
-run_screen_shown = False
 previous_run_mode = False
 ring_perf_tick = fps_tick
 ring_perf_capture_ms = 0
@@ -1010,6 +1108,8 @@ ring_perf_mask_ms = 0
 ring_perf_group_ms = 0
 ring_perf_contour_ms = 0
 ring_perf_filter_ms = 0
+ring_perf_ocr_ms = 0
+ring_perf_ocr_calls = 0
 ring_perf_frames = 0
 ring_perf_displays = 0
 
@@ -1019,30 +1119,27 @@ while not app.need_exit():
 
     # 正式运行保留下一行：F407的B0/B2/B3/B4选择当前视觉任务。
     # 本地调试只注释下一行：由三任务首页和任务内按钮控制。
-    # rx_handle()
+    rx_handle()
 
     active_mode, active_target = active_task()
     active_task_id = mode_to_task_id(active_mode)
     if uart_control_active:
-        if active_task_id == TASK_MATERIAL:
+        if active_task_id in (TASK_MATERIAL, TASK_STACK):
             runtime_color = COLOR_CODE_TO_KEY.get(clear_color_target(active_target))
             if runtime_color is not None:
                 ui.set_runtime_target(runtime_color)
         elif active_task_id == TASK_RING:
-            ring_number = target_to_num(active_target)
-            if ring_number:
-                ui.set_runtime_ring_target(ring_number)
+            ui.set_runtime_ring_target(2)
         ui.set_external_task(active_task_id)
-        run_mode = active_task_id in (TASK_MATERIAL, TASK_RING)
+        run_mode = active_task_id in (TASK_MATERIAL, TASK_RING, TASK_STACK)
     else:
-        # 注释 rx_handle() 后，由三任务首页选择任务；任务一和任务二都有高速RUN。
+        # 注释 rx_handle() 后，由三任务首页选择任务；三个任务都有高速RUN。
         run_mode = ui.is_run_mode()
 
     task_changed = task_manager.switch(active_task_id, active_target)
     if task_changed or run_mode != previous_run_mode:
         previous_run_mode = run_mode
-        run_screen_shown = False
-        force_display = not run_mode
+        force_display = True
         vision_frame_id = 0
         next_send_time = loop_tick
         vision_fps_value = 0.0
@@ -1058,18 +1155,23 @@ while not app.need_exit():
         ring_perf_group_ms = 0
         ring_perf_contour_ms = 0
         ring_perf_filter_ms = 0
+        ring_perf_ocr_ms = 0
+        ring_perf_ocr_calls = 0
         ring_perf_frames = 0
         ring_perf_displays = 0
         print("[VISION TASK]", TASK_LABELS.get(active_task_id, "未知任务"),
               "target=0x%02X" % int(active_target),
-              "RUN" if run_mode else "UI/PLACEHOLDER")
+              "RUN" if run_mode else "UI")
 
+    display_interval_ms = (
+        RUN_DISPLAY_TIME_MS if run_mode else DISPLAY_TIME_MS
+    )
     display_due = (
-        not run_mode and
-        (force_display or loop_tick - last_display_time >= DISPLAY_TIME_MS)
+        force_display or
+        loop_tick - last_display_time >= display_interval_ms
     )
 
-    # UI 页面需要实时画面；正式 B2/B3 RUN 使用相同相机，只关闭周期预览刷新。
+    # UI和RUN共用相机帧；RUN只降低LCD刷新频率，不停止串口接收和识别。
     capture_tick = time.ticks_ms()
     camera_image = cam.read()
     cv_bgr = image.image2cv(camera_image, ensure_bgr=True, copy=True)
@@ -1082,38 +1184,35 @@ while not app.need_exit():
     mask_roi = task_frame["mask_roi"]
     roi_rect = task_frame["roi_rect"]
 
-    # 当前只有已经验收的B2结果允许发送；B3候选阶段不能冒充最终圆心结果。
-    if run_mode and active_task_id == TASK_MATERIAL:
+    # B2/B3/B4共用20Hz六字节坐标帧；回包CMD直接沿用已验证的控制CMD。
+    if run_mode and active_mode in (CMD_BLOB, CMD_RING, CMD_ONUP):
         vision_frame_id = (vision_frame_id + 1) & 0xFF
         result_tick = time.ticks_ms()
         if result_tick >= next_send_time:
+            require_track = active_mode == CMD_RING
+            raw_ok, tx_dx, tx_dy = safe_xy_result(
+                blob_result, require_track=require_track
+            )
             send_xy_result(
-                CMD_BLOB,
+                active_mode,
                 vision_frame_id,
-                blob_result["found"],
-                blob_result["dx"],
-                blob_result["dy"],
+                raw_ok,
+                tx_dx,
+                tx_dy,
             )
             while next_send_time <= result_tick:
                 next_send_time += SEND_TIME_MS
 
-    # RUN 只生成一次静态页面；HOME 和各调参页保持原来的实时菜单预览。
+    # HOME/调参页按10Hz、RUN按5Hz刷新；非显示周期不生成预览图。
     screen_was_shown = False
     display_ms = 0
-    if run_mode and not run_screen_shown:
-        display_tick = time.ticks_ms()
-        screen_image = ui.render(cv_bgr, blob_result, 0.0, 0.0)
-        disp.show(screen_image)
-        display_ms = time.ticks_ms() - display_tick
-        run_screen_shown = True
-        screen_was_shown = True
-        print("[VISION RUN] static page ready; live display refresh disabled")
-    elif display_due:
+    if display_due:
         display_tick = time.ticks_ms()
         mask_full = None
-        if active_task_id == TASK_MATERIAL and ui.needs_mask_for_display():
+        if (active_task_id in (TASK_MATERIAL, TASK_STACK) and
+                ui.needs_mask_for_display()):
             mask_full = expand_roi_mask(mask_roi, cv_bgr.shape, roi_rect)
-        if active_task_id == TASK_MATERIAL:
+        if active_task_id in (TASK_MATERIAL, TASK_STACK):
             preview_bgr = make_preview(
                 cv_bgr,
                 mask_full,
@@ -1158,16 +1257,33 @@ while not app.need_exit():
         ring_perf_group_ms += blob_result.get("group_ms", 0.0)
         ring_perf_contour_ms += blob_result.get("contour_ms", 0.0)
         ring_perf_filter_ms += blob_result.get("filter_ms", 0.0)
+        ring_perf_ocr_ms += blob_result.get("ocr_ms", 0.0)
+        ring_perf_ocr_calls += blob_result.get("ocr_calls", 0)
         ring_perf_frames += 1
         if screen_was_shown:
             ring_perf_display_ms += display_ms
             ring_perf_displays += 1
         ring_perf_elapsed = fps_now - ring_perf_tick
         if ring_perf_elapsed >= RING_PERF_TIME_MS and ring_perf_frames > 0:
+            reject_counts = blob_result.get("reject_counts", {})
+            layer_text = ",".join(
+                str(value) for value in blob_result.get("layer_values", ())
+            ) or "-"
+            direction_text = ",".join(
+                str(value)
+                for value in blob_result.get("direction_pass_values", ())
+            ) or "-"
+            axis_ratio_text = ",".join(
+                "-" if value is None else "{:.2f}".format(float(value))
+                for value in blob_result.get("axis_ratio_values", ())
+            ) or "-"
             print(
                 "[RING PERF] {} FPS:{:.1f} CAP:{:.1f}ms DET:{:.1f}ms "
                 "DSP:{:.1f}ms MASK:{:.1f} GRP:{:.1f} CTR:{:.1f} FLT:{:.1f} "
-                "CAND:{} CNT:{} RAY:{}".format(
+                "OCR:{:.1f}({}) S:{:.3f} M:{:.3f} R:{} "
+                "CAND:{} CNT:{} GEOM:{} "
+                "REJ:{}/{}/{}/{}/{} LAY:{} DIR:{} AR:{} "
+                "SEL:{} TWO:{} LOST:{} STATE:{}".format(
                     "RUN" if run_mode else "UI",
                     ring_perf_frames * 1000.0 / ring_perf_elapsed,
                     ring_perf_capture_ms / float(ring_perf_frames),
@@ -1178,9 +1294,27 @@ while not app.need_exit():
                     ring_perf_group_ms / float(ring_perf_frames),
                     ring_perf_contour_ms / float(ring_perf_frames),
                     ring_perf_filter_ms / float(ring_perf_frames),
+                    (ring_perf_ocr_ms / float(ring_perf_ocr_calls)
+                     if ring_perf_ocr_calls else 0.0),
+                    ring_perf_ocr_calls,
+                    blob_result.get("ocr_score", 1.0),
+                    blob_result.get("ocr_margin", 0.0),
+                    blob_result.get("ocr_reason", "NONE"),
                     blob_result.get("candidate_count", 0),
                     blob_result.get("contour_count", 0),
-                    blob_result.get("feature_count", 0),
+                    blob_result.get("geometry_count", 0),
+                    reject_counts.get("AREA", 0),
+                    reject_counts.get("SIZE", 0),
+                    reject_counts.get("RATIO", 0),
+                    reject_counts.get("CIRC", 0),
+                    reject_counts.get("LAYER", 0),
+                    layer_text,
+                    direction_text,
+                    axis_ratio_text,
+                    1 if blob_result.get("selected_present", False) else 0,
+                    1 if blob_result.get("is_two_confirmed", False) else 0,
+                    blob_result.get("lost_frames", 0),
+                    blob_result.get("state", "SEARCH"),
                 )
             )
             ring_perf_tick = fps_now
@@ -1191,6 +1325,8 @@ while not app.need_exit():
             ring_perf_group_ms = 0
             ring_perf_contour_ms = 0
             ring_perf_filter_ms = 0
+            ring_perf_ocr_ms = 0
+            ring_perf_ocr_calls = 0
             ring_perf_frames = 0
             ring_perf_displays = 0
 

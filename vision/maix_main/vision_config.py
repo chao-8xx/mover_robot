@@ -9,7 +9,7 @@ import json
 import os
 
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 IMAGE_WIDTH = 320
 IMAGE_HEIGHT = 240
 
@@ -64,6 +64,16 @@ DEFAULT_CONFIG = {
     },
     # 面积范围同样按 320x240 等效面积保存，RUN 内部会自动按像素比例换算。
     "blob": {"min_area": 300, "max_area": 60000},
+    # 任务三复用颜色阈值和ColorTracker，但保留独立ROI、对准中心和面积范围。
+    "stack": {
+        "roi": {"x": 0, "y": 0, "w": IMAGE_WIDTH, "h": IMAGE_HEIGHT},
+        "center": {
+            "x": IMAGE_WIDTH // 2,
+            "y": IMAGE_HEIGHT // 2,
+            "custom": False,
+        },
+        "blob": {"min_area": 300, "max_area": 60000},
+    },
     "thresholds": {
         "HSV": {
             # 红色 H 起点大于终点表示跨越 179 -> 0，检测时自动拆为两段。
@@ -83,9 +93,10 @@ DEFAULT_CONFIG = {
             "light_blue": {"lower": [80, 90, 70], "upper": [255, 150, 135]},
         },
     },
-    # 任务二固定使用完整320x240；中心仍可独立标定，不能与任务一共用。
+    # 任务二只定位2号圆环，固定使用完整320x240；中心仍独立标定。
     "ring": {
-        "target_number": 1,
+        # 保留字段只为兼容旧JSON；正式算法始终确认数字2。
+        "target_number": 2,
         "roi": {"x": 0, "y": 0, "w": IMAGE_WIDTH, "h": IMAGE_HEIGHT},
         "center": {
             "x": IMAGE_WIDTH // 2,
@@ -196,6 +207,62 @@ def validate_config(value):
     )
     result["blob"] = {"min_area": min_area, "max_area": max_area}
 
+    stack_source = source.get("stack", {})
+    if not isinstance(stack_source, dict):
+        stack_source = {}
+    stack_result = result["stack"]
+    stack_roi_source = stack_source.get("roi", {})
+    if not isinstance(stack_roi_source, dict):
+        stack_roi_source = {}
+    stack_w = _clamp(
+        stack_roi_source.get("w", IMAGE_WIDTH), 20, IMAGE_WIDTH
+    )
+    stack_h = _clamp(
+        stack_roi_source.get("h", IMAGE_HEIGHT), 20, IMAGE_HEIGHT
+    )
+    stack_x = _clamp(
+        stack_roi_source.get("x", 0), 0, IMAGE_WIDTH - stack_w
+    )
+    stack_y = _clamp(
+        stack_roi_source.get("y", 0), 0, IMAGE_HEIGHT - stack_h
+    )
+    stack_result["roi"] = {
+        "x": stack_x, "y": stack_y, "w": stack_w, "h": stack_h
+    }
+
+    stack_center_source = stack_source.get("center", {})
+    if not isinstance(stack_center_source, dict):
+        stack_center_source = {}
+    stack_result["center"] = {
+        "x": _clamp(
+            stack_center_source.get("x", stack_w // 2), 0, stack_w - 1
+        ),
+        "y": _clamp(
+            stack_center_source.get("y", stack_h // 2), 0, stack_h - 1
+        ),
+        "custom": bool(stack_center_source.get("custom", False)),
+    }
+    if not stack_result["center"]["custom"]:
+        stack_result["center"]["x"] = stack_w // 2
+        stack_result["center"]["y"] = stack_h // 2
+
+    stack_blob_source = stack_source.get("blob", {})
+    if not isinstance(stack_blob_source, dict):
+        stack_blob_source = {}
+    stack_min_area = _clamp(
+        stack_blob_source.get("min_area", 300),
+        1,
+        IMAGE_WIDTH * IMAGE_HEIGHT,
+    )
+    stack_max_area = _clamp(
+        stack_blob_source.get("max_area", 60000),
+        stack_min_area,
+        IMAGE_WIDTH * IMAGE_HEIGHT,
+    )
+    stack_result["blob"] = {
+        "min_area": stack_min_area, "max_area": stack_max_area
+    }
+
     thresholds_source = source.get("thresholds", {})
     if not isinstance(thresholds_source, dict):
         thresholds_source = {}
@@ -213,11 +280,10 @@ def validate_config(value):
     if not isinstance(ring_source, dict):
         ring_source = {}
     ring_result = result["ring"]
-    ring_result["target_number"] = _clamp(
-        ring_source.get("target_number", ring_result["target_number"]), 1, 3
-    )
+    # 旧配置可能保存过1/3；新版任务二固定为2，不再提供目标数字菜单。
+    ring_result["target_number"] = 2
 
-    # 三个圆环位置必须同时进入任务二画面，因此任务二固定处理完整320x240。
+    # 保持完整320x240，方便固定脉冲到位后从对准中心附近选择2号候选。
     # 仍读取旧ROI的原点，只用于把旧版自定义中心迁移为全图坐标；保存时
     # 一律写回全画面，避免隐藏ROI页面后继续受到旧JSON裁剪参数影响。
     ring_roi_source = ring_source.get("roi", {})

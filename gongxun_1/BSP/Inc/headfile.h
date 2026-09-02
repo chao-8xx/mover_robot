@@ -25,6 +25,7 @@
 #include "usbd_cdc_if.h"
 
 
+
 #include "fun.h"
 #include "timer.h"
 #include "uart_dma.h"
@@ -51,8 +52,21 @@
 #include "chassis.h"    // 底盘控制
 #include "catch.h"      // 抓取装置
 #include "remind.h"     // 提示装置（ws2812、蜂鸣器、LED）
+#include "remind.h"     // 提醒装置（ws2812、蜂鸣器、LED）
+#include "tf2d.h"       // 2D坐标变换
 #include "hmi_app.h"    // hmi 应用层函数
+#include "test.h"       // 测试代码
 
 #include "system.h"     // 车辆系统
+#include "grid.h"       // 48x48占据栅格
+#include "track_map.h"  // 5x5赛道拓扑
+#include "planner.h"    // BFS与动态重规划
+
+#include "basic_test.h" // 基础模块测试
+#include "cam_test.h"   // 摄像头测试
+#include "lidar_test.h" // 激光雷达测试
+#include "run_test.h"   // 底盘测试
+#include "bfs_test.h"   // BFS测试
+#include "map_test.h"   // 地图测试
 
 #endif //GONGXUN_1_HEADFILE_H

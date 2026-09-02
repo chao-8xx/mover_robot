@@ -4,7 +4,7 @@
 
 import sensor
 import time
-from pyb import UART
+from pyb import UART, Pin
 
 
 # ============================== 通信常量 ==============================
@@ -15,6 +15,11 @@ CMD_QR = 0xBB        # 结果CMD, 有效任务码发送一次后自动停止扫�
 
 QR_PAYLOAD_LEN = 15         # 任务码固定15字节
 RX_MAX_DATA_LEN = 16        # 接收的最大数据长度
+
+UART_ID = 3
+UART_BAUD = 115200
+UART_TX_PIN = "P4"          # OpenMV H7: UART3_TX=P4, UART3_RX=P5
+TX_RELEASE_GUARD_US = 100   # uart.write()等待TC后再留少量保护时间
 
 
 # ============================== 摄像头与串口 ==============================
@@ -27,8 +32,22 @@ sensor.set_auto_gain(True)               # 自动增益 看情况开不开 对�
 sensor.set_auto_whitebal(True)           # 白平衡 同上
 
 
-uart = UART(3, 115200)          # 初始化串口3
-clock = time.clock()            # 注: P4接RX P5接TX 注意是接 直接接F407即可
+uart = UART(UART_ID, UART_BAUD)
+uart_tx_pin = Pin(UART_TX_PIN)
+
+
+# 未获得返回总线所有权时，P4必须是输入高阻；P5仍保持UART3_RX接收B1。
+def uart_tx_release():
+    uart_tx_pin.init(Pin.IN, Pin.PULL_NONE)
+
+
+# 重新初始化UART3会把P4恢复成USART3_TX复用，同时保持P5为USART3_RX。
+def uart_tx_acquire():
+    uart.init(UART_BAUD)
+
+
+uart_tx_release()
+clock = time.clock()
 
 rx_buffer = bytearray()         # 持久化接收缓冲区，拆帧时可能会保留半帧数据
 scan_flag = False               # 扫码使能标志，收到控制帧后置位，发送一次有效任务码后清零
@@ -75,11 +94,30 @@ def build_qr_result_frame(payload):
 def send_qr_once(payload):
 
     frame = build_qr_result_frame(payload)
-    uart.write(frame)  # 发送数据包
+    sent = None
+    tx_error = None
+
+    try:
+        uart_tx_acquire()
+        sent = uart.write(frame)
+    except Exception as error:
+        tx_error = error
+    finally:
+        # OpenMV STM32 UART write会等待Transmission Complete；再留一个位时间以上后释放P4。
+        time.sleep_us(TX_RELEASE_GUARD_US)
+        uart_tx_release()
+
+    if tx_error is not None:
+        print("[OPENMV BUS] TX失败", tx_error)
+        return False
+    if sent != len(frame):
+        print("[OPENMV BUS] TX长度异常", sent, "/", len(frame))
+        return False
 
     # 打印发送的内容和帧的十六进制表示，方便调试
     print("[OPENMV QR TX]", payload)
     # print("[OPENMV QR FRAME]", " ".join("%02X" % value for value in frame))
+    return True
 
 # 处理控制帧   B1/LEN=1
 def handle_control_frame(cmd, data):
@@ -159,7 +197,8 @@ def poll_uart():
         rx_buffer_handle()
 
 # 打印版本号和初始状态，确认 IDE 已运行 bytearray 兼容修复版。
-print("[OPENMV BUILD] QR_BYTEARRAY_FIX_V2")
+print("[OPENMV BUILD] QR_TX_HIZ_V1")
+print("[OPENMV BUS] P4 TX=HI-Z, P5 RX=UART3")
 print("[OPENMV MODE] STOP")
 
 while True:
@@ -183,8 +222,24 @@ while True:
                 last_payload = payload
             continue
 
-        send_qr_once(payload)
+        if not send_qr_once(payload):
+            continue
         send_flag = True
         scan_flag = False
         print("[OPENMV QR] 完成 fps:{:.1f}".format(clock.fps()))
         break
+
+
+# from pyb import UART
+# import time
+
+# uart = UART(3, 115200)
+# print("UART3 RX TEST")
+
+# while True:
+#     count = uart.any()
+#     if count:
+#         data = uart.read(count)
+#         print("RX:", " ".join("%02X" % x for x in data))
+#         uart.write(data)  # 原样回传
+#     time.sleep_ms(10)

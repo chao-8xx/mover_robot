@@ -1,4 +1,4 @@
-#include "../Inc/headfile.h"
+#include "headfile.h"
 
 
 // 通信协议定义
@@ -6,9 +6,10 @@
 #define HEAD2       0x55
 #define FRAME_LEN    10         // 帧长度
 #define MAX_LEN      85         // 单帧最大长度
-#define DMA_BUF_LEN  512        // DMA环形缓冲区大小
+
 
 // 雷达数据定义
+#define DMA_BUF_LEN  512     // DMA环形缓冲区大小
 uint16_t lidar_data[360];    // 雷达数据数组，存储360度的距离值 单位：mm
 
 static UART_HandleTypeDef *lidar_uart = NULL;

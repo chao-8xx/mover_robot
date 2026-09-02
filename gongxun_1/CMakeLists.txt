@@ -46,8 +46,8 @@ add_executable(${CMAKE_PROJECT_NAME}
         BSP/Inc/camera.h
         BSP/Src/lidar.c
         BSP/Inc/lidar.h
-        APP/Src/test.c
-        APP/Inc/test.h
+        Test/Src/basic_test.c
+        Test/Inc/basic_test.h
         BSP/Inc/step_motor.h
         BSP/Src/step_motor.c
         BSP/Inc/Emm_V5.h
@@ -82,8 +82,18 @@ add_executable(${CMAKE_PROJECT_NAME}
         APP/Inc/planner.h
         APP/Src/grid.c
         APP/Inc/grid.h
-        APP/Src/map_test.c
-        APP/Inc/map_test.h
+        Test/Src/map_test.c
+        Test/Inc/map_test.h
+        APP/Src/tf2d.c
+        APP/Inc/tf2d.h
+        Test/Src/cam_test.c
+        Test/Inc/cam_test.h
+        Test/Src/lidar_test.c
+        Test/Inc/lidar_test.h
+        Test/Src/run_test.c
+        Test/Inc/run_test.h
+        Test/Src/bfs_test.c
+        Test/Inc/bfs_test.h
 
 )
 
@@ -110,6 +120,7 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user defined include paths
         BSP/Inc
         APP/Inc
+        Test/Inc
         Control/Inc
 )
 

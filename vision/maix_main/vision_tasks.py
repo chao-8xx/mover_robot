@@ -1,7 +1,8 @@
 """轻量视觉任务调度。
 
-主程序只负责相机、UI、串口和显示；每个任务每次只处理一帧。
-当前阶段封装已经真机验收的任务一和任务二候选检测；任务三保留安全占位结果。
+主程序只负责相机、UI、串口和显示；每轮只把当前帧交给一个任务。
+B2物料和B4码垛共享同一个颜色识别器；B3只确认一次“是不是2”，
+确认成功后停止OCR并持续跟踪圆心。
 """
 
 from vision_blob import (
@@ -19,6 +20,7 @@ from vision_config import (
     RUN_PROCESS_HEIGHT,
     RUN_PROCESS_WIDTH,
 )
+from vision_ocr import confirm_digit_two
 from vision_ring import detect_ring_candidates
 
 
@@ -30,13 +32,23 @@ TASK_STACK = 3
 TASK_LABELS = {
     TASK_NONE: "待机",
     TASK_MATERIAL: "任务一 物料识别",
-    TASK_RING: "任务二 数字与圆环定位",
+    TASK_RING: "任务二 2号圆环定位",
     TASK_STACK: "任务三 码垛堆放",
 }
 
 
-class MaterialTask:
-    """任务一：封装现有B2识别路径，不改变算法和坐标契约。"""
+def safe_xy_result(result, require_track=False):
+    """把检测结果转换为串口安全值；无效帧绝不携带旧坐标。"""
+    valid = bool(result.get("found", False))
+    if require_track:
+        valid = valid and result.get("state") == "TRACK"
+    if not valid:
+        return False, 0, 0
+    return True, int(result.get("dx", 0)), int(result.get("dy", 0))
+
+
+class ColorTracker:
+    """B2/B4共享的颜色识别器，保持已经验收的坐标和缩放契约。"""
 
     def __init__(self):
         self.target = None
@@ -95,50 +107,219 @@ class MaterialTask:
         }
 
 
-class PlaceholderTask:
-    """未实现任务的安全占位：不运行旧原型，也不产生有效坐标。"""
-
-    def __init__(self, task_id):
-        self.task_id = task_id
-        self.target = None
-
-    def enter(self, target):
-        self.target = target
-
-    def reset(self):
-        self.target = None
-
-    def exit(self):
-        self.reset()
-
-    def process(self, cv_bgr, config, run_mode=False):
-        return {
-            "result": empty_result(),
-            "mask_roi": None,
-            "roi_rect": (0, 0, IMAGE_WIDTH, IMAGE_HEIGHT),
-            "config": config,
-        }
+# 保留旧名称，避免已有本机测试或外部脚本因重构失效。
+MaterialTask = ColorTracker
 
 
 class RingTask:
-    """任务二第一阶段：只生成黑色MASK和同心圆候选，不运行OCR。"""
+    """B3：选择最靠近对准中心的圆环，确认是2后只跟踪圆心。"""
+
+    TARGET_NUMBER = 2
+    STABLE_FRAMES_REQUIRED = 3
+    OCR_RETRY_COOLDOWN_FRAMES = 8
+    REACQUIRE_FRAME_LIMIT = 15
+    REACQUIRE_DISTANCE = 48
 
     def __init__(self):
         self.target = None
+        self._clear_runtime()
 
     def enter(self, target):
         self.target = target
+        self._clear_runtime()
 
     def reset(self):
         self.target = None
+        self._clear_runtime()
 
     def exit(self):
         self.reset()
+
+    def _clear_runtime(self):
+        self.state = "SEARCH"
+        self.two_confirmed = False
+        self.stable_frames = 0
+        self.pending_center = None
+        self.target_center = None
+        self.lost_frames = 0
+        self.ocr_retry_cooldown = 0
+        self.ocr_attempts = 0
+        self.ocr_best_score = 1.0
+        self.ocr_preview = None
+        self.last_ocr_score = 1.0
+        self.last_ocr_margin = 0.0
+        self.last_ocr_reason = "NONE"
+
+    @staticmethod
+    def _distance2(left, right):
+        dx = int(left[0]) - int(right[0])
+        dy = int(left[1]) - int(right[1])
+        return dx * dx + dy * dy
+
+    @classmethod
+    def _nearest_candidate(cls, candidates, center, max_distance=None):
+        if not candidates:
+            return None
+        candidate = min(
+            candidates,
+            key=lambda item: cls._distance2(
+                (item["cx"], item["cy"]), center
+            ),
+        )
+        if max_distance is not None:
+            if cls._distance2(
+                    (candidate["cx"], candidate["cy"]), center
+            ) > max_distance * max_distance:
+                return None
+        return candidate
+
+    def _set_target_result(self, result, candidate):
+        radius = int(candidate.get("radius", 0))
+        result.update({
+            "found": True,
+            "cx": int(candidate["cx"]),
+            "cy": int(candidate["cy"]),
+            "dx": int(candidate["dx"]),
+            "dy": int(candidate["dy"]),
+            "area": int(round(3.1415926 * radius * radius)),
+            "rect": candidate.get("rect", (0, 0, 0, 0)),
+            "quality": max(0.0, 1.0 - float(self.ocr_best_score)),
+            "recognized_digit": self.TARGET_NUMBER,
+        })
+
+    def _update_pending(self, candidate, tolerance):
+        center = (int(candidate["cx"]), int(candidate["cy"]))
+        if (self.pending_center is not None and
+                self._distance2(center, self.pending_center) <= tolerance * tolerance):
+            self.stable_frames += 1
+        else:
+            self.stable_frames = 1
+            self.ocr_retry_cooldown = 0
+            self.ocr_attempts = 0
+            self.ocr_best_score = 1.0
+            self.ocr_preview = None
+            self.last_ocr_score = 1.0
+            self.last_ocr_margin = 0.0
+            self.last_ocr_reason = "NONE"
+        self.pending_center = center
+
+    def _annotate_result(self, result, selected, ocr_ms, ocr_calls):
+        for candidate in result.get("candidates", ()):
+            is_selected = candidate is selected
+            candidate["selected"] = is_selected
+            candidate["digit"] = (
+                self.TARGET_NUMBER
+                if is_selected and self.two_confirmed else 0
+            )
+
+        result.update({
+            "state": self.state,
+            "stage": self.state,
+            "target_number": self.TARGET_NUMBER,
+            "recognized_digit": (
+                self.TARGET_NUMBER if self.two_confirmed else 0
+            ),
+            "stable_frames": int(self.stable_frames),
+            "selected_present": selected is not None,
+            "is_two_confirmed": bool(self.two_confirmed),
+            "lost_frames": int(self.lost_frames),
+            "ocr_attempts": int(self.ocr_attempts),
+            "ocr_best_score": float(self.ocr_best_score),
+            "ocr_score": float(self.last_ocr_score),
+            "ocr_margin": float(self.last_ocr_margin),
+            "ocr_reason": self.last_ocr_reason,
+            "ocr_preview": self.ocr_preview,
+            "ocr_ms": float(ocr_ms),
+            "ocr_calls": int(ocr_calls),
+            "ocr_retry_cooldown": int(self.ocr_retry_cooldown),
+        })
 
     def process(self, cv_bgr, config, run_mode=False):
         result, mask_roi, roi_rect = detect_ring_candidates(
             cv_bgr, config["ring"]
         )
+        candidates = result.get("candidates", [])
+        tolerance = max(2, int(config["ring"].get("center_tolerance", 8)))
+        ocr_ms = 0.0
+        ocr_calls = 0
+        selected = None
+
+        if self.two_confirmed:
+            track_tolerance = max(self.REACQUIRE_DISTANCE, tolerance * 6)
+            selected = self._nearest_candidate(
+                candidates, self.target_center, track_tolerance
+            )
+            if selected is None:
+                self.lost_frames += 1
+                self.state = "LOST"
+                if self.lost_frames >= self.REACQUIRE_FRAME_LIMIT:
+                    self._clear_runtime()
+            else:
+                self.state = "TRACK"
+                self.lost_frames = 0
+                self.target_center = (
+                    int(selected["cx"]), int(selected["cy"])
+                )
+                self.pending_center = self.target_center
+                self._set_target_result(result, selected)
+        else:
+            ring_center = config["ring"]["center"]
+            grab_center = (
+                int(ring_center["x"]), int(ring_center["y"])
+            )
+            selected = self._nearest_candidate(candidates, grab_center)
+            if selected is None:
+                self.state = "SEARCH"
+                self.stable_frames = 0
+                self.pending_center = None
+                if self.ocr_retry_cooldown > 0:
+                    self.ocr_retry_cooldown -= 1
+            else:
+                self._update_pending(selected, tolerance)
+                self.state = (
+                    "CONFIRM"
+                    if self.stable_frames >= self.STABLE_FRAMES_REQUIRED
+                    else "SEARCH"
+                )
+                if self.ocr_retry_cooldown > 0:
+                    self.ocr_retry_cooldown -= 1
+                elif self.state == "CONFIRM":
+                    ocr_result = confirm_digit_two(cv_bgr, selected)
+                    ocr_ms = float(ocr_result.get("ocr_ms", 0.0))
+                    ocr_calls = 1
+                    self.ocr_attempts += 1
+                    self.last_ocr_score = float(
+                        ocr_result.get("score", 1.0)
+                    )
+                    self.last_ocr_margin = float(
+                        ocr_result.get("margin", 0.0)
+                    )
+                    self.last_ocr_reason = str(
+                        ocr_result.get("reason", "UNKNOWN")
+                    )
+                    self.ocr_best_score = min(
+                        self.ocr_best_score,
+                        self.last_ocr_score,
+                    )
+                    preview = ocr_result.get("normalized")
+                    if preview is None:
+                        preview = ocr_result.get("binary")
+                    self.ocr_preview = preview
+                    if bool(ocr_result.get("is_two", False)):
+                        self.two_confirmed = True
+                        self.state = "TRACK"
+                        self.target_center = (
+                            int(selected["cx"]), int(selected["cy"])
+                        )
+                        self.lost_frames = 0
+                        self._set_target_result(result, selected)
+                    else:
+                        # 未确认时保持未知，间隔若干帧再确认，绝不强制猜成2。
+                        self.ocr_retry_cooldown = self.OCR_RETRY_COOLDOWN_FRAMES
+
+        self._annotate_result(result, selected, ocr_ms, ocr_calls)
+        if self.state == "TRACK" and selected is not None:
+            self._set_target_result(result, selected)
         return {
             "result": result,
             "mask_roi": mask_roi,
@@ -148,13 +329,14 @@ class RingTask:
 
 
 class TaskManager:
-    """保证任意时刻只有一个任务拥有当前帧，并在切换时清空旧状态。"""
+    """任意时刻只有一个任务拥有当前帧；B2/B4共享颜色识别实例。"""
 
     def __init__(self):
+        self.color_tracker = ColorTracker()
         self.tasks = {
-            TASK_MATERIAL: MaterialTask(),
+            TASK_MATERIAL: self.color_tracker,
             TASK_RING: RingTask(),
-            TASK_STACK: PlaceholderTask(TASK_STACK),
+            TASK_STACK: self.color_tracker,
         }
         self.task_id = TASK_NONE
         self.target = None
@@ -183,7 +365,7 @@ class TaskManager:
             self.current.enter(self.target)
 
     def invalidate_material_geometry(self):
-        self.tasks[TASK_MATERIAL].invalidate_geometry()
+        self.color_tracker.invalidate_geometry()
 
     def process(self, cv_bgr, config, run_mode=False):
         if self.current is None:
@@ -193,4 +375,12 @@ class TaskManager:
                 "roi_rect": (0, 0, IMAGE_WIDTH, IMAGE_HEIGHT),
                 "config": config,
             }
-        return self.current.process(cv_bgr, config, run_mode)
+        task_config = config
+        if self.task_id == TASK_STACK:
+            # 阈值、模式和形态学继续共享；几何与面积使用任务三独立参数。
+            task_config = dict(config)
+            stack_config = config["stack"]
+            task_config["roi"] = stack_config["roi"]
+            task_config["center"] = stack_config["center"]
+            task_config["blob"] = stack_config["blob"]
+        return self.current.process(cv_bgr, task_config, run_mode)
