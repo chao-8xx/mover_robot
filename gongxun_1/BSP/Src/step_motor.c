@@ -73,7 +73,8 @@ void motor_set_speed(Motor_Num motor_num,int16_t speed)
         vel = MAX_SPEED;
     }
 
-    Emm_V5_Vel_Control(addr, dir, vel, STEP_MOTOR_DEFAULT_ACC, false);
+    // Emm_V5_Vel_Control(addr, dir, vel, STEP_MOTOR_DEFAULT_ACC, false);
+    Emm_V5_Vel_Control(addr, dir, vel, 0, false);
     step_motor_update_speed(motor_num, speed);
 }
 

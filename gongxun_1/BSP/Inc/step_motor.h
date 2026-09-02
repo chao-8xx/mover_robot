@@ -5,7 +5,7 @@
 
 // ---- 电机数量与默认加速度 ---- //
 #define STEP_MOTOR_COUNT       6
-#define STEP_MOTOR_DEFAULT_ACC 0
+#define STEP_MOTOR_DEFAULT_ACC 20
 
 // ---- 定义结构体和枚举 ---- //
 typedef enum {

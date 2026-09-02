@@ -565,11 +565,11 @@ static float track_rotate_target(float target_yaw)
 // 10ms 中断直接调用；障碍由 HMI 的 BB 指令设置，路径自动避开
 void bfs_multi_track_test(void)
 {
-    static const int16_t test_speed = 120;
+    static const int16_t test_speed = 160;
 
     static const uint8_t leg_tx[4] = {4, 2, 0, 0};
     static const uint8_t leg_ty[4] = {2, 4, 2, 0};
-    static const int8_t  leg_hx[4] = {0, 1, 0, 0};
+    static const int8_t  leg_hx[4] = {0, 1, 0, 1};
     static const int8_t  leg_hy[4] = {-1, 0, 1, 0};
 
     static uint8_t step = 0;
@@ -761,30 +761,19 @@ void bfs_multi_track_test(void)
 
         case 6:   // 从 (0,0) 回左下角
             if (sub == 0) {
-                target_yaw = -180.0f;
+                target_yaw = 0.0f;
                 if (!track_yaw_ok(target_yaw)) {
                     rotate_target = track_rotate_target(target_yaw);
                     rotating = 1;
                     return;
                 }
                 if (!car_is_busy()) {
-                    car_run_distance(test_speed, 0.0f, 12.5f);
-                    moving = 1;
-                    sub = 1;
-                }
-            } else if (sub == 1) {
-                target_yaw = -90.0f;
-                if (!track_yaw_ok(target_yaw)) {
-                    rotate_target = track_rotate_target(target_yaw);
-                    rotating = 1;
-                    return;
-                }
-                if (!car_is_busy()) {
-                        car_run_distance(test_speed, 0.0f, 12.5f);
+                    car_run_distance(test_speed, 12.5f, -12.5f);
                     moving = 1;
                     sub = 2;
                 }
-            } else {
+            }
+            else {
                 car_stop();
                 car_run = false;
                 step = 98;

@@ -67,12 +67,10 @@ void catch_init(void)
     claw_ctrl(CLAW_LOOSE);          // 夹爪舵机
     HAL_Delay(500);
 
-    // 夹爪高度复位
-    catch_lift(HIGH_PICK_CM);       // 夹爪初始化高度
 
     // 阻塞等升降真正到位（等2s）
     uint32_t t0 = HAL_GetTick();
-    while (lift_is_busy() && (HAL_GetTick() - t0 < 2000)) {
+    while (lift_is_busy() && (HAL_GetTick() - t0 < 200)) {
         HAL_Delay(1);
     }
 

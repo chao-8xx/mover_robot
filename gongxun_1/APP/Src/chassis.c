@@ -8,15 +8,17 @@
 
 // 偏航 PID：输出是电机速度(RPM)，正负方向按实际转向调整
 #define CHASSIS_YAW_KP       3.8f
-#define CHASSIS_YAW_KD       0.3f
+#define CHASSIS_YAW_KD       0.2f
 #define CHASSIS_YAW_MAX_I    50.0f
 #define CHASSIS_YAW_MAX_OUT  120
 #define CHASSIS_YAW_THRESH   1.2f
 #define CHASSIS_YAW_SETTLE   50        // 50 个 10ms = 稳定 500ms 后才算转到位
-#define CHASSIS_MOVE_MARGIN_MS 500     // 位置移动结束的额外余量
+#define CHASSIS_MOVE_MARGIN_MS 900     // 位置移动结束的额外余量ms
 
 // 转向电机死区速度
-#define ROTATE_DEAD_SPEED  5
+#define ROTATE_DEAD_SPEED  0
+// 横移补偿：指令距离 / 实测距离，先标定再填
+#define CHASSIS_STRAFE_K  1.15f
 
 // 底盘四台电机速度（保留，便于查看）
 int16_t vel[4] = {0};
@@ -214,7 +216,7 @@ static void car_move_xy(int16_t speed, float x_cm, float y_cm)
     int32_t px, py;
     int32_t w[4];
     float max_cm, speed_cm_s;
-    static float acc = 3.14159265f * CHASSIS_WHEEL_DIAM_CM * (float)STEP_MOTOR_DEFAULT_ACC / 60.0f;
+    static float acc = (float)STEP_MOTOR_DEFAULT_ACC;
     uint32_t t_ms = 0;
 
     if (chassis_mode != CHASSIS_IDLE) {
@@ -226,7 +228,7 @@ static void car_move_xy(int16_t speed, float x_cm, float y_cm)
     }
 
     // 距离 -> 脉冲数（四舍五入）
-    px = (int32_t)(x_cm / CHASSIS_CM_PER_PULSE + (x_cm >= 0.0f ? 0.5f : -0.5f));
+    px = (int32_t)((x_cm * CHASSIS_STRAFE_K) / CHASSIS_CM_PER_PULSE + (x_cm >= 0.0f ? 0.5f : -0.5f));
     py = (int32_t)(y_cm / CHASSIS_CM_PER_PULSE + (y_cm >= 0.0f ? 0.5f : -0.5f));
 
     // 麦克纳姆轮运动学
@@ -258,11 +260,13 @@ static void car_move_xy(int16_t speed, float x_cm, float y_cm)
         speed_cm_s = 0.1f;
     }
 
-    if (acc < 0.1f) {
+    if (acc < 1.0f) {
         t_ms = (uint32_t)(max_cm / speed_cm_s * 1000.0f);
     }
     else {
-        t_ms = (uint32_t)(((max_cm / speed_cm_s) + (speed_cm_s / acc)) * 1000.0f);  // 梯形公式
+        float t_ramp_s = my_absf((float)speed)
+                     * (256.0f - (float)STEP_MOTOR_DEFAULT_ACC) * 50e-6f; // ZDT官方资料，曲线加减速时间计算公式
+        t_ms = (uint32_t)(((max_cm / speed_cm_s) + t_ramp_s) * 1000.0f);  // 梯形公式
     }
 
     chassis_deadline = HAL_GetTick()
