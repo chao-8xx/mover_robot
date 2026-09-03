@@ -1,7 +1,3 @@
-//
-// Created by mechreuo on 2026/9/2.
-//
-
 #include "headfile.h"
 
 

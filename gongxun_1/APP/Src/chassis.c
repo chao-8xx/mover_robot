@@ -7,13 +7,18 @@
 #define CHASSIS_CM_PER_PULSE         ((3.14159265f * CHASSIS_WHEEL_DIAM_CM) / CHASSIS_MOTOR_PULSE_PER_REV)  // cm/脉冲
 
 // 偏航 PID：输出是电机速度(RPM)，正负方向按实际转向调整
-#define CHASSIS_YAW_KP       1.7f
+#define CHASSIS_YAW_KP       3.8f
 #define CHASSIS_YAW_KD       0.2f
 #define CHASSIS_YAW_MAX_I    50.0f
 #define CHASSIS_YAW_MAX_OUT  120
 #define CHASSIS_YAW_THRESH   1.2f
 #define CHASSIS_YAW_SETTLE   50        // 50 个 10ms = 稳定 500ms 后才算转到位
-#define CHASSIS_MOVE_MARGIN_MS 1000     // 位置移动结束的额外余量
+#define CHASSIS_MOVE_MARGIN_MS 900     // 位置移动结束的额外余量ms
+
+// 转向电机死区速度
+#define ROTATE_DEAD_SPEED  0
+// 横移补偿：指令距离 / 实测距离，先标定再填
+#define CHASSIS_STRAFE_K  1.15f
 
 // 底盘四台电机速度（保留，便于查看）
 int16_t vel[4] = {0};
@@ -29,7 +34,7 @@ static uint8_t chassis_inited = 0;
 
 // 分时发送状态：一次移动 = 4 条电机命令
 static int32_t chassis_wheel_cmd[4];     // 位置模式=脉冲，速度模式=速度
-static uint8_t  chassis_send_mode = 0;   // 0=速度模式，1=位置模式
+static uint8_t chassis_send_mode = 0;    // 0=速度模式，1=位置模式
 static int16_t chassis_move_speed = 0;   // 位置模式使用
 static uint8_t chassis_send_index = 0;   // 下一个要发送的电机下标
 static uint8_t chassis_sending = 0;      // 1 = 还在逐条发送命令
@@ -84,7 +89,15 @@ static void chassis_solve(void)
 
     for (int i = 0; i < 4; i++) {
         vel[i] = (int16_t)wheel[i];
-        chassis_wheel_cmd[i] = wheel[i];
+        if (wheel[i] > 0) {
+            chassis_wheel_cmd[i] = wheel[i] + ROTATE_DEAD_SPEED;
+        }
+        else if (wheel[i] < 0) {
+            chassis_wheel_cmd[i] = wheel[i] - ROTATE_DEAD_SPEED;
+        }
+        else {
+            chassis_wheel_cmd[i] = wheel[i];
+        }
     }
     chassis_send_mode = 0;     // 速度模式
     chassis_send_index = 0;
@@ -203,6 +216,8 @@ static void car_move_xy(int16_t speed, float x_cm, float y_cm)
     int32_t px, py;
     int32_t w[4];
     float max_cm, speed_cm_s;
+    static float acc = (float)STEP_MOTOR_DEFAULT_ACC;
+    uint32_t t_ms = 0;
 
     if (chassis_mode != CHASSIS_IDLE) {
         return;   // 底盘忙时不接受新移动指令
@@ -213,7 +228,7 @@ static void car_move_xy(int16_t speed, float x_cm, float y_cm)
     }
 
     // 距离 -> 脉冲数（四舍五入）
-    px = (int32_t)(x_cm / CHASSIS_CM_PER_PULSE + (x_cm >= 0.0f ? 0.5f : -0.5f));
+    px = (int32_t)((x_cm * CHASSIS_STRAFE_K) / CHASSIS_CM_PER_PULSE + (x_cm >= 0.0f ? 0.5f : -0.5f));
     py = (int32_t)(y_cm / CHASSIS_CM_PER_PULSE + (y_cm >= 0.0f ? 0.5f : -0.5f));
 
     // 麦克纳姆轮运动学
@@ -245,8 +260,17 @@ static void car_move_xy(int16_t speed, float x_cm, float y_cm)
         speed_cm_s = 0.1f;
     }
 
+    if (acc < 1.0f) {
+        t_ms = (uint32_t)(max_cm / speed_cm_s * 1000.0f);
+    }
+    else {
+        float t_ramp_s = my_absf((float)speed)
+                     * (256.0f - (float)STEP_MOTOR_DEFAULT_ACC) * 50e-6f; // ZDT官方资料，曲线加减速时间计算公式
+        t_ms = (uint32_t)(((max_cm / speed_cm_s) + t_ramp_s) * 1000.0f);  // 梯形公式
+    }
+
     chassis_deadline = HAL_GetTick()
-                       + (uint32_t)(max_cm / speed_cm_s * 1000.0f)
+                       + (uint32_t)(t_ms)
                        + CHASSIS_MOVE_MARGIN_MS;
     chassis_mode = CHASSIS_MOVE;
 }

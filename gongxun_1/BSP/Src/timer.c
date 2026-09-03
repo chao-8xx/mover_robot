@@ -1,7 +1,3 @@
-//
-// Created by mechreuo on 2026/6/3.
-//
-
 #include "headfile.h"
 
 void all_init(void)
@@ -21,6 +17,15 @@ void timer_init(void)
     HAL_TIM_Base_Start_IT(&htim7);    // 5ms中断
 }
 
+// 定时器失能
+void timer_disable(void)
+{
+    HAL_TIM_Base_Stop_IT(&htim2);     // 10ms中断
+    HAL_TIM_Base_Stop_IT(&htim6);     // 1ms中断
+    HAL_TIM_Base_Stop_IT(&htim7);     // 5ms中断
+}
+
+
 // 定时器中断回调函数
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
@@ -34,6 +39,6 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
         imu_get();
     }
     else if (htim ->Instance == TIM2) {    // 10ms中断
-
+        bfs_multi_track_test();
     }
 }

@@ -13,7 +13,15 @@ static UART_HandleTypeDef *hmi_uart = NULL;
 // hmi 串口初始化
 void hmi_init(UART_HandleTypeDef *huart) {
     hmi_uart = huart;
-    HAL_UARTEx_ReceiveToIdle_DMA(hmi_uart,hmi_rxbuffer,sizeof(hmi_rxbuffer));
+
+    if (HAL_UARTEx_ReceiveToIdle_DMA(hmi_uart, hmi_rxbuffer, sizeof(hmi_rxbuffer)) != HAL_OK)
+    {
+        HAL_GPIO_WritePin(GPIOC, GPIO_PIN_0, GPIO_PIN_RESET);   // 常亮 = 启动失败
+    }
+    else
+    {
+        HAL_GPIO_WritePin(GPIOC, GPIO_PIN_0, GPIO_PIN_SET);     // 灭 = 启动成功
+    }
     __HAL_DMA_DISABLE_IT(hmi_uart->hdmarx,DMA_IT_HT);      // 禁止半传输中断
 }
 
@@ -23,17 +31,12 @@ void hmi_rx_callback(UART_HandleTypeDef *huart, uint16_t Size) {
         return;
     }
 
-    // 循环调用 hmi_GetTouch
-    for (uint16_t i = 0; i < Size; i++) {
-        hmi_touch_t touch = hmi_GetTouch(hmi_rxbuffer[i]);
+    // 在hmi_app内处理
+    hmi_solve(huart, Size);
 
-        if (touch.is_valid && touch.event_type == 0x01) {   // 事件有效且按键按下
-            hmi_touch(); // 触摸事件
-        }
-    }
-        // 重新开启 DMA 空闲中断接收
-        HAL_UARTEx_ReceiveToIdle_DMA(hmi_uart,hmi_rxbuffer,sizeof(hmi_rxbuffer));
-        __HAL_DMA_DISABLE_IT(hmi_uart->hdmarx,DMA_IT_HT);      // 禁止半传输中断
+    // 重新开启 DMA 空闲中断接收
+    HAL_UARTEx_ReceiveToIdle_DMA(hmi_uart,hmi_rxbuffer,sizeof(hmi_rxbuffer));
+    __HAL_DMA_DISABLE_IT(hmi_uart->hdmarx,DMA_IT_HT);      // 禁止半传输中断
 }
 
 /**
@@ -159,6 +162,8 @@ hmi_touch_t hmi_GetTouch(uint8_t byte) {
                 state = 0;
                 end_count = 0;
             }
+            break;
+        default:
             break;
     }
     return touch;       // 无完整事件

@@ -34,12 +34,26 @@ void bfs_init(void)
     bfs_path_len = 0;
 }
 
-// 设置/清除障碍物
+// 设置/清除障碍物 1 设障碍 0 清除
 void bfs_set_obstacle(uint8_t x, uint8_t y, uint8_t obstacle)
 {
     if (x < BFS_MAP_SIZE && y < BFS_MAP_SIZE) {
         bfs_map[y][x] = obstacle ? BFS_OBSTACLE : BFS_FREE;   // 内部存储为了直观 y行 x列
     }
+}
+
+// 清除所有障碍物（除了特定点）
+void bfs_obstacle_clear(void)
+{
+    for(int x = 0; x < BFS_MAP_SIZE; x++) {
+        for(int y = 0; y < BFS_MAP_SIZE; y++) {
+            bfs_set_obstacle(x,y,0);
+        }
+    }
+    bfs_set_obstacle(1,1,1);
+    bfs_set_obstacle(3,1,1);
+    bfs_set_obstacle(1,3,1);
+    bfs_set_obstacle(3,3,1);
 }
 
 // 查询某格是否为障碍，越界按障碍处理
@@ -52,10 +66,11 @@ uint8_t bfs_is_obstacle(uint8_t x, uint8_t y)
 }
 
 // 带转弯代价的最短路径搜索
+// 注意：实际是带转弯代价的加权最短路径（Dijkstra算法），保留bfs名字是为了兼容旧调用
 uint8_t bfs_find_path(uint8_t sx, uint8_t sy, uint8_t tx, uint8_t ty)
 {
     uint8_t i;
-    uint8_t path_index;
+    uint8_t path_index = 0;
     int8_t nx, ny;           // 邻居坐标（可能越界，用有符号类型）
     BFS_Point tmp;           // 反转路径时的临时交换变量
 

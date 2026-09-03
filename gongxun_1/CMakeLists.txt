@@ -72,6 +72,8 @@ add_executable(${CMAKE_PROJECT_NAME}
         APP/Inc/hmi_app.h
         APP/Inc/bfs.h
         APP/Src/bfs.c
+        Control/Inc/system.h
+        Control/Src/system.c
         APP/Src/track_map.c
         APP/Inc/track_map.h
         APP/Src/planner.c
@@ -90,6 +92,8 @@ add_executable(${CMAKE_PROJECT_NAME}
         Test/Inc/run_test.h
         Test/Src/bfs_test.c
         Test/Inc/bfs_test.h
+        Control/Src/task.c
+        Control/Inc/task.h
 
 )
 
@@ -116,6 +120,7 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
         BSP/Inc
         APP/Inc
         Test/Inc
+        Control/Inc
 )
 
 # Add include paths for STM32 HAL and USB middleware

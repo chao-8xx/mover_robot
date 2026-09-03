@@ -105,21 +105,18 @@ int main(void)
   MX_TIM2_Init();
   MX_TIM4_Init();
   /* USER CODE BEGIN 2 */
-  all_init();
-  // hmi_SetText("t1", "工训赛");
-  // hmi_SetText("t1", "240V");
+  HAL_Delay(1000);
+  timer_init();       // 定时器初始化
+  my_hwt101_init();   // 陀螺仪
+  my_hmi_init();      // 串口屏
+  HAL_Delay(10);      // 等待一会儿
+  step_motor_init();  // 闭环步进电机
+  HAL_Delay(100);     // 等待一会儿
+  chassis_init();     // 底盘装置
+  catch_init();       // 夹取装置
+  HAL_Delay(100);     // 等待一会儿
+  bfs_init();
 
-  // HAL_Delay(1500);
-
-  // camera_maix_b2_test();
-  // camera_openmv_test();
-  cam_all_test();
-
-  // lidar_start();
-
-  // tf2d_test_polar();
-  // tf2d_test_base();
-  // tf2d_test_map();
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -127,21 +124,10 @@ int main(void)
 
   while (1)
   {
+    hmi_SetValue("yaw",(int)(my_yaw * 100.0f));
+    HAL_Delay(5);
 
-    // hwt_test();
-
-    // tf2d_test();  // Maix B2单项测试期间禁用周期日志，避免干扰USART6观察
-
-    // key_handle();     // 按键处理
-
-    if (cam_rx_flag) {
-      cam_rx_flag = 0;  // 先清除标志位
-      cam_rx_handle();
-    }
-    maix_result_task();  // 维护5帧VALID/STABLE 并处理视觉数据超时
-
-    lidar_process();  // 激光雷达处理
-
+    // lidar_process();  // 激光雷达处理
 
     // openmv_qr_task();
 
@@ -200,6 +186,36 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
+
+// 重定向 printf 到 串口6  可以无线串口 调参
+// int _write(int file,char *ptr,int len)
+// {
+//   HAL_UART_Transmit(&huart6,(uint8_t *)ptr,len,100);
+//
+//   return len;
+// }
+
+// // 重定向 printf 到 虚拟串口 CDC
+// extern USBD_HandleTypeDef hUsbDeviceFS;
+//
+// int _write(int file, char *ptr, int len)
+// {
+//   (void)file;
+//
+//   if (hUsbDeviceFS.dev_state != USBD_STATE_CONFIGURED) {
+//     return len;
+//   }
+//
+//   uint32_t start = HAL_GetTick();
+//
+//   while (CDC_Transmit_FS((uint8_t *)ptr, len) != USBD_OK) {
+//     if (HAL_GetTick() - start > 20) {
+//       break;
+//     }
+//   }
+//
+//   return len;
+// }
 
 /* USER CODE END 4 */
 

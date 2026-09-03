@@ -26,6 +26,7 @@
 
 
 
+// 基础外设、协议
 #include "timer.h"
 #include "uart_dma.h"
 #include "key_led.h"
@@ -39,23 +40,28 @@
 #include "hwt101.h"     // HWT101陀螺仪
 #include "hmi.h"        // 串口屏
 
-#include "pid.h"        // PID控制算法
+// 应用、算法
 #include "bfs.h"        // BFS广度优先搜索算法
-#include "chassis.h"    // 底盘控制
-#include "catch.h"      // 抓取装置
-#include "remind.h"     // 提醒装置（ws2812、蜂鸣器、LED）
-#include "tf2d.h"       // 2D坐标变换
-#include "hmi_app.h"    // hmi 应用层函数
-
 #include "grid.h"       // 48x48占据栅格
 #include "track_map.h"  // 5x5赛道拓扑
 #include "planner.h"    // BFS与动态重规划
+#include "tf2d.h"       // 2D坐标变换
+#include "pid.h"        // PID控制算法
+#include "chassis.h"    // 底盘控制
+#include "catch.h"      // 抓取装置
+#include "remind.h"     // 提示装置（ws2812、蜂鸣器、LED）
+#include "hmi_app.h"    // hmi 应用层函数
 
+// 测试
 #include "basic_test.h" // 基础模块测试
 #include "cam_test.h"   // 摄像头测试
 #include "lidar_test.h" // 激光雷达测试
 #include "run_test.h"   // 底盘测试
 #include "bfs_test.h"   // BFS测试
 #include "map_test.h"   // 地图测试
+
+// 任务、比赛控制
+#include "system.h"     // 车辆系统
+#include "task.h"       // 任务设置
 
 #endif //GONGXUN_1_HEADFILE_H

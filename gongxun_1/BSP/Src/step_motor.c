@@ -1,6 +1,6 @@
 #include "step_motor.h"
 
-#define MAX_SPEED 1500
+#define MAX_SPEED 3000
 
 // 电机当前速度
 int16_t motor1_speed = 0;
@@ -73,7 +73,8 @@ void motor_set_speed(Motor_Num motor_num,int16_t speed)
         vel = MAX_SPEED;
     }
 
-    Emm_V5_Vel_Control(addr, dir, vel, STEP_MOTOR_DEFAULT_ACC, false);
+    // Emm_V5_Vel_Control(addr, dir, vel, STEP_MOTOR_DEFAULT_ACC, false);
+    Emm_V5_Vel_Control(addr, dir, vel, 0, false);
     step_motor_update_speed(motor_num, speed);
 }
 
@@ -98,6 +99,11 @@ void motor_set_speedPos(Motor_Num motor_num,int16_t speed,int32_t pulse)
     dir = (pulse < 0) ? 1 : 0;
     clk = (pulse < 0) ? (uint32_t)(-(int32_t)pulse) : (uint32_t)pulse;
 
-    Emm_V5_Pos_Control(addr, dir, vel, STEP_MOTOR_DEFAULT_ACC, clk, false, false);
+    if (motor_num != Motor_5 && motor_num != Motor_6) {
+        Emm_V5_Pos_Control(addr, dir, vel, STEP_MOTOR_DEFAULT_ACC, clk, false, false);
+    }
+    else {
+        Emm_V5_Pos_Control(addr, dir, vel, 0, clk, false, false);   // 5、6号电机不需要加速度，需要及时性
+    }
     step_motor_update_speed(motor_num, speed);
 }
