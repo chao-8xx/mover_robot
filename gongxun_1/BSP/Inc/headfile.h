@@ -26,7 +26,6 @@
 
 
 
-#include "fun.h"
 #include "timer.h"
 #include "uart_dma.h"
 #include "key_led.h"

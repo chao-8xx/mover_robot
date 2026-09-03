@@ -34,8 +34,6 @@ enable_language(C ASM)
 # Create an executable object type
 add_executable(${CMAKE_PROJECT_NAME}
         BSP/Inc/headfile.h
-        BSP/Inc/fun.h
-        BSP/Src/fun.c
         BSP/Src/key_led.c
         BSP/Inc/key_led.h
         BSP/Src/uart_dma.c
@@ -107,7 +105,6 @@ target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user sources here
         BSP/Src/lidar.c
-        BSP/Src/fun.c
         BSP/Src/key_led.c
         BSP/Src/uart_dma.c
         BSP/Src/timer.c
