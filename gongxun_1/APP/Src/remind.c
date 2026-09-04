@@ -1,6 +1,6 @@
 #include "remind.h"
 
-#define FLASH_TIME   20
+#define FLASH_TIME   22
 
 uint16_t work_time = 0;         // 工作时间
 uint8_t flash_times = 0;        // 闪光次数
@@ -74,7 +74,7 @@ void remind_control(void)
         }
     }
     else {
-        if (work_time >= FLASH_TIME) {
+        if (work_time >= FLASH_TIME / 2 + 1) {
             work_time = 0;
             work_state = !work_state;   // 每隔一段时间翻转一次状态
             if (work_state) {

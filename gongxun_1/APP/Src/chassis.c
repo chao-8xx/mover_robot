@@ -11,14 +11,13 @@
 #define CHASSIS_YAW_KD       0.2f
 #define CHASSIS_YAW_MAX_I    50.0f
 #define CHASSIS_YAW_MAX_OUT  120
-#define CHASSIS_YAW_THRESH   1.2f
 #define CHASSIS_YAW_SETTLE   50        // 50 个 10ms = 稳定 500ms 后才算转到位
-#define CHASSIS_MOVE_MARGIN_MS 900     // 位置移动结束的额外余量ms
+#define CHASSIS_MOVE_MARGIN_MS 500     // 位置移动结束的额外余量ms
 
 // 转向电机死区速度
 #define ROTATE_DEAD_SPEED  0
 // 横移补偿：指令距离 / 实测距离，先标定再填
-#define CHASSIS_STRAFE_K  1.15f
+#define CHASSIS_STRAFE_K  1.08f
 
 // 底盘四台电机速度（保留，便于查看）
 int16_t vel[4] = {0};
@@ -58,14 +57,6 @@ void chassis_init(void)
     PID_Reset(&yaw_pid);
     chassis_mode = CHASSIS_IDLE;
     chassis_inited = 1;
-}
-
-// 小车旋转 只旋转不位移
-static void chassis_rotate(int16_t omega)
-{
-    my_chassis.x = 0;
-    my_chassis.y = 0;
-    my_chassis.omega = omega;
 }
 
 // 清空底盘（停车）
@@ -110,6 +101,29 @@ void car_stop(void)
     chassis_clear();
     chassis_solve();
     chassis_mode = CHASSIS_IDLE;
+}
+
+// 速度模式：小车平移和旋转
+void car_speed_move (int16_t x_speed, int16_t y_speed, int16_t omega_speed)
+{
+    if (chassis_mode != CHASSIS_IDLE) {
+        return;
+    }
+
+    my_chassis.x = x_speed;
+    my_chassis.y = y_speed;
+    my_chassis.omega = omega_speed;
+    chassis_solve();
+
+    chassis_mode = CHASSIS_MOVE;
+}
+
+// 小车旋转 只旋转不位移
+static void chassis_rotate(int16_t omega)
+{
+    my_chassis.x = 0;
+    my_chassis.y = 0;
+    my_chassis.omega = omega;
 }
 
 // 原地旋转
@@ -158,13 +172,13 @@ void car_rotate_ctrl(void)
 
     float err = chassis_target_yaw - now_yaw;   // 不归一化，直接比较
 
-    if (err > CHASSIS_YAW_THRESH || err < -CHASSIS_YAW_THRESH) {
+    if (err > YAW_THRESH || err < -YAW_THRESH) {
         chassis_settle = 0;
         Positional_PID_Cal(&yaw_pid, chassis_target_yaw, now_yaw);
         car_rotate((int16_t)yaw_pid.output);
     }
     else {
-        // 误差小：先停住，连续稳定 100 帧（1000ms）才算到位
+        // 误差小：先停住，连续稳定 50 帧（500ms）才算到位
         car_rotate(0);
         chassis_settle++;
         if (chassis_settle >= CHASSIS_YAW_SETTLE) {
@@ -193,7 +207,7 @@ void car_rotate_yaw(float target_yaw)
 
     float err = target_yaw - my_yaw;   // 不归一化，直接比较
 
-    if (err > CHASSIS_YAW_THRESH || err < -CHASSIS_YAW_THRESH) {
+    if (err > YAW_THRESH || err < -YAW_THRESH) {
         chassis_settle = 0;     // 等待时间清零
         Positional_PID_Cal(&yaw_pid, target_yaw, my_yaw);
         car_rotate((int16_t)(yaw_pid.output));
@@ -281,7 +295,6 @@ void car_run_distance(int16_t speed, float x_cm, float y_cm)
     if (chassis_mode != CHASSIS_IDLE) {
         return;   // 底盘忙时不接受新移动指令
     }
-
     car_move_xy(speed, x_cm, y_cm);
 }
 

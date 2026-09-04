@@ -262,3 +262,12 @@ void bfs_car_to_map(int8_t car_dx, int8_t car_dy,
     *map_dx = (int8_t)(car_dx * right_x + car_dy * bfs_heading_x);
     *map_dy = (int8_t)(car_dx * right_y + car_dy * bfs_heading_y);
 }
+
+// 设置默认障碍坐标（地图要求）
+void bfs_base_obstacle(void)
+{
+    bfs_set_obstacle(1,1,1);    // (1,1)
+    bfs_set_obstacle(3,1,1);    // (3,1)
+    bfs_set_obstacle(1,3,1);    // (1,3)
+    bfs_set_obstacle(3,3,1);    // (3,3)
+}

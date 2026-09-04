@@ -61,6 +61,7 @@
 #include "map_test.h"   // 地图测试
 
 // 任务、比赛控制
+#include "control.h"    // 控制函数
 #include "system.h"     // 车辆系统
 #include "task.h"       // 任务设置
 

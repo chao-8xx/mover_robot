@@ -227,12 +227,10 @@ void openmv_frame_handle(const uint8_t *data, uint8_t len)
     if (len != QR_DATA_LEN)
         return;
 
-
     memcpy(qr_data, data, QR_DATA_LEN); // 复制数据到 qr_data
     qr_data[QR_DATA_LEN] = '\0';    // 字符串结束符
     qr_tick = HAL_GetTick();
     qr_ok = 1;                      // 标记收到二维码数据
-
 }
 
 // maix 视觉数据帧处理

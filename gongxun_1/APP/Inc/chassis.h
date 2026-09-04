@@ -2,6 +2,8 @@
 #define GONGXUN_1_CHASSIS_H
 #include "headfile.h"
 
+#define YAW_THRESH   1.2f   // 转到目标角的限制范围
+
 // ---- 结构体和枚举定义 ---- //
 // 底盘运动目标：x/y 平移速度 + omega 旋转角速度
 typedef struct {
@@ -22,11 +24,14 @@ typedef enum {
 // 初始化底盘（含偏航 PID）
 void chassis_init(void);
 
-// 原地旋转（速度模式，omega 为旋转角速度）
-void car_rotate(int16_t omega);
-
 // 停车
 void car_stop(void);
+
+// 速度模式：小车平移和旋转
+void car_speed_move (int16_t x_speed, int16_t y_speed, int16_t omega_speed);
+
+// 原地旋转（速度模式，omega 为旋转角速度）
+void car_rotate(int16_t omega);
 
 // 一次调用：设置小车要转到的目标角度（°）
 // 实际闭环由 car_rotate_ctrl() 在 10ms 周期里驱动

@@ -65,4 +65,7 @@ void bfs_get_heading_vec(int8_t *hx, int8_t *hy);
 void bfs_car_to_map(int8_t car_dx, int8_t car_dy,
                       int8_t *map_dx, int8_t *map_dy);
 
+// 设置默认障碍坐标（地图要求）
+void bfs_base_obstacle(void);
+
 #endif //GONGXUN_1_BFS_H
