@@ -2,7 +2,7 @@
 
 // ==================== 机械参数（按实际底盘修改） ====================
 // 轮径(cm) 和电机转一圈对应的脉冲数，决定“距离 -> 脉冲”的换算
-#define CHASSIS_WHEEL_DIAM_CM        9.0f       // 麦轮直径
+#define CHASSIS_WHEEL_DIAM_CM        7.9f       // 麦轮直径
 #define CHASSIS_MOTOR_PULSE_PER_REV  3200       // 多少脉冲一圈
 #define CHASSIS_CM_PER_PULSE         ((3.14159265f * CHASSIS_WHEEL_DIAM_CM) / CHASSIS_MOTOR_PULSE_PER_REV)  // cm/脉冲
 
@@ -17,7 +17,7 @@
 // 转向电机死区速度
 #define ROTATE_DEAD_SPEED  0
 // 横移补偿：指令距离 / 实测距离，先标定再填
-#define CHASSIS_STRAFE_K  1.08f
+#define CHASSIS_STRAFE_K  1.21f
 
 // 底盘四台电机速度（保留，便于查看）
 int16_t vel[4] = {0};

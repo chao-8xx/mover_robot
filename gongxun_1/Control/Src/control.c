@@ -3,8 +3,8 @@
 #define TARGET_DX   0           // 目标dx
 #define TARGET_DY   0           // 目标dy
 
-#define LEAVE_PARK_DX   15.5f   // 离开启停区的横向距离
-#define LEAVE_PARK_DY   15.5f   // 离开启停区的纵向距离
+#define LEAVE_PARK_DX   11.0f   // 离开启停区的横向距离
+#define LEAVE_PARK_DY   13.0f   // 离开启停区的纵向距离
 
 #define MOVE_SPEED   250        // 底盘非任务区运行速度
 
@@ -114,6 +114,7 @@ void back_parking(void)
         my_control.move_state = 1;
     }
     my_control.step = 99;
+    car_run = false;
 }
 
 
