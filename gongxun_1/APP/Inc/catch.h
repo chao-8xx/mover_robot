@@ -28,8 +28,6 @@ typedef enum {
     ORIGIN_DIST     // 原点距离
 } Stretch_Dist;
 
-#include "headfile.h"
-
 // 抓取装置位置复位
 void catch_init(void);
 

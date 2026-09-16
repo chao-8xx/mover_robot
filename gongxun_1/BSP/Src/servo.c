@@ -1,4 +1,4 @@
-#include "servo.h"
+#include "headfile.h"
 
 // TIM1 配置：168MHz / (167+1) = 1MHz 计数时钟，1 个计数 = 1us
 // ARR = 19999 -> 周期 20ms，即 50Hz，标准舵机控制信号

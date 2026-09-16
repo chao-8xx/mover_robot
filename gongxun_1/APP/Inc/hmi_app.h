@@ -1,7 +1,6 @@
 #ifndef GONGXUN_1_HMI_APP_H
 #define GONGXUN_1_HMI_APP_H
 
-#include "headfile.h"
 
 // 串口屏初始化
 void my_hmi_init(void);

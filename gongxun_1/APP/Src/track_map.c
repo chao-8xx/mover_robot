@@ -1,7 +1,4 @@
-#include "track_map.h"
-#include "grid.h"
-
-#include <stddef.h>
+#include "headfile.h"
 
 #define MACRO_NODE(node_id)  {TRACK_MACRO_NODE, (uint8_t)(node_id)}
 #define MACRO_ROAD(road_id)  {TRACK_MACRO_ROAD, (uint8_t)(road_id)}

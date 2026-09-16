@@ -1,4 +1,4 @@
-#include "hwt101.h"
+#include "headfile.h"
 
 /**
   * @file    hwt101.c
@@ -32,8 +32,7 @@
 #define HWT101_GYRO_RANGE   2000.0f  // ±2000°/s
 #define HWT101_ANGLE_RANGE  180.0f   // ±180°
 
-// DMA 环形接收缓冲：容量要能放下至少一帧（11 字节），建议 256
-#define HWT101_DMA_BUF_SIZE 256
+#define HWT101_DMA_BUF_SIZE 256  // DMA 环形接收缓冲区
 
 // 复位偏航角命令（官方示例）：
 // 解锁 FF AA 69 88 B5 -> 延时200ms
@@ -45,18 +44,15 @@ static const uint8_t hwt101_save_cmd[5] = {0xFF, 0xAA, 0x00, 0x00, 0x00};
 
 HWT101_Data_t hwt101 = {0};
 
-// 串口句柄：hwt101_init 时保存，之后接收/发送都用它
 static UART_HandleTypeDef *hwt101_uart = NULL;
 
-// DMA 环形接收缓冲与当前解析位置
-static uint8_t hwt101_dma_buf[HWT101_DMA_BUF_SIZE];
-static uint16_t hwt101_dma_pos = 0;
-
-// 当前正在拼装的一帧数据
-static uint8_t hwt101_buf[HWT101_FRAME_LEN];
-
-// 已收字节下标
-static uint8_t hwt101_idx = 0;
+// DMA 环形接收缓冲变量
+static uint8_t hwt101_dma_buf[HWT101_DMA_BUF_SIZE];// DMA 环形接收缓冲区
+static uint16_t hwt101_rd = 0;                     // 读指针: 下一个待解析字节的位置
+static uint8_t hwt101_buf[HWT101_FRAME_LEN];       // 当前正在拼装的一帧数据
+static uint8_t hwt101_idx = 0;                     // 已收字节下标
+volatile uint8_t hwt101_rx_flag = 0;               // 接收标志位
+volatile uint8_t hwt101_error_flag = 0;            // 错误标志位
 
 // 接收状态机：
 // 0 = 等待 0x55 帧头
@@ -75,6 +71,102 @@ float last_yaw = 0.0f;          // 上次偏航角角度
 float my_yaw = 0.0f;            // 解算后求得的偏航角角度
 int32_t yaw_change_flag = 0;    // 角度变换标志
 
+
+// 陀螺仪初始化
+void hwt101_init(UART_HandleTypeDef *huart)
+{
+    hwt101_uart = huart;
+    hwt101_rd = 0;
+    hwt101_rx_flag = 0;
+    hwt101_error_flag = 0;
+
+    // 通信协议状态初始化
+    hwt101_state = 0;
+    hwt101_idx = 0;
+
+    // 数据状态
+    hwt101.valid = 0;
+
+    // 角速度差分
+    hwt101_prev_wz = 0.0f;
+    hwt101_prev_ms = HAL_GetTick();
+
+    // 开启陀螺仪的DMA空闲中断  现只存在空闲中断IDLE 和 IC 传输完成中断
+    HAL_UARTEx_ReceiveToIdle_DMA(hwt101_uart, hwt101_dma_buf, sizeof(hwt101_dma_buf));
+    __HAL_DMA_DISABLE_IT(hwt101_uart->hdmarx,DMA_IT_HT);      // 禁止半传输中断
+}
+
+// 陀螺仪接收处理函数
+void hwt101_rx_handle(void)
+{
+    uint16_t wr;
+
+    if (hwt101_uart == NULL || hwt101_uart->hdmarx == NULL)
+        return;
+
+    // 串口/DMA 错误回调函数
+    if (hwt101_error_flag) {
+        hwt101_error_flag = 0;
+        HAL_UART_DMAStop(hwt101_uart); // 停止DMA
+
+        // DMA 重启后丢弃旧缓冲区内容 并从下一帧头重新同步协议
+        hwt101_rd = 0;
+        hwt101_state = 0;
+        hwt101_idx = 0;
+
+        // 重新开启DMA空闲中断 禁止HC中断
+        if (HAL_UARTEx_ReceiveToIdle_DMA(hwt101_uart, hwt101_dma_buf, sizeof(hwt101_dma_buf)) == HAL_OK) {
+            __HAL_DMA_DISABLE_IT(hwt101_uart->hdmarx, DMA_IT_HT);
+            printf("[HWT101 RX] DMA错误后重启成功\r\n");
+        } else {
+            printf("[HWT101 RX] DMA重启失败\r\n");
+        }
+        return;
+    }
+
+    // 正常数据读取
+    wr = HWT101_DMA_BUF_SIZE - __HAL_DMA_GET_COUNTER(hwt101_uart->hdmarx);  // DMA写指针
+    if (wr >= HWT101_DMA_BUF_SIZE)
+        wr = 0;
+
+    while (hwt101_rd != wr) {
+        uint8_t byte = hwt101_dma_buf[hwt101_rd];
+
+        // 解析协议
+        hwt101_byte_handle(byte);
+
+        hwt101_rd++;
+        if (hwt101_rd >= HWT101_DMA_BUF_SIZE)
+            hwt101_rd = 0;
+    }
+}
+
+// 陀螺仪接收回调
+void hwt101_rx_callback(UART_HandleTypeDef *huart, uint16_t size)
+{
+    if (huart->Instance != USART3)
+        return;
+
+    (void)size;
+
+    // 接收中断只置位 通知主循环过来处理接收到的新字节
+    HAL_UART_RxEventTypeTypeDef event = HAL_UARTEx_GetRxEventType(huart);
+    if (event == HAL_UART_RXEVENT_IDLE) {
+        hwt101_rx_flag = 1;
+    }
+}
+
+// 陀螺仪错误回调
+void hwt101_error_callback(UART_HandleTypeDef *huart)
+{
+    if (huart->Instance != USART3) {
+        return;
+    }
+
+    // 中断只置位
+    hwt101_rx_flag = 1;
+    hwt101_error_flag = 1;
+}
 
 // 读取小端序 int16：低字节在前，高字节在后
 static int16_t hwt101_get_i16(uint8_t offset)
@@ -144,7 +236,7 @@ static void hwt101_parse_frame(void)
 
 // 单字节状态机：每个中断字节喂进来一次
 // 流程：找 0x55 帧头 -> 认类型 -> 收满 11 字节 -> 解析 -> 重新等帧头
-static void hwt101_byte_handle(uint8_t byte)
+void hwt101_byte_handle(uint8_t byte)
 {
     if (hwt101_state == 0) {     // 等帧头
         if (byte == HWT101_HEAD) {
@@ -177,55 +269,6 @@ static void hwt101_byte_handle(uint8_t byte)
     }
 }
 
-// 初始化：保存串口句柄、复位解析状态、开启 DMA 环形接收
-// 示例：hwt101_init(&huart3);
-void hwt101_init(UART_HandleTypeDef *huart)
-{
-    hwt101_uart = huart;
-    hwt101_state = 0;
-    hwt101_idx = 0;
-    hwt101_dma_pos = 0;
-    hwt101.valid = 0;
-    hwt101_prev_wz = 0.0f;
-    hwt101_prev_ms = HAL_GetTick();
-
-    // IDLE 事件到达时，HAL 会调用 HAL_UARTEx_RxEventCallback
-    HAL_UARTEx_ReceiveToIdle_DMA(hwt101_uart, hwt101_dma_buf, HWT101_DMA_BUF_SIZE);
-}
-
-// DMA 收到一段数据后由 HAL_UARTEx_RxEventCallback 转发到这里
-void hwt101_dma_rx_event(uint16_t size)
-{
-    uint16_t new_pos;
-    uint16_t count;
-    uint16_t i;
-
-    // HAL 在循环 DMA 下传的 Size 是“缓冲区当前位置”：
-    // IDLE = 当前写入位置，HT = 128，TC = 256，不是本次新增字节数
-    new_pos = (uint16_t)(size % HWT101_DMA_BUF_SIZE);
-
-    // 用位置差计算真正新增的字节数，兼容跨过数组末尾的情况
-    count = (uint16_t)((new_pos + HWT101_DMA_BUF_SIZE - hwt101_dma_pos) % HWT101_DMA_BUF_SIZE);
-
-    // 环形缓冲可能跨过数组末尾，用取模逐字节喂给状态机
-    for (i = 0; i < count; i++) {
-        hwt101_byte_handle(hwt101_dma_buf[(hwt101_dma_pos + i) % HWT101_DMA_BUF_SIZE]);
-    }
-    hwt101_dma_pos = new_pos;
-}
-
-// 串口错误回调：解析状态可能错乱，全部复位后重新开始接收
-void hwt101_uart_error_callback(UART_HandleTypeDef *huart)
-{
-    if (huart->Instance != USART3) {
-        return;
-    }
-
-    hwt101_state = 0;
-    hwt101_idx = 0;
-    hwt101_dma_pos = 0;
-    HAL_UARTEx_ReceiveToIdle_DMA(hwt101_uart, hwt101_dma_buf, HWT101_DMA_BUF_SIZE);
-}
 
 float hwt101_get_yaw(void)
 {

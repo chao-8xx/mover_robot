@@ -12,5 +12,7 @@ void tf2d_test_polar(void);
 void tf2d_test_base(void);
 void tf2d_test_map(void);
 void tf2d_test(void);
+void point_cloud_test(void);
+void obstacle_cluster_test(void);
 
 #endif //GONGXUN_1_LIDAR_TEST_H

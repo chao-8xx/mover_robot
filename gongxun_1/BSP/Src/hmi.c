@@ -1,4 +1,4 @@
-#include "hmi.h"
+#include "headfile.h"
 
 uint8_t hmi_rxbuffer[HMI_RX_SIZE];   // hmi 接收缓冲区
 char hmi_txbuffer[HMI_TX_SIZE];   // hmi 发送缓冲区

@@ -80,6 +80,10 @@ add_executable(${CMAKE_PROJECT_NAME}
         APP/Inc/planner.h
         APP/Src/grid.c
         APP/Inc/grid.h
+        APP/Src/obstacle_map.c
+        APP/Inc/obstacle_map.h
+        APP/Src/obstacle_find.c
+        APP/Inc/obstacle_find.h
         Test/Src/map_test.c
         Test/Inc/map_test.h
         APP/Src/tf2d.c

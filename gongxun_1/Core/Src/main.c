@@ -105,17 +105,27 @@ int main(void)
   MX_TIM2_Init();
   MX_TIM4_Init();
   /* USER CODE BEGIN 2 */
-  HAL_Delay(1000);
+
   timer_init();       // 定时器初始化
-  my_hwt101_init();   // 陀螺仪
-  my_hmi_init();      // 串口屏
-  HAL_Delay(10);      // 等待一会儿
-  step_motor_init();  // 闭环步进电机
-  HAL_Delay(100);     // 等待一会儿
-  chassis_init();     // 底盘装置
-  catch_init();       // 夹取装置
-  HAL_Delay(100);     // 等待一会儿
-  bfs_init();
+
+  // my_hwt101_init();   // 陀螺仪
+  uart_init();
+  tf_init();
+  obstacle_map_init();
+
+  HAL_Delay(1000);
+
+  // my_hmi_init();      // 串口屏
+  // HAL_Delay(10);      // 等待一会儿
+  // step_motor_init();  // 闭环步进电机
+  // HAL_Delay(100);     // 等待一会儿
+  // chassis_init();     // 底盘装置
+  // catch_init();       // 夹取装置
+  // HAL_Delay(100);     // 等待一会儿
+  // bfs_init();
+
+
+  lidar_start();
 
   /* USER CODE END 2 */
 
@@ -124,12 +134,37 @@ int main(void)
 
   while (1)
   {
-    hmi_SetValue("yaw",(int)(my_yaw * 100.0f));
-    HAL_Delay(5);
+    // hmi_SetValue("yaw",(int)(my_yaw * 100.0f));
+    // HAL_Delay(5);
+    //
 
-    // lidar_process();  // 激光雷达处理
+    static uint32_t last_cloud_update = 0;
 
-    // openmv_qr_task();
+    lidar_process();  // 激光雷达处理
+
+    // tf2d_test();
+
+    // if (cam_rx_flag || cam_error_flag) {
+    //   cam_error_flag = 0;
+    //   cam_rx_flag = 0;  // 先清除标志位
+    //   cam_rx_handle();
+    // }
+    // maix_result_task();  // 维护5帧VALID/STABLE 并处理视觉数据超时
+
+    if(hwt101_rx_flag || hwt101_error_flag) {
+      hwt101_error_flag = 0;
+      hwt101_rx_flag = 0;  // 先清除标志位
+      hwt101_rx_handle();
+    }
+    uint32_t now = HAL_GetTick();
+
+    if (now - last_cloud_update >= 100) {
+      last_cloud_update = now;
+      point_cloud_update(500.0f, 500.0f, my_yaw, now);
+      obstacle_cluster_update(&cloud, now);
+    }
+    // point_cloud_test();
+    obstacle_cluster_test();
 
 
     /* USER CODE END WHILE */

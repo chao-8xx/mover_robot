@@ -29,7 +29,7 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
     }
     else if (huart->Instance == USART3)
     {
-        hwt101_dma_rx_event(Size);
+        hwt101_rx_callback(huart,Size);
     }
     else if (huart->Instance == UART5)
     {
@@ -47,7 +47,7 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
     }
     else if (huart->Instance == USART3)
     {
-        hwt101_uart_error_callback(huart);
+        hwt101_error_callback(huart);
     }
     // // LiDAR的错误处理
     // if (huart->Instance == UART4)

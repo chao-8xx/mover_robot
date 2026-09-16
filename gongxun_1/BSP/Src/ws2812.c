@@ -1,4 +1,4 @@
-#include "ws2812.h"
+#include "headfile.h"
 
 // CubeMX 生成的 TIM4_CH2 DMA 句柄（定义在 tim.c）
 extern DMA_HandleTypeDef hdma_tim4_ch2;

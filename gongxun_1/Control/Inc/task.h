@@ -1,6 +1,5 @@
 #ifndef GONGXUN_1_TASK_H
 #define GONGXUN_1_TASK_H
-#include "headfile.h"
 
 // ======== 任务状态机、结构体定义 ======== //
 // 颜色任务编码

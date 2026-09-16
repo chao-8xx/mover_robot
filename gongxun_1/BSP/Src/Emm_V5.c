@@ -1,5 +1,4 @@
-#include "Emm_V5.h"
-#include <string.h>
+#include "headfile.h"
 
 /**********************************************************
 *** Emm_V5.0 闭环步进电机驱动器

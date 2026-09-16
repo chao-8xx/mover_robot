@@ -5,9 +5,6 @@
 #ifndef GONGXUN_1_CAMERA_H
 #define GONGXUN_1_CAMERA_H
 
-#include "headfile.h"
-
-
 // cam 通信协议
 // 协议: AA 55 CMD LEN DATA SUM
 // Maix DATA数据: FRAME_ID OK dxL dxH dyL dyH
@@ -141,6 +138,7 @@ uint8_t maix_get_filtered_result(maix_result_t *out);
 
 extern maix_vision_t maix_vision;
 extern maix_result_t maix_result;
+extern volatile uint8_t cam_error_flag;
 extern volatile uint8_t cam_rx_flag;   // 接收完成标志位
 
 #endif //GONGXUN_1_CAMERA_H

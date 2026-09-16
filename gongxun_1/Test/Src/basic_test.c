@@ -1,4 +1,4 @@
-#include "../Inc/basic_test.h"
+#include "headfile.h"
 
 // 虚拟串口 USB CDC 测试函数，验证 CDC 是否正常工作
 // 现已变为无线串口 串口六输出了

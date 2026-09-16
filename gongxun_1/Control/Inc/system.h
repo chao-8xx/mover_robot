@@ -1,6 +1,5 @@
 #ifndef GONGXUN_1_SYSTEM_H
 #define GONGXUN_1_SYSTEM_H
-#include "headfile.h"
 
 // 整车系统初始化
 void system_init(void);
