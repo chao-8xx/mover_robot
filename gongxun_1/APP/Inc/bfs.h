@@ -1,7 +1,6 @@
 #ifndef GONGXUN_1_BFS_H
 #define GONGXUN_1_BFS_H
 
-#include "headfile.h"
 
 // 纯搜索路径，不做控制
 

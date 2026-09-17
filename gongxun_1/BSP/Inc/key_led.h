@@ -5,8 +5,6 @@
 #ifndef GONGXUN_1_KEY_H
 #define GONGXUN_1_KEY_H
 
-#include "headfile.h"
-
 #define KEY_COUNT 1     // 按键数量
 
 uint8_t key_getshortpress(void);

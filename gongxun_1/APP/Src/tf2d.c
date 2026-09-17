@@ -2,7 +2,7 @@
 // Created by mechreuo on 2026/8/28.
 //
 
-#include "tf2d.h"
+#include "headfile.h"
 
 // 2D坐标系说明
 //             +Y
@@ -17,6 +17,7 @@
 static float sin_table[360];  // 正弦查找表
 static float cos_table[360];  // 余弦查找表
 
+tf_transform2d_t tf_lidar; // 雷达坐标系
 tf_transform2d_t tf_base;  // 车身坐标系
 tf_transform2d_t tf_map;   // 地图坐标系
 
@@ -24,7 +25,7 @@ void tf_init(void) {
     angle_table_init();
     // tf_base_init(&tf_base, 3.5f, -6.0f, 1.2f);  // 测试
     tf_transform_set(&tf_base, 0.0f, 0.0f, 0.0f);  // 初始化车身坐标系
-    // tf_transform_set(&tf_map, 0.0f, 0.0f, 0.0f);   // 初始化地图坐标系
+    // tf_transform_set(&tf_map, cloud.car_x, cloud.car_y, cloud.car_angle);   // 初始化地图坐标系  需要在地图坐标系实时更新时调用
 }
 
 // 初始化正余弦查找表

@@ -1,7 +1,5 @@
 #ifndef GONGXUN_1_STEP_MOTOR_H
 #define GONGXUN_1_STEP_MOTOR_H
-#include "headfile.h"
-#include "Emm_V5.h"
 
 // ---- 电机数量与默认速度、加速度 ---- //
 #define MAX_SPEED              3000

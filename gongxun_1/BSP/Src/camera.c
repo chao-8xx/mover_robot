@@ -279,7 +279,7 @@ void cam_init(UART_HandleTypeDef *huart)
     maix_filter_reset();
 
     // 开启DMA空闲中断接收 IDLE只通知主循环批量处理新字节
-    HAL_UARTEx_ReceiveToIdle_DMA(cam_uart, cam_rx_buf, CAM_LEN);
+    HAL_UARTEx_ReceiveToIdle_DMA(cam_uart, cam_rx_buf, sizeof(cam_rx_buf));
     __HAL_DMA_DISABLE_IT(cam_uart->hdmarx,DMA_IT_HT);      // 禁止半传输中断
 }
 
@@ -318,7 +318,6 @@ void cam_rx_callback(UART_HandleTypeDef *huart, uint16_t Size)
     (void)Size;
     HAL_UART_RxEventTypeTypeDef event = HAL_UARTEx_GetRxEventType(huart);
     if (event == HAL_UART_RXEVENT_IDLE) {
-
         cam_rx_flag = 1;
     }
 

@@ -10,7 +10,6 @@ typedef struct
     float output,maxOutput,minOutput;       //输出、输出限幅
 } PID;
 
-#include "headfile.h"
 
 // 增量式PID
 void Incremental_PID_Init(PID *pid, float p, float i, float d, float minOutput, float maxOutput);

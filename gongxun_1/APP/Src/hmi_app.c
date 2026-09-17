@@ -1,4 +1,4 @@
-#include "hmi_app.h"
+#include "headfile.h"
 
 // 发车点坐标，由屏幕 CC 命令设置，供后续路径规划使用
 uint8_t hmi_start_x = 0;

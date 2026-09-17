@@ -1,6 +1,5 @@
 #ifndef GONGXUN_1_LED_BUZZER_H
 #define GONGXUN_1_LED_BUZZER_H
-#include "headfile.h"
 
 // 拓展板板载LED与蜂鸣器初始化
 void led_buzzer_init(void);

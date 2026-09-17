@@ -1,8 +1,6 @@
 #ifndef GONGXUN_1_SERVO_H
 #define GONGXUN_1_SERVO_H
 
-#include "headfile.h"
-
 #define SERVO_COUNT 3
 
 // ---- 舵机编号与引脚/定时器通道映射 ---- //

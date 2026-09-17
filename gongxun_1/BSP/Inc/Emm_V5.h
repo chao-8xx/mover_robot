@@ -1,8 +1,6 @@
 #ifndef __EMM_V5_H
 #define __EMM_V5_H
 
-#include "usart.h"
-#include <stdbool.h>
 
 /**********************************************************
 *** Emm_V5.0 闭环步进电机驱动器

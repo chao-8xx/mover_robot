@@ -1,9 +1,6 @@
 #ifndef GONGXUN_1_OCCUPANCY_GRID_H
 #define GONGXUN_1_OCCUPANCY_GRID_H
 
-#include <stdbool.h>
-#include <stdint.h>
-
 #define OCCUPANCY_GRID_FIELD_SIZE_MM  2400U
 #define OCCUPANCY_GRID_CELL_SIZE_MM     50U
 #define OCCUPANCY_GRID_WIDTH            48U

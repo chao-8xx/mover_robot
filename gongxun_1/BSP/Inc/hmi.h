@@ -1,8 +1,6 @@
 #ifndef GONGXUN_1_HMI_H
 #define GONGXUN_1_HMI_H
 
-#include "headfile.h"
-
 #define HMI_TX_SIZE  256
 #define HMI_RX_SIZE  256
 

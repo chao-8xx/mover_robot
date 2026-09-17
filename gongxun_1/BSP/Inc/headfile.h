@@ -25,8 +25,8 @@
 #include "usbd_cdc_if.h"
 
 
+
 // 基础外设、协议
-#include "fun.h"
 #include "timer.h"
 #include "uart_dma.h"
 #include "key_led.h"
@@ -46,6 +46,8 @@
 #include "track_map.h"  // 5x5赛道拓扑
 #include "planner.h"    // BFS与动态重规划
 #include "tf2d.h"       // 2D坐标变换
+#include "obstacle_map.h" // 障碍物地图投影
+#include "obstacle_find.h" // 雷达障碍物扫描与道路阻塞
 #include "pid.h"        // PID控制算法
 #include "chassis.h"    // 底盘控制
 #include "catch.h"      // 抓取装置

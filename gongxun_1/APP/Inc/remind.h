@@ -1,6 +1,5 @@
 #ifndef GONGXUN_1_REMIND_H
 #define GONGXUN_1_REMIND_H
-#include "headfile.h"
 
 typedef enum {
     RED_REMIND,     // 闪红光提醒

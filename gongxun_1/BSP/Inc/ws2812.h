@@ -1,8 +1,6 @@
 #ifndef GONGXUN_1_WS2812_H
 #define GONGXUN_1_WS2812_H
 
-#include "headfile.h"
-
 typedef enum {
     LED_RED    = 0,
     LED_GREEN  = 1,

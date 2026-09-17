@@ -5,8 +5,6 @@
 #ifndef GONGXUN_1_TEST_H
 #define GONGXUN_1_TEST_H
 
-#include "headfile.h"
-
 void cdc_test(void);
 
 void hwt_test(void);

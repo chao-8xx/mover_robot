@@ -204,6 +204,107 @@ static bool map_planner_test_macro_mapping(void)
     return true;
 }
 
+static bool map_planner_test_obstacle_projection(void)
+{
+    ObstacleMapProjection projection;
+    uint16_t center_mask = TRACK_ROAD_MASK(TRACK_ROAD_R2) |
+                           TRACK_ROAD_MASK(TRACK_ROAD_R3) |
+                           TRACK_ROAD_MASK(TRACK_ROAD_R8) |
+                           TRACK_ROAD_MASK(TRACK_ROAD_R9);
+
+    obstacle_map_init();
+
+    /* (1225,1625) mm -> grid(24,32) -> R8。 */
+    if (!obstacle_map_mark_world_point(1225.0f, 1625.0f, &projection) ||
+        projection.grid_x != 24U || projection.grid_y != 32U ||
+        projection.road_mask != TRACK_ROAD_MASK(TRACK_ROAD_R8) ||
+        occupancy_grid_get_state(24U, 32U) != GRID_CELL_OCCUPIED ||
+        track_map_get_road_state(TRACK_ROAD_R8) != ROAD_BLOCKED)
+    {
+        return false;
+    }
+
+    obstacle_map_reset();
+
+    /* 中心节点上的障碍物会保守地封锁四条相邻道路。 */
+    if (!obstacle_map_mark_world_point(1225.0f, 1225.0f, &projection) ||
+        projection.grid_x != 24U || projection.grid_y != 24U ||
+        projection.road_mask != center_mask ||
+        track_map_get_road_state(TRACK_ROAD_R2) != ROAD_BLOCKED ||
+        track_map_get_road_state(TRACK_ROAD_R3) != ROAD_BLOCKED ||
+        track_map_get_road_state(TRACK_ROAD_R8) != ROAD_BLOCKED ||
+        track_map_get_road_state(TRACK_ROAD_R9) != ROAD_BLOCKED)
+    {
+        return false;
+    }
+
+    obstacle_map_reset();
+
+    /* 淡黄色禁行区保留栅格占用，但不对应任何道路。 */
+    if (!obstacle_map_mark_world_point(750.0f, 750.0f, &projection) ||
+        projection.grid_x != 15U || projection.grid_y != 15U ||
+        projection.road_mask != 0U ||
+        occupancy_grid_get_state(15U, 15U) != GRID_CELL_OCCUPIED ||
+        track_map_get_road_state(TRACK_ROAD_R0) != ROAD_FREE)
+    {
+        return false;
+    }
+
+    if (obstacle_map_mark_world_point(-1.0f, 1200.0f, &projection) ||
+        projection.grid_x != OBSTACLE_MAP_INVALID_CELL ||
+        projection.grid_y != OBSTACLE_MAP_INVALID_CELL ||
+        projection.road_mask != 0U ||
+        obstacle_map_mark_world_point(2400.0f, 1200.0f, NULL))
+    {
+        return false;
+    }
+
+    return true;
+}
+//
+// static bool map_planner_test_lidar_obstacle_scan(void)
+// {
+//     uint16_t distances[LIDAR_OBSTACLE_ANGLE_COUNT] = {0U};
+//     tf_transform2d_t tf_base_lidar;
+//     LidarObstacleConfig config;
+//     LidarObstacleResult result;
+//     uint16_t expected_mask = TRACK_ROAD_MASK(TRACK_ROAD_R2) |
+//                              TRACK_ROAD_MASK(TRACK_ROAD_R8);
+//
+//     obstacle_map_init();
+//     tf_init();
+//     tf_transform_set(&tf_base_lidar, 0.0f, 0.0f, 0.0f);
+//     lidar_obstacle_default_config(&config);
+//     config.min_hits_per_road = 1U;
+//
+//     /* N4 朝 map +Y：0 度落在 R8，90 度落在 R2。 */
+//     distances[0] = 500U;
+//     distances[90] = 500U;
+//
+//     if (!lidar_obstacle_process_node_scan(distances,
+//                                           &tf_base_lidar,
+//                                           TRACK_NODE_N4,
+//                                           0.0f,
+//                                           &config,
+//                                           &result) ||
+//         result.valid_point_count != 2U ||
+//         result.mapped_point_count != 2U ||
+//         result.candidate_point_count != 2U ||
+//         result.blocked_road_mask != expected_mask ||
+//         result.road_hit_count[TRACK_ROAD_R2] != 1U ||
+//         result.road_hit_count[TRACK_ROAD_R8] != 1U ||
+//         track_map_get_road_state(TRACK_ROAD_R2) != ROAD_BLOCKED ||
+//         track_map_get_road_state(TRACK_ROAD_R8) != ROAD_BLOCKED ||
+//         track_map_get_road_state(TRACK_ROAD_R3) != ROAD_FREE ||
+//         occupancy_grid_get_state(14U, 24U) != GRID_CELL_OCCUPIED ||
+//         occupancy_grid_get_state(24U, 34U) != GRID_CELL_OCCUPIED)
+//     {
+//         return false;
+//     }
+//
+//     return true;
+// }
+
 static bool map_planner_test_all_free(void)
 {
     uint8_t path[PLANNER_MAX_PATH_NODES];
@@ -376,6 +477,8 @@ bool map_planner_test_run(void)
     } tests[] =
     {
         {"grid to macro/road mapping", map_planner_test_macro_mapping},
+        {"obstacle world point projection", map_planner_test_obstacle_projection},
+        // {"lidar scan to blocked roads", map_planner_test_lidar_obstacle_scan},
         {"all roads free", map_planner_test_all_free},
         {"block R8", map_planner_test_block_r8},
         {"block multiple roads", map_planner_test_multiple_blocks},

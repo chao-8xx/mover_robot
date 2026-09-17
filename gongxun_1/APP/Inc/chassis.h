@@ -1,6 +1,5 @@
 #ifndef GONGXUN_1_CHASSIS_H
 #define GONGXUN_1_CHASSIS_H
-#include "headfile.h"
 
 #define YAW_THRESH   1.2f   // 转到目标角的限制范围
 

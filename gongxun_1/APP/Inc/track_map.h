@@ -1,9 +1,6 @@
 #ifndef GONGXUN_1_TRACK_MAP_H
 #define GONGXUN_1_TRACK_MAP_H
 
-#include <stdbool.h>
-#include <stdint.h>
-
 #define TRACK_NODE_COUNT          9U
 #define TRACK_ROAD_COUNT         12U
 #define TRACK_MACRO_WIDTH         5U
