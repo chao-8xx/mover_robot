@@ -29,6 +29,11 @@ void task_init()
         task_state.area_buf_two[i] = 0;
     }
 
+    // 车辆本身状态机初始化
+    task_state.cur_x = 0;
+    task_state.cur_y = 0;
+    task_state.task_location = PARKING_2;   // 默认启停区2
+
     // 任务状态机初始化
     task_state.claw_state = LOOSE;          // 夹爪：松开
     task_state.turntable_pos = LOCATION_1;  // 转盘：一号位

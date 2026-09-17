@@ -17,7 +17,7 @@
 // 转向电机死区速度
 #define ROTATE_DEAD_SPEED  0
 // 横移补偿：指令距离 / 实测距离，先标定再填
-#define CHASSIS_STRAFE_K  1.21f
+#define CHASSIS_STRAFE_K  1.10f     // 原1.21f
 
 // 底盘四台电机速度（保留，便于查看）
 int16_t vel[4] = {0};

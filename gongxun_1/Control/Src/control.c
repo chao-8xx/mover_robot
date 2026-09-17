@@ -3,10 +3,16 @@
 #define TARGET_DX   0           // 目标dx
 #define TARGET_DY   0           // 目标dy
 
-#define LEAVE_PARK_DX   11.0f   // 离开启停区的横向距离
-#define LEAVE_PARK_DY   13.0f   // 离开启停区的纵向距离
+#define LEAVE_PARK_DX   15.0f   // 离开启停区的横向距离
+#define LEAVE_PARK_DY   15.0f   // 离开启停区的纵向距离
 
 #define MOVE_SPEED   250        // 底盘非任务区运行速度
+
+// 根据格子数量对于行走距离cm
+#define ONE_BLOCK_DIST    43.5f       // 一格走43.5cm
+#define TWO_BLOCK_DIST    84.0f       // 两格走84cm
+#define THREE_BLOCK_DIST  127.5f      // 三格走127.5cm
+#define FOUR_BLOCK_DIST   170.0f      // 四格走170cm
 
 // 结构体定义
 Control_Variate my_control;
@@ -92,10 +98,14 @@ void follow_target(float target_yaw)
 void leave_parking(void)
 {
     if (start_location == 0 && task_state.task_location == PARKING_2) {    // 启停区2 (0,0)
+        task_state.cur_x = 0;
+        task_state.cur_y = 0;
         car_run_distance(my_control.speed, -LEAVE_PARK_DX, LEAVE_PARK_DX);
         my_control.move_state = 1;
     }
     else if (start_location == 1 && task_state.task_location == PARKING_1) {   // 启停区1 (4,0)
+        task_state.cur_x = 4;
+        task_state.cur_y = 0;
         car_run_distance(my_control.speed, -LEAVE_PARK_DX, -LEAVE_PARK_DX);
         my_control.move_state = 1;
     }
@@ -299,6 +309,32 @@ void calibrate_yaw(void)
     }
 }
 
+// 走的格子数转化为实际距离
+float block_to_distance(uint8_t count)
+{
+    switch (count)
+    {
+        case 0:
+            return 0.0f;
+
+        case 1:
+            return ONE_BLOCK_DIST;
+
+        case 2:
+            return TWO_BLOCK_DIST;
+
+        case 3:
+            return THREE_BLOCK_DIST;
+
+        case 4:
+            return FOUR_BLOCK_DIST;
+
+        default:
+            return 0.0f;
+
+    }
+}
+
 // 常规道路运行
 void normal_road_move(void)
 {
@@ -344,7 +380,12 @@ void normal_road_move(void)
         }
 
         // 反向时距离取负 = 倒车
-        float dist = (float)run_len * BLOCK_DISTANCE;
+        // float dist = (float)run_len * BLOCK_DISTANCE;
+        float dist = block_to_distance(run_len);
+        if (task_state.cur_x == 2 && task_state.cur_y == 4 &&   // 距离校准，临时存在
+            run_len == 4) {
+            dist = dist + 4.0f;
+        }
         if (dot == -1) {
             dist = -dist;
         }
@@ -363,6 +404,9 @@ void normal_road_move(void)
 // 到目标点最后一段道路运行
 void final_road_move(void)
 {
+    // x轴和y轴的实际距离
+    float x_dist, y_dist;
+
     // 最后一段：先转到要求车头 h
     int8_t hx = my_control.tx;
     int8_t hy = my_control.ty;
@@ -395,7 +439,20 @@ void final_road_move(void)
     float car_x = map_dx * (float)hy - map_dy * (float)hx;   // 右向分量（sin）
     float car_y = map_dx * (float)hx + map_dy * (float)hy;   // 前向分量（cos）
 
-    car_run_distance(MOVE_SPEED,car_x * BLOCK_DISTANCE,car_y * BLOCK_DISTANCE);
+    if (car_x >= 0) {
+        x_dist = block_to_distance((uint8_t)car_x);
+    }
+    else {
+        x_dist = -block_to_distance((uint8_t)-car_x);
+    }
+    if (car_y >= 0) {
+        y_dist = block_to_distance((uint8_t)car_y);
+    }
+    else {
+        y_dist = -block_to_distance((uint8_t)-car_y);
+    }
+
+    car_run_distance(MOVE_SPEED,x_dist,y_dist);
     my_control.move_state = 1;
     my_control.step = CALIBRATE_YAW_STEP;
 }
