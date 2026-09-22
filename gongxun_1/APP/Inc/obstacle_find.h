@@ -2,15 +2,31 @@
 #define GONGXUN_1_LIDAR_OBSTACLE_H
 
 
-// 雷达点云参数
+// 雷达点云参数 待调
 #define LIDAR_ANGLE_COUNT          360        // 雷达整数角度数量 0~359度
 #define LIDAR_MAX_DISTANCE         4000.0f    // 雷达最大有效测距距离 mm
 #define LIDAR_MIN_DISTANCE         50.0f      // 雷达最小有效测距距离 mm
 
+
 // 相邻点聚类参数
+#define CLUSTER_MAX_MISS_ANGLE        2       // 聚类点间允许连续缺失的角度数 超过该值则认为聚类结束
 #define CLUSTER_MAX_COUNT            20       // 单帧最多保存的候选聚类数量
 #define CLUSTER_MIN_POINT_COUNT       3       // 少于3个点的聚类作为噪声丢弃
 #define CLUSTER_MAX_POINT_GAP       100.0f    // 相邻两点最大连接距离 mm
+
+
+// 四车轮遮挡参数  待调
+#define LEFT_FORNT_WHEEL_START     0    // 左前轮遮挡起始角度
+#define LEFT_FORNT_WHEEL_END       0    // 左前轮遮挡结束角度
+
+#define RIGHT_FORNT_WHEEL_START    0    // 右前轮遮挡起始角度
+#define RIGHT_FORNT_WHEEL_END      0    // 右前轮遮挡结束角度
+
+#define LEFT_REAR_WHEEL_START      0    // 左后轮遮挡起始角度
+#define LEFT_REAR_WHEEL_END        0    // 左后轮遮挡结束角度
+
+#define RIGHT_REAR_WHEEL_START     0    // 右后轮遮挡起始角度
+#define RIGHT_REAR_WHEEL_END       0    // 右后轮遮挡结束角度
 
 
 // 雷达点结构体
@@ -34,6 +50,7 @@ typedef struct
     float car_y;      // 生成点云时的小车map坐标Y mm
     float car_angle;  // 生成点云时的小车偏航角 degree
 
+    uint32_t scan_num;    // 点云对应的雷达扫描编号
     uint32_t update_flag; // 每完成一次点云更新加1
     uint32_t update_tick; // 点云更新时刻 ms
 } point_cloud_t;
@@ -66,7 +83,7 @@ typedef struct
 // 保存由当前点云分割得到的全部有效聚类
 typedef struct
 {
-    lidar_cluster_t clusters[CLUSTER_MAX_COUNT];    // 当前有效聚类数组
+    lidar_cluster_t clusters[CLUSTER_MAX_COUNT];
     uint16_t cluster_count;     // 当前有效聚类数量
     uint32_t cloud_flag;        // 本结果使用的点云更新序号
     uint32_t update_flag;       // 每完成一次聚类更新加1
@@ -78,8 +95,7 @@ extern point_cloud_t cloud;
 extern obstacle_result_t obstacle_result;
 
 // 点云生成
-void point_cloud_update(float car_x, float car_y, float car_yaw, uint32_t tick);
-
+uint8_t point_cloud_update(const lidar_scan_t *scan, float car_x, float car_y, float car_yaw, uint32_t tick);
 // 相邻点聚类
 void obstacle_cluster_update(const point_cloud_t *cloud, uint32_t tick);
 

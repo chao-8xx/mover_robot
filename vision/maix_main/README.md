@@ -4,9 +4,9 @@
 
 - 相机与外部坐标契约：320×240。
 - B2/B4颜色RUN：当前ROI内部缩放到240×180处理，再恢复到320×240坐标。
-- B3圆环RUN：完整320×240处理，固定确认数字2。
+- B3圆环RUN：使用可调ROI处理，输出恢复为完整320×240坐标，固定确认数字2。
 - LAB和HSV暂时同时保留，等待红/黄/蓝真实物料对比后再二选一。
-- 当前构建标记：`B234_TX20_LIVE5_STACK_V13`。
+- 当前构建标记：`B234_TX20_LIVE5_RINGROI_TXHIZ_V16`。
 - B2、B3和B4均以20Hz向F407发送六字节坐标结果。
 - RUN页面限制5Hz刷新实时画面，非显示周期仍持续接收命令和识别。
 
@@ -40,7 +40,7 @@ SHA256 C55D4598D33C6B068B86180057BC71D5508C4A12FC6F2DB4CEF397A35E2CD2BC
 处理顺序：
 
 ```text
-完整320×240黑色MASK
+任务二可调ROI内生成黑色MASK
 → 断续同心环归为一个候选
 → 面积/直径/圆度/短长轴比过滤
 → 正圆12方向黑带层数确认
@@ -81,7 +81,7 @@ B3携带1或3时不会切换任务。
 - `roi.x/y/w/h`、`center.x/y`和面积范围始终按320×240保存。
 - B2/B4内部240×180只用于RUN加速，不写回配置。
 - B2使用根级`roi/center/blob`；B4使用独立`stack.roi/center/blob`。
-- `ring.roi`固定为完整320×240。
+- `ring.roi`按完整320×240坐标保存并可在任务二调参页拖动；检测仅处理ROI内部。
 - `ring.center`是选择2号候选和计算`dx/dy`的独立对准中心。
 - `ring.min_diameter/max_diameter`按320×240像素定义。
 - 所有任务离开检测器前都恢复为320×240的`cx/cy/dx/dy/area`。
@@ -91,7 +91,7 @@ B3携带1或3时不会切换任务。
 正确版本启动时应输出：
 
 ```text
-[VISION BUILD] B234_TX20_LIVE5_STACK_V13
+[VISION BUILD] B234_TX20_LIVE5_RINGROI_TXHIZ_V16
 [VISION OCR] warmup ready templates:12 cost:...ms
 ```
 
@@ -123,6 +123,10 @@ B3稳定RUN日志格式：
 经常出现`ASPECT/FILL`，检查拍摄尺寸和二值化后的字符形状；如果肉眼看裁剪正常，
 但长期出现`SCORE/MARGIN/SCORE_MARGIN`，则再采集2到4张真实打印数字2模板，
 不要先增加更复杂的OCR算法。
+
+圆环ROI必须完整包住目标圆环，并在最外圈四周保留少量余量。ROI裁断外圈时，
+层数、圆度和12方向检查都会变差；对准中心坐标是ROI内部相对坐标，但最终发送的
+`cx/cy/dx/dy`仍恢复到完整320×240坐标系。
 
 B3发送与B2使用相同数据布局：`FRAME_ID RAW_OK dxL dxH dyL dyH`。只有
 `STATE:TRACK`且当前帧`found`时`RAW_OK=1`；`SEARCH/CONFIRM/LOST`以及任何

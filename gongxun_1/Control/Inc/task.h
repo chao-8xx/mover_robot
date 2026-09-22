@@ -61,6 +61,13 @@ typedef struct {
 
 } Task_State;
 
+// ======== 任务函数声明 ======== //
+void imu_task(void);
+void cam_task(void);
+uint8_t obstacle_find_task(float car_x, float car_y, float car_yaw);
+
+
+
 // ======== 结构体、枚举、结构体声明 ======== //
 extern Task_State task_state;
 

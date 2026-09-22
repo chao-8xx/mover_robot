@@ -98,6 +98,8 @@ add_executable(${CMAKE_PROJECT_NAME}
         Test/Inc/bfs_test.h
         Control/Src/task.c
         Control/Inc/task.h
+        BSP/Src/debug_printf.c
+        BSP/Inc/debug_printf.h
 
 )
 

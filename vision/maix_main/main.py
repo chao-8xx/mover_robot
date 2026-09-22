@@ -209,7 +209,7 @@ print("[VISION BUS] A16 TX={}, A17 RX=UART0".format(
 ))
 print("[VISION UI] display: {}x{}".format(screen_w, screen_h))
 print("[VISION UI] touchscreen available:", hasattr(ts, "available"))
-print("[VISION BUILD] B234_TX20_LIVE5_STACK_TXHIZ_V15")
+print("[VISION BUILD] B234_TX20_LIVE5_RINGROI_TXHIZ_V16")
 try:
     ocr_warmup = warmup_two_templates()
     print(
@@ -1119,7 +1119,7 @@ while not app.need_exit():
 
     # 正式运行保留下一行：F407的B0/B2/B3/B4选择当前视觉任务。
     # 本地调试只注释下一行：由三任务首页和任务内按钮控制。
-    rx_handle()
+    # rx_handle()
 
     active_mode, active_target = active_task()
     active_task_id = mode_to_task_id(active_mode)

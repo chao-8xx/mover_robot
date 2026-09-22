@@ -264,8 +264,10 @@ class RingTask:
                 self._set_target_result(result, selected)
         else:
             ring_center = config["ring"]["center"]
+            ring_roi = config["ring"]["roi"]
             grab_center = (
-                int(ring_center["x"]), int(ring_center["y"])
+                int(ring_roi["x"]) + int(ring_center["x"]),
+                int(ring_roi["y"]) + int(ring_center["y"]),
             )
             selected = self._nearest_candidate(candidates, grab_center)
             if selected is None:

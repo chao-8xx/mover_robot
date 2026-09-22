@@ -27,6 +27,37 @@ from vision_tasks import (  # noqa: E402
 RINGS = ((30, 1), (160, 2), (290, 3))
 
 
+def threshold_midpoint_bgr(config, color_key):
+    """生成当前阈值内部的代表色，避免测试绑定某一套现场标定值。"""
+    mode = config["mode"]
+    threshold = config["thresholds"][mode][color_key]
+    lower = threshold["lower"]
+    upper = threshold["upper"]
+    if mode == "LAB":
+        value = np.uint8([[[
+            (lower[0] + upper[0]) // 2,
+            (lower[1] + upper[1]) // 2,
+            (lower[2] + upper[2]) // 2,
+        ]]])
+        return tuple(int(item) for item in cv2.cvtColor(
+            value, cv2.COLOR_LAB2BGR
+        )[0, 0])
+
+    hue = (
+        (lower[0] + upper[0]) // 2
+        if lower[0] <= upper[0]
+        else lower[0]
+    )
+    value = np.uint8([[[
+        hue,
+        (lower[1] + upper[1]) // 2,
+        (lower[2] + upper[2]) // 2,
+    ]]])
+    return tuple(int(item) for item in cv2.cvtColor(
+        value, cv2.COLOR_HSV2BGR
+    )[0, 0])
+
+
 def make_ring_frame(
         visible=(0, 1, 2), draw_digits=True, center_shift=0,
         middle_digit=None):
@@ -65,6 +96,24 @@ class RingDetectorTests(unittest.TestCase):
         self.assertEqual(result["layer_reject_count"], 0)
         self.assertNotIn("ellipse_fit_count", result)
         self.assertNotIn("ellipse_fix_count", result)
+
+    def test_adjustable_roi_limits_detection_and_restores_full_coordinates(self):
+        config = copy.deepcopy(self.config)
+        config["ring"]["roi"] = {"x": 100, "y": 60, "w": 120, "h": 120}
+        config["ring"]["center"] = {"x": 60, "y": 60, "custom": True}
+        config = validate_config(config)
+
+        result, mask, roi_rect = detect_ring_candidates(
+            make_ring_frame(), config["ring"]
+        )
+
+        self.assertEqual(roi_rect, (100, 60, 120, 120))
+        self.assertEqual(mask.shape[:2], (120, 120))
+        self.assertEqual(result["candidate_count"], 1)
+        self.assertEqual(result["candidates"][0]["cx"], 160)
+        self.assertEqual(result["candidates"][0]["cy"], 120)
+        self.assertEqual(result["candidates"][0]["dx"], 0)
+        self.assertEqual(result["candidates"][0]["dy"], 0)
 
     def test_near_circular_perspective_rings_remain_detectable(self):
         image = np.full((240, 320, 3), 255, dtype=np.uint8)
@@ -258,9 +307,12 @@ class SharedColorTrackerTests(unittest.TestCase):
         self.assertIn("LAB", DEFAULT_CONFIG["thresholds"])
         self.assertIn("HSV", DEFAULT_CONFIG["thresholds"])
 
-        frame = np.full((240, 320, 3), 255, dtype=np.uint8)
-        cv2.rectangle(frame, (110, 80), (210, 180), (0, 0, 255), -1)
         config = copy.deepcopy(DEFAULT_CONFIG)
+        frame = np.full((240, 320, 3), 255, dtype=np.uint8)
+        cv2.rectangle(
+            frame, (110, 80), (210, 180),
+            threshold_midpoint_bgr(config, "red"), -1,
+        )
         manager = TaskManager()
         for task_id in (TASK_MATERIAL, TASK_STACK):
             manager.switch(task_id, 1)
@@ -274,9 +326,12 @@ class SharedColorTrackerTests(unittest.TestCase):
             )
 
     def test_b2_and_b4_use_independent_geometry(self):
-        frame = np.full((240, 320, 3), 255, dtype=np.uint8)
-        cv2.rectangle(frame, (140, 100), (180, 140), (0, 0, 255), -1)
         config = copy.deepcopy(DEFAULT_CONFIG)
+        frame = np.full((240, 320, 3), 255, dtype=np.uint8)
+        cv2.rectangle(
+            frame, (140, 100), (180, 140),
+            threshold_midpoint_bgr(config, "red"), -1,
+        )
         config["center"] = {"x": 100, "y": 120, "custom": True}
         config["stack"]["center"] = {
             "x": 180, "y": 120, "custom": True

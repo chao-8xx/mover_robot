@@ -1,4 +1,4 @@
-"""任务二：完整320x240黑色MASK、严格圆形过滤和同心环带确认。
+"""任务二：可调ROI黑色MASK、严格圆形过滤和同心环带确认。
 
 本模块只生成圆形候选。数字2的低频确认和确认后的圆心跟踪由RingTask负责；
 不包含椭圆拟合、1/2/3槽位或常态OCR。
@@ -94,13 +94,18 @@ def _contour_moment_shape(contour):
 
 
 def build_ring_mask(cv_bgr, ring_config):
-    """完整320x240画面按灰度上限提取黑色。"""
-    height, width = cv_bgr.shape[:2]
-    gray = cv2.cvtColor(cv_bgr, cv2.COLOR_BGR2GRAY)
+    """只在任务二ROI内按灰度上限提取黑色。"""
+    roi = ring_config["roi"]
+    x = int(roi["x"])
+    y = int(roi["y"])
+    w = int(roi["w"])
+    h = int(roi["h"])
+    roi_bgr = cv_bgr[y:y + h, x:x + w]
+    gray = cv2.cvtColor(roi_bgr, cv2.COLOR_BGR2GRAY)
     _, mask = cv2.threshold(
         gray, int(ring_config["black_v_max"]), 255, cv2.THRESH_BINARY_INV
     )
-    return mask, (0, 0, width, height)
+    return mask, (x, y, w, h)
 
 
 def _circular_layer_profile(mask, cx, cy, radius):

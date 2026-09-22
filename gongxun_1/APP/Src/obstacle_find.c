@@ -8,13 +8,44 @@
 point_cloud_t cloud = {0};
 obstacle_result_t obstacle_result = {0};
 
+static uint32_t last_cloud_scan_num = 0;  // 上一次点云更新使用的雷达扫描编号
+
+
+///////////////////////////////////// 相邻点聚类 //////////////////////////////////////
+// 判断一个角度是否在指定的起始角度和结束角度之间 考虑跨0度的情况
+static uint8_t get_angle_right(uint16_t angle, uint16_t start, uint16_t end) {
+    if (start <= end) {
+        return (angle >= start && angle <= end);
+    }
+
+    return (angle >= start || angle <= end);
+}
+
+// 判断当前角度是否被小车四个轮子占用的角度范围内
+static uint8_t get_wheel_blocked(uint16_t angle) {
+    if (get_angle_right(angle, LEFT_FORNT_WHEEL_START, LEFT_FORNT_WHEEL_END))
+        return 1;
+    if (get_angle_right(angle, RIGHT_FORNT_WHEEL_START, RIGHT_FORNT_WHEEL_END))
+        return 1;
+    if (get_angle_right(angle, LEFT_REAR_WHEEL_START, LEFT_REAR_WHEEL_END))
+        return 1;
+    if (get_angle_right(angle, RIGHT_REAR_WHEEL_START, RIGHT_REAR_WHEEL_END))
+        return 1;
+
+    return 0;
+}
 
 ////////////////////////////////////// 点云生成 ////////////////////////////////////////
 // 点云生成   遍历360度雷达数据 并把有效点依次变换到map坐标系
-void point_cloud_update(float car_x, float car_y, float car_yaw, uint32_t tick){
+uint8_t point_cloud_update(const lidar_scan_t *scan, float car_x, float car_y, float car_yaw, uint32_t tick){
     point2d_t p_lidar;
     point2d_t p_base;
     point2d_t p_map;
+
+    // 避免重复更新同一帧点云
+    if (scan == NULL || scan->scan_num == last_cloud_scan_num)  return 0;
+
+    last_cloud_scan_num = scan->scan_num;
 
     cloud.valid_count = 0;
     cloud.car_x = car_x;
@@ -26,14 +57,23 @@ void point_cloud_update(float car_x, float car_y, float car_yaw, uint32_t tick){
 
     // 更新点云数据
     for (uint16_t angle = 0; angle < 360; angle++) {
-        uint16_t distance = lidar_data[angle];
         lidar_point_t *point = &cloud.points[angle];
+        uint16_t distance = scan->distance[angle];
 
         // 每次更新前先清空该角度的旧结果
-        point->distance = distance;
         point->valid = 0;
+        point->distance = distance;
         point->map_point.x = 0.0f;
         point->map_point.y = 0.0f;
+
+        // 跳过被小车四个轮子遮挡的角度
+        if (get_wheel_blocked(angle))
+            continue;
+
+        // 当前角度无效点 跳过
+        if (scan->valid[angle] == 0) {
+            continue;
+        }
 
         // 雷达距离限位 过滤无效距离
         if (distance < (uint16_t)LIDAR_MIN_DISTANCE || distance > (uint16_t)LIDAR_MAX_DISTANCE) {
@@ -53,7 +93,10 @@ void point_cloud_update(float car_x, float car_y, float car_yaw, uint32_t tick){
     }
 
     cloud.update_flag++;
+    cloud.scan_num = scan->scan_num;
     cloud.update_tick = tick;
+
+    return 1;
 }
 
 
@@ -212,13 +255,15 @@ static void cluster_merge(const point_cloud_t *source) {
 void obstacle_cluster_update(const point_cloud_t *cloud, uint32_t tick){
     lidar_cluster_t current_cluster;
     const lidar_point_t *pre_point = NULL;
-    uint8_t exist_cluster = 0;         // 当前存在聚类标志位
+
+    uint8_t real_cluster = 0;         // 当前存在聚类标志位
+    uint8_t miss_angle_num = 0;       // 连续无效点计数
     uint32_t next_update_flag = obstacle_result.update_flag + 1;// 递增更新序号
 
     if (cloud == NULL)
         return;
 
-    // 清除上一帧结果，同时保留递增的更新序号
+    // 清除上一帧结果 同时保留递增的更新序号
     memset(&obstacle_result, 0, sizeof(obstacle_result));
     cluster_clear(&current_cluster);
 
@@ -232,19 +277,26 @@ void obstacle_cluster_update(const point_cloud_t *cloud, uint32_t tick){
 
         // 无效角度会结束当前连续聚类   待优化：可考虑将无效点也纳入聚类，但不计入点数，避免因单个无效点导致聚类中断
         if (current_point->valid == 0){
-            if (exist_cluster){
-                cluster_finish(&current_cluster);    // 若之前有真实聚类 则调用 cluster_finish 保存
-                exist_cluster = 0;
+            if (real_cluster){
+                miss_angle_num ++;
+
+                // 连续无效点多于等于3个时 认为当前聚类已经结束
+                if (miss_angle_num > CLUSTER_MAX_MISS_ANGLE) {
+                    cluster_finish(&current_cluster);
+
+                    real_cluster = 0;
+                    miss_angle_num = 0;
+                    pre_point = NULL;
+                }
             }
 
-            pre_point = NULL;
             continue;
         }
 
         // 若当前没有真实聚类  直接使用该点开启新聚类
-        if (!exist_cluster) {
+        if (!real_cluster) {
             cluster_start(&current_cluster, angle, current_point);
-            exist_cluster = 1;
+            real_cluster = 1;
         }
         else if (cluster_points_connected(pre_point, current_point)) {
             cluster_add_point(&current_cluster, angle, current_point);
@@ -253,13 +305,14 @@ void obstacle_cluster_update(const point_cloud_t *cloud, uint32_t tick){
             // 不满足相邻点连通性时 即为当前点与上一点距离过大：保存旧聚类并开启新聚类
             cluster_finish(&current_cluster);
             cluster_start(&current_cluster, angle, current_point);
-            exist_cluster = 1;
+            real_cluster = 1;
         }
+        miss_angle_num = 0;             // 重置连续无效点计数
         pre_point = current_point;      // 更新上一点指针
     }
 
     // 处理遍历结束时仍未保存的最后一个聚类
-    if (exist_cluster)
+    if (real_cluster)
         cluster_finish(&current_cluster);
 
     cluster_merge(cloud);

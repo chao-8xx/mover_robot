@@ -525,6 +525,7 @@ class VisionUI:
     def _draw_ring_calibrate(self, canvas, preview_bgr):
         self._header(canvas, "任务二调参", back=True)
         items = (
+            ("EDIT_RING_ROI", "圆环 ROI"),
             ("EDIT_RING_CENTER", "对准中心"),
             ("EDIT_RING_BLACK", "黑色阈值"),
             ("EDIT_RING_SIZE", "圆环尺寸"),
@@ -1422,6 +1423,9 @@ class VisionUI:
             self._open(PAGE_RING_RUN)
         elif button_id == "OPEN_RING_CALIBRATE":
             self._open(PAGE_RING_CALIBRATE)
+        elif button_id == "EDIT_RING_ROI":
+            self._begin_editor(PAGE_ROI)
+            self.ring_view_mode = VIEW_OVERLAY
         elif button_id == "EDIT_RING_CENTER":
             self._begin_editor(PAGE_CENTER)
             self.ring_view_mode = VIEW_OVERLAY

@@ -134,37 +134,46 @@ int main(void)
 
   while (1)
   {
-    // hmi_SetValue("yaw",(int)(my_yaw * 100.0f));
-    // HAL_Delay(5);
+
+    // lidar_test();
+
+    // printf("111\r\n");
+
+    // static uint32_t last_cloud_update = 0;
+    //
+    // lidar_process();  // 激光雷达处理
+    //
+    // // tf2d_test();
+    //
+    // // if (cam_rx_flag || cam_error_flag) {
+    // //   cam_error_flag = 0;
+    // //   cam_rx_flag = 0;  // 先清除标志位
+    // //   cam_rx_handle();
+    // // }
+    // // maix_result_task();  // 维护5帧VALID/STABLE 并处理视觉数据超时
+    //
+    // if(hwt101_rx_flag || hwt101_error_flag) {
+    //   hwt101_error_flag = 0;
+    //   hwt101_rx_flag = 0;  // 先清除标志位
+    //   hwt101_rx_handle();
+    // }
+    // uint32_t now = HAL_GetTick();
+    //
+    // if (now - last_cloud_update >= 500) {
+    //   last_cloud_update = now;
+    //   point_cloud_update(500.0f, 500.0f, my_yaw, now);
+    //   obstacle_cluster_update(&cloud, now);
+    // }
     //
 
-    static uint32_t last_cloud_update = 0;
+    imu_task();
 
-    lidar_process();  // 激光雷达处理
-
-    // tf2d_test();
-
-    // if (cam_rx_flag || cam_error_flag) {
-    //   cam_error_flag = 0;
-    //   cam_rx_flag = 0;  // 先清除标志位
-    //   cam_rx_handle();
-    // }
-    // maix_result_task();  // 维护5帧VALID/STABLE 并处理视觉数据超时
-
-    if(hwt101_rx_flag || hwt101_error_flag) {
-      hwt101_error_flag = 0;
-      hwt101_rx_flag = 0;  // 先清除标志位
-      hwt101_rx_handle();
+    if (obstacle_find_task(500.0f, 500.0f, my_yaw)) {
+      point_cloud_test();
+      obstacle_cluster_test();
     }
-    uint32_t now = HAL_GetTick();
 
-    if (now - last_cloud_update >= 100) {
-      last_cloud_update = now;
-      point_cloud_update(500.0f, 500.0f, my_yaw, now);
-      obstacle_cluster_update(&cloud, now);
-    }
-    // point_cloud_test();
-    obstacle_cluster_test();
+
 
 
     /* USER CODE END WHILE */

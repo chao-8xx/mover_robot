@@ -149,7 +149,7 @@ static void Emm_V5_Send_Coalesce(const uint8_t *cmd, uint8_t len, uint8_t addr)
   * @note     这一帧 DMA 数据搬完、最后一个字节也发出去后，
   *           HAL 会在 USART2 中断里调用本函数，不是在主循环轮询
   */
-void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
+void Emm_V5_tx_callback(UART_HandleTypeDef *huart)
 {
   uint32_t primask;
 
