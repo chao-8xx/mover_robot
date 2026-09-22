@@ -32,6 +32,7 @@ typedef enum {
 typedef enum {
     PARKING_1,  // 启停区1
     PARKING_2,  // 启停区2
+    SCAN,       // 扫码区
     MATERIAL,   // 原料区
     TEMPORARY,  // 暂存区
     PROCESS,    // 粗加工区
@@ -48,6 +49,8 @@ typedef struct {
     Stretch_Dist stretch_dist;      // 伸缩装置当前伸出距离
     Car_Work car_work;              // 车辆工作状态
     Task_Location task_location;    // 正在执行任务的位置
+    float cur_stretch_dist;         // 伸缩装置当前伸缩的距离
+    uint8_t cur_x, cur_y;           // 车辆当前坐标
 
     // ==== 任务编码状态 ==== //
     // 物料颜色、位置对应索引
@@ -61,15 +64,23 @@ typedef struct {
 
 } Task_State;
 
-// ======== 任务函数声明 ======== //
+// ======== 宏定义 ======== //
+#define MAX_STRETCH_DIST    6.0f      // 最远伸出距离，防止超限导致电机堵转
+// ======== 结构体、枚举、结构体声明 ======== //
+extern Task_State task_state;
+
+// ======== 函数声明 ======== //
+// 任务初始化
+void task_init();
+// 任务接收
+void task_receive(void);
+// 任务执行总函数
+void task_process(void);
+
 void imu_task(void);
 void cam_task(void);
 uint8_t obstacle_find_task(float car_x, float car_y, float car_yaw);
 
-
-
-// ======== 结构体、枚举、结构体声明 ======== //
-extern Task_State task_state;
 
 #endif //GONGXUN_1_TASK_H
 

@@ -338,7 +338,7 @@ void bfs_multi_track_test(void)
             break;
 
         case 1:   // 从左下角斜挪到 (0,0) 中心
-            car_run_distance(test_speed, -12.5f, 12.5f);
+            car_run_distance(test_speed, -13.5f, 13.5f);
             moving = 1;
             step = 2;
             break;
@@ -419,7 +419,6 @@ void bfs_multi_track_test(void)
 
         case 4:   // 最后一段：转到要求车头后进点
         {
-
             // 最后一段：先转到要求车头 h
             int8_t hx = leg_hx[leg_idx];
             int8_t hy = leg_hy[leg_idx];
@@ -440,11 +439,11 @@ void bfs_multi_track_test(void)
 
             // 地图位移（格）转车系位移
             // 车头 h=(hx,hy)，右侧=(hy,-hx)
-            float map_dx = (float)last_dx * final_run_len;
-            float map_dy = (float)last_dy * final_run_len;
+            float map_dx = (float)(last_dx * final_run_len);
+            float map_dy = (float)(last_dy * final_run_len);
 
-            float car_x = map_dx * hy - map_dy * hx;   // 右向分量（sin）
-            float car_y = map_dx * hx + map_dy * hy;   // 前向分量（cos）
+            float car_x = map_dx * (float)hy - map_dy * (float)hx;   // 右向分量（sin）
+            float car_y = map_dx * (float)hx + map_dy * (float)hy;   // 前向分量（cos）
 
             car_run_distance(test_speed,
                              car_x * BLOCK_DISTANCE,
@@ -469,8 +468,10 @@ void bfs_multi_track_test(void)
             leg_idx++;
             if (leg_idx < 4) {
                 step = 2;
+                remindState = GREEN_REMIND;
             } else {
                 step = 6;
+                remindState = BLUE_REMIND;
             }
             break;
 
@@ -483,12 +484,13 @@ void bfs_multi_track_test(void)
                     return;
                 }
                 if (!car_is_busy()) {
-                    car_run_distance(test_speed, 12.5f, -12.5f);
+                    car_run_distance(test_speed, 13.0f, -13.0f);
                     moving = 1;
                     sub = 2;
                 }
             }
             else {
+                remindState = RED_REMIND;
                 car_stop();
                 car_run = false;
                 step = 98;

@@ -86,14 +86,21 @@ void hmi_solve(UART_HandleTypeDef *huart, uint16_t Size)
         // 帧格式：CC 00 FF FF FF = 发车点 (0,0)；CC 01 FF FF FF = 发车点 (4,0)
         if (Size >= 5 && hmi_rxbuffer[Size - 1] == 0xFF &&
             hmi_rxbuffer[Size - 2] == 0xFF && hmi_rxbuffer[Size - 3] == 0xFF) {
-            if (hmi_rxbuffer[1] == 0x00) {
+            if (hmi_rxbuffer[1] == 0x00) {  // 启停区2
                 hmi_start_x = 0;
                 hmi_start_y = 0;
+                task_state.task_location = PARKING_2;
+                start_location = 0; // 0:启停区2发车
             }
-            else if (hmi_rxbuffer[1] == 0x01) {
+            else if (hmi_rxbuffer[1] == 0x01) { // 启停区1
                 hmi_start_x = 4;
                 hmi_start_y = 0;
+                task_state.task_location = PARKING_1;
+                start_location = 1; // 1:启停区1发车
             }
+            // 设置起始坐标状态
+            task_state.cur_x = hmi_start_x;
+            task_state.cur_y = hmi_start_y;
         }
     }
     else if (hmi_rxbuffer[0] == 0xDD) {     // 串口屏控制抓取装置伸缩升降 低字节在前，高字节在后

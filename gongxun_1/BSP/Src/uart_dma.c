@@ -66,6 +66,10 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
     {
         hwt101_error_callback(huart);
     }
+    else if (huart->Instance == USART2)
+    {
+        Emm_V5_Tx_Reset();
+    }
     // // LiDAR的错误处理
     // if (huart->Instance == UART4)
     // {

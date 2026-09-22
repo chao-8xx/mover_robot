@@ -123,7 +123,9 @@ int main(void)
   // catch_init();       // 夹取装置
   // HAL_Delay(100);     // 等待一会儿
   // bfs_init();
-
+  // bfs_base_obstacle();
+  // remind_init();
+  // task_init();
 
   lidar_start();
 
@@ -134,6 +136,21 @@ int main(void)
 
   while (1)
   {
+
+    // hmi_SetValue("yaw",(int)(my_yaw * 100.0f));
+    // HAL_Delay(5);
+
+    // hmi_SetValue("X",(int)(task_state.cur_x));
+    // HAL_Delay(1);
+    // hmi_SetValue("Y",(int)(task_state.cur_y));
+    // HAL_Delay(1);
+    // HAL_Delay(5);
+
+    // hmi_SetValue("X_",(int)(my_control.head_x));
+    // HAL_Delay(1);
+    // hmi_SetValue("Y_",(int)(my_control.head_y));
+    // HAL_Delay(1);
+    // HAL_Delay(5);
 
     // lidar_test();
 

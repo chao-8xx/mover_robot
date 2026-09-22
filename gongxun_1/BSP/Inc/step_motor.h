@@ -1,9 +1,10 @@
 #ifndef GONGXUN_1_STEP_MOTOR_H
 #define GONGXUN_1_STEP_MOTOR_H
 
-// ---- 电机数量与默认加速度 ---- //
+// ---- 电机数量与默认速度、加速度 ---- //
+#define MAX_SPEED              3000
 #define STEP_MOTOR_COUNT       6
-#define STEP_MOTOR_DEFAULT_ACC 20
+#define STEP_MOTOR_DEFAULT_ACC 25
 
 // ---- 定义结构体和枚举 ---- //
 typedef enum {

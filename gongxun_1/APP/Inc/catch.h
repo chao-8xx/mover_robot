@@ -25,6 +25,7 @@ typedef enum {
 typedef enum {
     PUT_DIST,       // 放置距离
     SEARCH_DIST,    // 原料区搜索距离
+    OTHER_DIST,     // 其他距离
     ORIGIN_DIST     // 原点距离
 } Stretch_Dist;
 

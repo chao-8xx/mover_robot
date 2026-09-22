@@ -100,6 +100,8 @@ add_executable(${CMAKE_PROJECT_NAME}
         Control/Inc/task.h
         BSP/Src/debug_printf.c
         BSP/Inc/debug_printf.h
+        Control/Inc/control.h
+        Control/Src/control.c
 
 )
 

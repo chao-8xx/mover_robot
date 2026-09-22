@@ -38,19 +38,18 @@ static volatile uint8_t claw_busy = 0;      // 夹取装置
 static volatile uint32_t claw_deadline = 0;
 
 // PID参数
-#define FOLLOW_KP       2.0f    // 横向定位pid
-#define FOLLOW_KD       0.5f
-#define FOLLOW_MAX_I    50.0f
-#define FOLLOW_MAX_OUT  200
-#define X_KP            2.0f    // x轴坐标与麦轮闭环
+#define FOLLOW_KP       0.05f   // y轴坐标与伸缩闭环
+#define FOLLOW_KD       0.01f
+#define FOLLOW_MAX_I    2.0f
+#define FOLLOW_MAX_OUT  2.0f
+#define X_KP            3.5f    // x轴坐标与麦轮闭环
 #define X_KD            0.5f
 #define X_MAX_I         50.0f
 #define X_MAX_OUT       200
-#define Y_KP            15.0f   // y轴坐标与伸缩装置闭环
-#define Y_KD            1.0f
-#define Y_MAX_I         100.0f
-#define Y_MAX_OUT       2000
-
+#define Y_KP            3.5f   // y轴坐标与麦轮闭环
+#define Y_KD            0.5f
+#define Y_MAX_I         50.0f
+#define Y_MAX_OUT       200
 
 // 抓取装置位置复位
 void catch_init(void)
@@ -60,13 +59,6 @@ void catch_init(void)
     turntable_rotate(ONE_LOCATION); // 转盘舵机
     claw_ctrl(CLAW_LOOSE);          // 夹爪舵机
     HAL_Delay(500);
-
-
-    // 阻塞等升降真正到位（等2s）
-    uint32_t t0 = HAL_GetTick();
-    while (lift_is_busy() && (HAL_GetTick() - t0 < 200)) {
-        HAL_Delay(1);
-    }
 
     // 伸缩电机停止运动（为了安全）
     catch_stretch(0);   // 伸缩电机停止
@@ -125,8 +117,11 @@ void catch_stretch_pos(float delta_cm)
     }
     stretch_deadline = HAL_GetTick()
                        + (uint32_t)((float)pulses / pulses_per_ms)
-                       + 200;   // 200ms 余量
+                       + 100;   // 100ms 余量
     stretch_busy = 1;
+
+    // 刷新伸缩装置当前伸出距离
+    task_state.cur_stretch_dist += delta_cm;
 }
 
 // 抓取装置夹爪升降 单位：cm

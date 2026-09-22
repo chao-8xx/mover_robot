@@ -5,7 +5,7 @@
 // 纯搜索路径，不做控制
 
 // 每格间隔cm
-#define BLOCK_DISTANCE  50.0f
+#define BLOCK_DISTANCE  45.0f
 
 // 地图尺寸：5x5
 #define BFS_MAP_SIZE  5
@@ -63,5 +63,8 @@ void bfs_get_heading_vec(int8_t *hx, int8_t *hy);
 // car_dx>0 右移，car_dx<0 左移；car_dy>0 前进，car_dy<0 后退
 void bfs_car_to_map(int8_t car_dx, int8_t car_dy,
                       int8_t *map_dx, int8_t *map_dy);
+
+// 设置默认障碍坐标（地图要求）
+void bfs_base_obstacle(void);
 
 #endif //GONGXUN_1_BFS_H
