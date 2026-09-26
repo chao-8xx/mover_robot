@@ -70,7 +70,7 @@ image_height = IMAGE_HEIGHT
 center_x = image_width // 2
 center_y = image_height // 2
 
-# 识别参数
+# 识别参数   旧代码 未使用     调参在 vision_config 里
 BLOB_WAY = "LAB"        # "HSV" / "LAB"
 
 MIN_BLOB_AREA = 300     # 识别物料面积阈值
@@ -93,6 +93,7 @@ SEARCH_Y1 = 0
 SEARCH_X2 = image_width
 SEARCH_Y2 = image_height
 
+# 串口参数  在使用
 SEND_TIME_MS = 50   # 与已完成的 B2 测试一致：平均 20Hz 发送最新单帧结果
 TX_DEBUG_TIME_MS = 1000    # 调试打印发送数据包间隔，避免串口打印过多影响识别速度 在maix端打印
 DISPLAY_TIME_MS = 100      # 调试画面最多 10Hz，不拖慢识别主循环
@@ -343,10 +344,9 @@ def handle_cmd(cmd, data):
 
     elif cmd == CMD_RING and len(data) == 1:
         ring = clear_ring_target(data[0])
-        # 新版任务二只接受2号圆环，1/3不再进入视觉任务。
-        if ring == SUM_2:
+        if ring in (SUM_1, SUM_2, SUM_3):
             next_mode = CMD_RING
-            next_target = SUM_2
+            next_target = ring
 
     elif cmd == CMD_ONUP and len(data) == 1:
         color = clear_color_target(data[0])
@@ -1129,7 +1129,7 @@ while not app.need_exit():
             if runtime_color is not None:
                 ui.set_runtime_target(runtime_color)
         elif active_task_id == TASK_RING:
-            ui.set_runtime_ring_target(2)
+            ui.set_runtime_ring_target(target_to_num(active_target))
         ui.set_external_task(active_task_id)
         run_mode = active_task_id in (TASK_MATERIAL, TASK_RING, TASK_STACK)
     else:
@@ -1283,7 +1283,7 @@ while not app.need_exit():
                 "OCR:{:.1f}({}) S:{:.3f} M:{:.3f} R:{} "
                 "CAND:{} CNT:{} GEOM:{} "
                 "REJ:{}/{}/{}/{}/{} LAY:{} DIR:{} AR:{} "
-                "SEL:{} TWO:{} LOST:{} STATE:{}".format(
+                "SEL:{} TARGET:{} LOCK:{} LOST:{} STATE:{}".format(
                     "RUN" if run_mode else "UI",
                     ring_perf_frames * 1000.0 / ring_perf_elapsed,
                     ring_perf_capture_ms / float(ring_perf_frames),
@@ -1312,7 +1312,8 @@ while not app.need_exit():
                     direction_text,
                     axis_ratio_text,
                     1 if blob_result.get("selected_present", False) else 0,
-                    1 if blob_result.get("is_two_confirmed", False) else 0,
+                    blob_result.get("target_number", 0),
+                    1 if blob_result.get("target_confirmed", False) else 0,
                     blob_result.get("lost_frames", 0),
                     blob_result.get("state", "SEARCH"),
                 )

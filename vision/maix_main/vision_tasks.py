@@ -1,7 +1,7 @@
 """轻量视觉任务调度。
 
 主程序只负责相机、UI、串口和显示；每轮只把当前帧交给一个任务。
-B2物料和B4码垛共享同一个颜色识别器；B3只确认一次“是不是2”，
+B2物料和B4码垛共享同一个颜色识别器；B3低频确认指定的1/2/3，
 确认成功后停止OCR并持续跟踪圆心。
 """
 
@@ -20,7 +20,7 @@ from vision_config import (
     RUN_PROCESS_HEIGHT,
     RUN_PROCESS_WIDTH,
 )
-from vision_ocr import confirm_digit_two
+from vision_ocr import recognize_digit
 from vision_ring import detect_ring_candidates
 
 
@@ -32,7 +32,7 @@ TASK_STACK = 3
 TASK_LABELS = {
     TASK_NONE: "待机",
     TASK_MATERIAL: "任务一 物料识别",
-    TASK_RING: "任务二 2号圆环定位",
+    TASK_RING: "任务二 数字圆环定位",
     TASK_STACK: "任务三 码垛堆放",
 }
 
@@ -112,9 +112,8 @@ MaterialTask = ColorTracker
 
 
 class RingTask:
-    """B3：选择最靠近对准中心的圆环，确认是2后只跟踪圆心。"""
+    """B3：低频确认指定的1/2/3，确认后只跟踪该圆环中心。"""
 
-    TARGET_NUMBER = 2
     STABLE_FRAMES_REQUIRED = 3
     OCR_RETRY_COOLDOWN_FRAMES = 8
     REACQUIRE_FRAME_LIMIT = 15
@@ -122,14 +121,17 @@ class RingTask:
 
     def __init__(self):
         self.target = None
+        self.target_number = 2
         self._clear_runtime()
 
     def enter(self, target):
         self.target = target
+        self.target_number = self._target_to_number(target)
         self._clear_runtime()
 
     def reset(self):
         self.target = None
+        self.target_number = 2
         self._clear_runtime()
 
     def exit(self):
@@ -137,7 +139,7 @@ class RingTask:
 
     def _clear_runtime(self):
         self.state = "SEARCH"
-        self.two_confirmed = False
+        self.target_confirmed = False
         self.stable_frames = 0
         self.pending_center = None
         self.target_center = None
@@ -149,6 +151,14 @@ class RingTask:
         self.last_ocr_score = 1.0
         self.last_ocr_margin = 0.0
         self.last_ocr_reason = "NONE"
+
+    @staticmethod
+    def _target_to_number(target):
+        if target in (1, 0xD1):
+            return 1
+        if target in (3, 0xD3):
+            return 3
+        return 2
 
     @staticmethod
     def _distance2(left, right):
@@ -184,7 +194,7 @@ class RingTask:
             "area": int(round(3.1415926 * radius * radius)),
             "rect": candidate.get("rect", (0, 0, 0, 0)),
             "quality": max(0.0, 1.0 - float(self.ocr_best_score)),
-            "recognized_digit": self.TARGET_NUMBER,
+            "recognized_digit": self.target_number,
         })
 
     def _update_pending(self, candidate, tolerance):
@@ -207,21 +217,24 @@ class RingTask:
         for candidate in result.get("candidates", ()):
             is_selected = candidate is selected
             candidate["selected"] = is_selected
-            candidate["digit"] = (
-                self.TARGET_NUMBER
-                if is_selected and self.two_confirmed else 0
-            )
+            if is_selected and self.target_confirmed:
+                candidate["digit"] = self.target_number
+            elif "digit" not in candidate:
+                candidate["digit"] = 0
 
         result.update({
             "state": self.state,
             "stage": self.state,
-            "target_number": self.TARGET_NUMBER,
+            "target_number": self.target_number,
             "recognized_digit": (
-                self.TARGET_NUMBER if self.two_confirmed else 0
+                self.target_number if self.target_confirmed else 0
             ),
             "stable_frames": int(self.stable_frames),
             "selected_present": selected is not None,
-            "is_two_confirmed": bool(self.two_confirmed),
+            "target_confirmed": bool(self.target_confirmed),
+            "is_two_confirmed": bool(
+                self.target_confirmed and self.target_number == 2
+            ),
             "lost_frames": int(self.lost_frames),
             "ocr_attempts": int(self.ocr_attempts),
             "ocr_best_score": float(self.ocr_best_score),
@@ -244,7 +257,7 @@ class RingTask:
         ocr_calls = 0
         selected = None
 
-        if self.two_confirmed:
+        if self.target_confirmed:
             track_tolerance = max(self.REACQUIRE_DISTANCE, tolerance * 6)
             selected = self._nearest_candidate(
                 candidates, self.target_center, track_tolerance
@@ -286,37 +299,55 @@ class RingTask:
                 if self.ocr_retry_cooldown > 0:
                     self.ocr_retry_cooldown -= 1
                 elif self.state == "CONFIRM":
-                    ocr_result = confirm_digit_two(cv_bgr, selected)
-                    ocr_ms = float(ocr_result.get("ocr_ms", 0.0))
-                    ocr_calls = 1
-                    self.ocr_attempts += 1
-                    self.last_ocr_score = float(
-                        ocr_result.get("score", 1.0)
+                    ordered_candidates = sorted(
+                        candidates,
+                        key=lambda item: self._distance2(
+                            (item["cx"], item["cy"]), grab_center
+                        ),
                     )
-                    self.last_ocr_margin = float(
-                        ocr_result.get("margin", 0.0)
-                    )
-                    self.last_ocr_reason = str(
-                        ocr_result.get("reason", "UNKNOWN")
-                    )
-                    self.ocr_best_score = min(
-                        self.ocr_best_score,
-                        self.last_ocr_score,
-                    )
-                    preview = ocr_result.get("normalized")
-                    if preview is None:
-                        preview = ocr_result.get("binary")
-                    self.ocr_preview = preview
-                    if bool(ocr_result.get("is_two", False)):
-                        self.two_confirmed = True
+                    matched = None
+                    for candidate in ordered_candidates:
+                        ocr_result = recognize_digit(cv_bgr, candidate)
+                        ocr_ms += float(ocr_result.get("ocr_ms", 0.0))
+                        ocr_calls += 1
+                        self.ocr_attempts += 1
+                        self.last_ocr_score = float(
+                            ocr_result.get("score", 1.0)
+                        )
+                        self.last_ocr_margin = float(
+                            ocr_result.get("margin", 0.0)
+                        )
+                        self.last_ocr_reason = str(
+                            ocr_result.get("reason", "UNKNOWN")
+                        )
+                        self.ocr_best_score = min(
+                            self.ocr_best_score,
+                            self.last_ocr_score,
+                        )
+                        preview = ocr_result.get("normalized")
+                        if preview is None:
+                            preview = ocr_result.get("binary")
+                        self.ocr_preview = preview
+                        candidate["digit"] = int(
+                            ocr_result.get("digit", 0)
+                        )
+                        if candidate["digit"] == self.target_number:
+                            matched = candidate
+                            self.ocr_best_score = self.last_ocr_score
+                            break
+
+                    if matched is not None:
+                        selected = matched
+                        self.target_confirmed = True
                         self.state = "TRACK"
                         self.target_center = (
                             int(selected["cx"]), int(selected["cy"])
                         )
+                        self.pending_center = self.target_center
                         self.lost_frames = 0
                         self._set_target_result(result, selected)
                     else:
-                        # 未确认时保持未知，间隔若干帧再确认，绝不强制猜成2。
+                        # 未找到指定数字时保持未知，间隔若干帧再确认。
                         self.ocr_retry_cooldown = self.OCR_RETRY_COOLDOWN_FRAMES
 
         self._annotate_result(result, selected, ocr_ms, ocr_calls)

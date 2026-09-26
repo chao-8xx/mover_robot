@@ -6,7 +6,7 @@
 #define GONGXUN_1_LIDAR_TEST_H
 
 void lidar_test(void);
-
+void wheel_mask_test(void);
 
 void tf2d_test_polar(void);
 void tf2d_test_base(void);

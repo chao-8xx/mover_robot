@@ -55,7 +55,7 @@ DEFAULT_CONFIG = {
     # 当前真机性能基线使用 OPEN_ONLY；仍保留另外三档供现场对比。
     "morph_mode": MORPH_OPEN_ONLY,
     # ROI 坐标相对于 320x240 原图。
-    "roi": {"x": 0, "y": 0, "w": IMAGE_WIDTH, "h": IMAGE_HEIGHT},
+    "roi": {"x": 110, "y": 25, "w": 135, "h": 135},
     # center.x/y 是 ROI 内相对坐标；custom=False 表示使用 ROI 几何中心。
     "center": {
         "x": IMAGE_WIDTH // 2,
@@ -63,18 +63,19 @@ DEFAULT_CONFIG = {
         "custom": False,
     },
     # 面积范围同样按 320x240 等效面积保存，RUN 内部会自动按像素比例换算。
-    "blob": {"min_area": 300, "max_area": 60000},
+    "blob": {"min_area": 1800, "max_area": 12000},
     # 任务三复用颜色阈值和ColorTracker，但保留独立ROI、对准中心和面积范围。
     "stack": {
-        "roi": {"x": 0, "y": 0, "w": IMAGE_WIDTH, "h": IMAGE_HEIGHT},
+        "roi": {"x": 110, "y": 25, "w": 135, "h": 135},
         "center": {
             "x": IMAGE_WIDTH // 2,
             "y": IMAGE_HEIGHT // 2,
             "custom": False,
         },
-        "blob": {"min_area": 300, "max_area": 60000},
+        "blob": {"min_area": 1800, "max_area": 12000},
     },
     "thresholds": {
+        # 未调 
         "HSV": {
             # 红色 H 起点大于终点表示跨越 179 -> 0，检测时自动拆为两段。
             "red": {"lower": [160, 80, 50], "upper": [10, 255, 255]},
@@ -84,13 +85,15 @@ DEFAULT_CONFIG = {
             "black": {"lower": [0, 0, 0], "upper": [179, 255, 60]},
             "light_blue": {"lower": [85, 40, 60], "upper": [105, 255, 255]},
         },
+
+        # 已粗调过一版
         "LAB": {
             "red": {"lower": [35, 160, 150], "upper": [110, 185, 170]},
             "yellow": {"lower": [140, 110, 160], "upper": [165, 130, 185]},
             "blue": {"lower": [30, 135, 70], "upper": [55, 155, 105]},
             "green": {"lower": [83, 75, 140], "upper": [135, 95, 180]},
             "black": {"lower": [0, 105, 105], "upper": [40, 135, 135]},
-            "light_blue": {"lower": [95, 110, 90], "upper": [125, 130, 100]},
+            "light_blue": {"lower": [90, 110, 90], "upper": [130, 135, 100]},
         },
     },
     # 任务二只定位2号圆环；ROI和对准中心均可独立标定。
@@ -104,13 +107,13 @@ DEFAULT_CONFIG = {
             "custom": False,
         },
         # 灰度值不高于该值的像素作为黑色候选。
-        "black_v_max": 85,
+        "black_v_max": 125,
         # 普通页面只调节最终圆环组的外径范围，单位为320x240原图像素。
-        "min_diameter": 24,
-        "max_diameter": 220,
+        "min_diameter": 45,
+        "max_diameter": 120,
         # 以下为同心候选内部默认值，后续有真机样本后再决定是否开放高级页面。
-        "min_contour_area": 45,
-        "max_contour_area": 50000,
+        "min_contour_area": 2000,
+        "max_contour_area": 12000,
         "min_circularity": 0.20,
         "min_layers": 3,
         "center_tolerance": 8,

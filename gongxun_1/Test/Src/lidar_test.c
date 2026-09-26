@@ -201,6 +201,265 @@ void lidar_test(void) {
     }
 }
 
+#define WHEEL_TEST_TYPE_NEAR 1   // 近距离点数量大于60个时 认为该角度被车轮遮挡
+#define WHEEL_TEST_TYPE_BLIND 2  // 有效点数量小于等于20个时 认为该角度被车轮遮挡
+
+// 车轮遮挡雷达角度统计结构体
+typedef struct {
+    uint16_t valid_cnt;  // 当前有效雷达点数量
+    uint16_t near_cnt;   // 当前距离雷达最近的点数量
+
+    uint16_t min_near;   // 当前距离雷达最近的点的最小值
+    uint16_t max_near;   // 当前距离雷达最近的点的最大值
+    uint16_t sum_near;   // 当前距离雷达最近的点的总和
+} wheel_mask_t;
+
+static wheel_mask_t wheel_mask[360];
+
+static uint8_t get_wheel_masked(uint16_t angle, uint8_t type) {
+
+    const wheel_mask_t *mask = &wheel_mask[angle];
+
+    if (angle >= 360)
+        return 0;
+
+    // 近距离点数量大于60个时 认为该角度被车轮遮挡
+    if (type == WHEEL_TEST_TYPE_NEAR)
+        return mask->near_cnt >= 60;
+
+    // 有效点数量小于等于20个时 认为该角度被车轮遮挡
+    if (type == WHEEL_TEST_TYPE_BLIND)
+        return mask->valid_cnt <= 20;
+
+    return wheel_mask[angle].valid_cnt > 0;
+}
+
+// 输出一个连续候选角度区间
+static void wheel_test_print_range(uint16_t start_angle, uint16_t end_angle, uint16_t type) {
+    uint16_t angle;
+    uint16_t angle_cnt = 0;
+
+    uint32_t valid_total = 0;
+    uint32_t near_total = 0;
+    uint32_t near_sum = 0;
+
+    uint16_t near_min = 0;
+    uint16_t near_max = 0;
+    angle = start_angle;
+
+    // 遍历指定角度范围内的雷达点
+    while (1) {
+        const wheel_mask_t *mask = &wheel_mask[angle];
+        angle_cnt++;
+        valid_total += mask->valid_cnt;
+        near_total += mask->near_cnt;
+        near_sum += mask->sum_near;
+
+        // 更新最小值和最大值
+        if (mask->near_cnt != 0) {
+            if (mask->min_near < near_min)  near_min = mask->min_near;
+            if (mask->max_near < near_max)  near_max = mask->max_near;
+        }
+        if (angle == end_angle)
+            break;
+        angle++;
+        if (angle >= 360)   angle %= 360;
+    }
+    //
+    if (type == WHEEL_TEST_TYPE_NEAR) {
+        uint32_t near_avg = near_total > 0 ? near_sum / near_total : 0;
+
+        printf("NEAR range = %u~%u, angle_cnt=%u,\r\n "
+               "valid_total=%lu, near_total=%lu,\r\n "
+               "near_min=%u, near_max=%u, near_avg=%lu\r\n",
+               start_angle, end_angle, angle_cnt,   // 起始角度 结束角度 角度数量
+               (unsigned long)valid_total,          // 有效点总数
+               (unsigned long)near_total,           // 近距离点总数
+               near_min, near_max,                  // 近距离点最小值 最大值
+               (unsigned long)near_avg);            // 近距离点平均值
+    }
+    else {
+        uint32_t sample_avg = angle_cnt > 0 ? valid_total / angle_cnt : 0;
+
+        printf("BLIND range=%u~%u angles=%u "
+              "valid=%lu/%lu\r\n",
+              (unsigned int)start_angle,        // 起始角度
+              (unsigned int)end_angle,          // 结束角度
+              (unsigned int)angle_cnt,          // 角度数量
+              (unsigned long)valid_total,       // 有效点总数
+              (unsigned long)sample_avg);       // 平均每个角度的有效点数
+    }
+}
+
+//
+static void wheel_test_print_group(uint8_t type) {
+    uint16_t break_angle = 0;   // 当前连续区间的结束角度
+    uint16_t start_angle = 0;   // 当前连续区间的起始角度
+    uint16_t end_angle = 0;     // 当前连续区间的结束角度
+
+    uint8_t found_break;        // 当前角度是否是连续区间的结束角度
+    uint8_t group_active = 0;   // 当前是否在一个连续区间内
+    uint8_t group_count = 0;    // 连续区间数量
+
+    // 先寻找一个非阻挡区当遍历起点
+    for (uint16_t angle = 0; angle < 360; angle++) {
+
+        if (!get_wheel_masked) {
+            break_angle = angle;
+            found_break = 1;
+            break;
+        }
+    }
+
+    // 360度全部属于候选区域
+    if (!found_break) {
+        wheel_test_print_range(0, 359, type);
+        return;
+    }
+
+    // 从非候选角度的下一个角度开始循环一整圈
+    for (uint16_t step = 1; step <= 360U; step++)
+    {
+        uint16_t angle = (uint16_t)((break_angle + step) % 360U);
+
+        if (get_wheel_masked(angle, type))
+        {
+            if (!group_active)
+            {
+                start_angle = angle;
+                group_active = 1;
+            }
+
+            end_angle = angle;
+        }
+        else if (group_active)
+        {
+            wheel_test_print_range(start_angle,
+                                   end_angle,
+                                   type);
+
+            group_active = 0;
+            group_count++;
+        }
+    }
+
+    if (group_count == 0)
+    {
+        if (type == WHEEL_TEST_TYPE_NEAR)
+        {
+            printf("NEAR none\r\n");
+        }
+        else
+        {
+            printf("BLIND none\r\n");
+        }
+    }
+}
+// 四车轮遮挡雷达角度测试
+void wheel_mask_test(void) {
+    static uint8_t test_started = 0;
+    static uint8_t test_finished = 0;
+
+    static uint16_t scan_count = 0;
+    static uint32_t last_scan_num = 0;
+
+    const lidar_scan_t *scan;
+
+    // 必须持续处理雷达DMA数据
+    lidar_process();
+
+    // 测试已经结束，仍处理雷达，但不再重复统计和打印
+    if (test_finished)
+        return;
+
+    if (!test_started)
+    {
+        test_started = 1;
+
+        memset(wheel_mask, 0, sizeof(wheel_mask));
+
+        printf("===== WHEEL MASK TEST START =====\r\n");
+        printf("scan=%u near_distance<=%umm\r\n",
+               (unsigned int)100, (unsigned int)400);
+    }
+
+    scan = lidar_get_scan();
+
+    if (scan == NULL || scan->scan_num == 0)
+        return;
+
+    // 同一个完整圈只统计一次
+    if (scan->scan_num == last_scan_num)
+        return;
+
+    last_scan_num = scan->scan_num;
+
+    // 统计当前完整圈的360度原始数据
+    for (uint16_t angle = 0; angle < 360U; angle++)
+    {
+        wheel_mask_t *stat =
+            &wheel_mask[angle];
+
+        uint16_t distance;
+
+        if (scan->valid[angle] == 0)
+            continue;
+
+        distance = scan->distance[angle];
+
+        stat->valid_cnt++;
+
+        // 记录固定近距离回波
+        if (distance <= 400)
+        {
+            stat->near_cnt++;
+            stat->sum_near += distance;
+
+            if (stat->near_cnt == 1)
+            {
+                stat->min_near = distance;
+                stat->max_near = distance;
+            }
+            else
+            {
+                if (distance < stat->min_near)
+                    stat->min_near = distance;
+
+                if (distance > stat->max_near)
+                    stat->max_near = distance;
+            }
+        }
+    }
+
+    scan_count++;
+
+    // 每20圈提示一次进度
+    if ((scan_count % 20U) == 0U)
+    {
+        printf("WHEEL collect=%u/%u\r\n",
+               (unsigned int)scan_count,
+               (unsigned int)100);
+    }
+
+    if (scan_count < 100)
+        return;
+
+    printf("===== 固定近距离 =====\r\n");
+
+    // 输出稳定近距离区域
+    wheel_test_print_group(WHEEL_TEST_TYPE_NEAR);
+
+    printf("===== 固定盲区 =====\r\n");
+
+    // 输出长期无有效数据区域
+    wheel_test_print_group(WHEEL_TEST_TYPE_BLIND);
+
+    printf("===== 车轮遮挡测试结束 =====\r\n");
+    printf("移动或旋转小车 然后复位并再次测试。.\r\n");
+
+    test_finished = 1;
+}
+
 
 // 极坐标转换函数测试
 void tf2d_test_polar(void)

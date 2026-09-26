@@ -12,7 +12,11 @@ if str(MODULE_DIR) not in sys.path:
     sys.path.insert(0, str(MODULE_DIR))
 
 from vision_config import DEFAULT_CONFIG, validate_config  # noqa: E402
-from vision_ocr import confirm_digit_two, warmup_two_templates  # noqa: E402
+from vision_ocr import (  # noqa: E402
+    confirm_digit_two,
+    recognize_digit,
+    warmup_two_templates,
+)
 from vision_ring import detect_ring_candidates  # noqa: E402
 from vision_tasks import (  # noqa: E402
     RingTask,
@@ -86,6 +90,8 @@ def make_ring_frame(
 class RingDetectorTests(unittest.TestCase):
     def setUp(self):
         self.config = copy.deepcopy(DEFAULT_CONFIG)
+        self.config["ring"]["min_diameter"] = 24
+        self.config["ring"]["min_contour_area"] = 45
 
     def test_three_round_rings_remain_three_candidates(self):
         result, _, _ = detect_ring_candidates(
@@ -156,6 +162,8 @@ class RingDetectorTests(unittest.TestCase):
 class IsTwoTests(unittest.TestCase):
     def setUp(self):
         self.config = copy.deepcopy(DEFAULT_CONFIG)
+        self.config["ring"]["min_diameter"] = 24
+        self.config["ring"]["min_contour_area"] = 45
 
     def test_only_digit_two_is_accepted(self):
         frame = make_ring_frame()
@@ -171,8 +179,26 @@ class IsTwoTests(unittest.TestCase):
         self.assertEqual(decisions[1]["reason"], "TWO")
         for decision in (decisions[0], decisions[2]):
             self.assertIn(
-                decision["reason"], ("SCORE", "MARGIN", "SCORE_MARGIN")
+                decision["reason"],
+                ("ONE", "THREE", "SCORE", "MARGIN", "SCORE_MARGIN"),
             )
+
+    def test_multiclass_recognizes_one_two_three(self):
+        frame = make_ring_frame()
+        decisions = [
+            recognize_digit(
+                frame, {"cx": cx, "cy": 120, "radius": 21}
+            )
+            for cx, _ in RINGS
+        ]
+        self.assertEqual(
+            [decision["digit"] for decision in decisions],
+            [1, 2, 3],
+        )
+        self.assertEqual(
+            [decision["reason"] for decision in decisions],
+            ["ONE", "TWO", "THREE"],
+        )
 
     def test_blank_ring_stays_unknown(self):
         frame = make_ring_frame(visible=(1,), draw_digits=False)
@@ -194,6 +220,8 @@ class IsTwoTests(unittest.TestCase):
 class RingTaskTests(unittest.TestCase):
     def setUp(self):
         self.config = copy.deepcopy(DEFAULT_CONFIG)
+        self.config["ring"]["min_diameter"] = 24
+        self.config["ring"]["min_contour_area"] = 45
         self.task = RingTask()
         self.task.enter(2)
 
@@ -227,6 +255,28 @@ class RingTaskTests(unittest.TestCase):
             later_calls += result["ocr_calls"]
         self.assertEqual(result["state"], "TRACK")
         self.assertEqual(later_calls, 0)
+
+    def test_each_requested_digit_can_enter_track(self):
+        for target_number, expected_x in ((1, 30), (2, 160), (3, 290)):
+            with self.subTest(target_number=target_number):
+                task = RingTask()
+                task.enter(0xD0 + target_number)
+                result = None
+                calls = 0
+                for _ in range(6):
+                    result = task.process(
+                        make_ring_frame(), self.config, run_mode=True
+                    )["result"]
+                    calls += result["ocr_calls"]
+                    if result["state"] == "TRACK":
+                        break
+                self.assertEqual(result["state"], "TRACK")
+                self.assertTrue(result["found"])
+                self.assertTrue(result["target_confirmed"])
+                self.assertEqual(result["target_number"], target_number)
+                self.assertEqual(result["recognized_digit"], target_number)
+                self.assertEqual(result["cx"], expected_x)
+                self.assertGreaterEqual(calls, 1)
 
     def test_non_two_center_retries_slowly_and_never_becomes_valid(self):
         frame = make_ring_frame(visible=(1,), middle_digit=1)

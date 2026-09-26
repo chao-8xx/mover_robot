@@ -111,7 +111,7 @@ int main(void)
   // my_hwt101_init();   // 陀螺仪
   uart_init();
   tf_init();
-  obstacle_map_init();
+  // obstacle_map_init();
 
   HAL_Delay(1000);
 
