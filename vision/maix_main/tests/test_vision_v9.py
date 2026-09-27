@@ -12,7 +12,11 @@ if str(MODULE_DIR) not in sys.path:
     sys.path.insert(0, str(MODULE_DIR))
 
 from vision_config import DEFAULT_CONFIG, validate_config  # noqa: E402
-from vision_ocr import confirm_digit_two, warmup_two_templates  # noqa: E402
+from vision_ocr import (  # noqa: E402
+    confirm_digit_two,
+    recognize_digit,
+    warmup_two_templates,
+)
 from vision_ring import detect_ring_candidates  # noqa: E402
 from vision_tasks import (  # noqa: E402
     RingTask,
@@ -25,6 +29,37 @@ from vision_tasks import (  # noqa: E402
 
 
 RINGS = ((30, 1), (160, 2), (290, 3))
+
+
+def threshold_midpoint_bgr(config, color_key):
+    """生成当前阈值内部的代表色，避免测试绑定某一套现场标定值。"""
+    mode = config["mode"]
+    threshold = config["thresholds"][mode][color_key]
+    lower = threshold["lower"]
+    upper = threshold["upper"]
+    if mode == "LAB":
+        value = np.uint8([[[
+            (lower[0] + upper[0]) // 2,
+            (lower[1] + upper[1]) // 2,
+            (lower[2] + upper[2]) // 2,
+        ]]])
+        return tuple(int(item) for item in cv2.cvtColor(
+            value, cv2.COLOR_LAB2BGR
+        )[0, 0])
+
+    hue = (
+        (lower[0] + upper[0]) // 2
+        if lower[0] <= upper[0]
+        else lower[0]
+    )
+    value = np.uint8([[[
+        hue,
+        (lower[1] + upper[1]) // 2,
+        (lower[2] + upper[2]) // 2,
+    ]]])
+    return tuple(int(item) for item in cv2.cvtColor(
+        value, cv2.COLOR_HSV2BGR
+    )[0, 0])
 
 
 def make_ring_frame(
@@ -55,6 +90,8 @@ def make_ring_frame(
 class RingDetectorTests(unittest.TestCase):
     def setUp(self):
         self.config = copy.deepcopy(DEFAULT_CONFIG)
+        self.config["ring"]["min_diameter"] = 24
+        self.config["ring"]["min_contour_area"] = 45
 
     def test_three_round_rings_remain_three_candidates(self):
         result, _, _ = detect_ring_candidates(
@@ -65,6 +102,24 @@ class RingDetectorTests(unittest.TestCase):
         self.assertEqual(result["layer_reject_count"], 0)
         self.assertNotIn("ellipse_fit_count", result)
         self.assertNotIn("ellipse_fix_count", result)
+
+    def test_adjustable_roi_limits_detection_and_restores_full_coordinates(self):
+        config = copy.deepcopy(self.config)
+        config["ring"]["roi"] = {"x": 100, "y": 60, "w": 120, "h": 120}
+        config["ring"]["center"] = {"x": 60, "y": 60, "custom": True}
+        config = validate_config(config)
+
+        result, mask, roi_rect = detect_ring_candidates(
+            make_ring_frame(), config["ring"]
+        )
+
+        self.assertEqual(roi_rect, (100, 60, 120, 120))
+        self.assertEqual(mask.shape[:2], (120, 120))
+        self.assertEqual(result["candidate_count"], 1)
+        self.assertEqual(result["candidates"][0]["cx"], 160)
+        self.assertEqual(result["candidates"][0]["cy"], 120)
+        self.assertEqual(result["candidates"][0]["dx"], 0)
+        self.assertEqual(result["candidates"][0]["dy"], 0)
 
     def test_near_circular_perspective_rings_remain_detectable(self):
         image = np.full((240, 320, 3), 255, dtype=np.uint8)
@@ -107,6 +162,8 @@ class RingDetectorTests(unittest.TestCase):
 class IsTwoTests(unittest.TestCase):
     def setUp(self):
         self.config = copy.deepcopy(DEFAULT_CONFIG)
+        self.config["ring"]["min_diameter"] = 24
+        self.config["ring"]["min_contour_area"] = 45
 
     def test_only_digit_two_is_accepted(self):
         frame = make_ring_frame()
@@ -122,8 +179,26 @@ class IsTwoTests(unittest.TestCase):
         self.assertEqual(decisions[1]["reason"], "TWO")
         for decision in (decisions[0], decisions[2]):
             self.assertIn(
-                decision["reason"], ("SCORE", "MARGIN", "SCORE_MARGIN")
+                decision["reason"],
+                ("ONE", "THREE", "SCORE", "MARGIN", "SCORE_MARGIN"),
             )
+
+    def test_multiclass_recognizes_one_two_three(self):
+        frame = make_ring_frame()
+        decisions = [
+            recognize_digit(
+                frame, {"cx": cx, "cy": 120, "radius": 21}
+            )
+            for cx, _ in RINGS
+        ]
+        self.assertEqual(
+            [decision["digit"] for decision in decisions],
+            [1, 2, 3],
+        )
+        self.assertEqual(
+            [decision["reason"] for decision in decisions],
+            ["ONE", "TWO", "THREE"],
+        )
 
     def test_blank_ring_stays_unknown(self):
         frame = make_ring_frame(visible=(1,), draw_digits=False)
@@ -145,6 +220,8 @@ class IsTwoTests(unittest.TestCase):
 class RingTaskTests(unittest.TestCase):
     def setUp(self):
         self.config = copy.deepcopy(DEFAULT_CONFIG)
+        self.config["ring"]["min_diameter"] = 24
+        self.config["ring"]["min_contour_area"] = 45
         self.task = RingTask()
         self.task.enter(2)
 
@@ -178,6 +255,28 @@ class RingTaskTests(unittest.TestCase):
             later_calls += result["ocr_calls"]
         self.assertEqual(result["state"], "TRACK")
         self.assertEqual(later_calls, 0)
+
+    def test_each_requested_digit_can_enter_track(self):
+        for target_number, expected_x in ((1, 30), (2, 160), (3, 290)):
+            with self.subTest(target_number=target_number):
+                task = RingTask()
+                task.enter(0xD0 + target_number)
+                result = None
+                calls = 0
+                for _ in range(6):
+                    result = task.process(
+                        make_ring_frame(), self.config, run_mode=True
+                    )["result"]
+                    calls += result["ocr_calls"]
+                    if result["state"] == "TRACK":
+                        break
+                self.assertEqual(result["state"], "TRACK")
+                self.assertTrue(result["found"])
+                self.assertTrue(result["target_confirmed"])
+                self.assertEqual(result["target_number"], target_number)
+                self.assertEqual(result["recognized_digit"], target_number)
+                self.assertEqual(result["cx"], expected_x)
+                self.assertGreaterEqual(calls, 1)
 
     def test_non_two_center_retries_slowly_and_never_becomes_valid(self):
         frame = make_ring_frame(visible=(1,), middle_digit=1)
@@ -258,9 +357,12 @@ class SharedColorTrackerTests(unittest.TestCase):
         self.assertIn("LAB", DEFAULT_CONFIG["thresholds"])
         self.assertIn("HSV", DEFAULT_CONFIG["thresholds"])
 
-        frame = np.full((240, 320, 3), 255, dtype=np.uint8)
-        cv2.rectangle(frame, (110, 80), (210, 180), (0, 0, 255), -1)
         config = copy.deepcopy(DEFAULT_CONFIG)
+        frame = np.full((240, 320, 3), 255, dtype=np.uint8)
+        cv2.rectangle(
+            frame, (110, 80), (210, 180),
+            threshold_midpoint_bgr(config, "red"), -1,
+        )
         manager = TaskManager()
         for task_id in (TASK_MATERIAL, TASK_STACK):
             manager.switch(task_id, 1)
@@ -274,9 +376,12 @@ class SharedColorTrackerTests(unittest.TestCase):
             )
 
     def test_b2_and_b4_use_independent_geometry(self):
-        frame = np.full((240, 320, 3), 255, dtype=np.uint8)
-        cv2.rectangle(frame, (140, 100), (180, 140), (0, 0, 255), -1)
         config = copy.deepcopy(DEFAULT_CONFIG)
+        frame = np.full((240, 320, 3), 255, dtype=np.uint8)
+        cv2.rectangle(
+            frame, (140, 100), (180, 140),
+            threshold_midpoint_bgr(config, "red"), -1,
+        )
         config["center"] = {"x": 100, "y": 120, "custom": True}
         config["stack"]["center"] = {
             "x": 180, "y": 120, "custom": True

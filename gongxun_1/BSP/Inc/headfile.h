@@ -30,23 +30,24 @@
 #include "timer.h"
 #include "uart_dma.h"
 #include "key_led.h"
-#include "led_buzzer.h" // 拓展板板载LED和蜂鸣器
-#include "camera.h"     // 摄像头
-#include "lidar.h"      // 激光雷达
-#include "Emm_V5.h"     // Emm42电机协议
-#include "step_motor.h" // 闭环步进电机控制
-#include "servo.h"      // 舵机
-#include "ws2812.h"     // 8位RGB灯
-#include "hwt101.h"     // HWT101陀螺仪
-#include "hmi.h"        // 串口屏
+#include "led_buzzer.h"  // 拓展板板载LED和蜂鸣器
+#include "camera.h"      // 摄像头
+#include "lidar.h"       // 激光雷达
+#include "Emm_V5.h"      // Emm42电机协议
+#include "step_motor.h"  // 闭环步进电机控制
+#include "servo.h"       // 舵机
+#include "ws2812.h"      // 8位RGB灯
+#include "hwt101.h"      // HWT101陀螺仪
+#include "hmi.h"         // 串口屏
+#include "debug_printf.h"// 串口打印调试
 
 // 应用、算法
 #include "bfs.h"        // BFS广度优先搜索算法
 #include "grid.h"       // 48x48占据栅格
 #include "track_map.h"  // 5x5赛道拓扑
-#include "planner.h"    // BFS与动态重规划
+// #include "planner.h"    // BFS与动态重规划
 #include "tf2d.h"       // 2D坐标变换
-#include "obstacle_map.h" // 障碍物地图投影
+// #include "obstacle_map.h" // 障碍物地图投影
 #include "obstacle_find.h" // 雷达障碍物扫描与道路阻塞
 #include "pid.h"        // PID控制算法
 #include "chassis.h"    // 底盘控制

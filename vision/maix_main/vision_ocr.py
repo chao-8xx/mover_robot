@@ -1,7 +1,7 @@
-"""任务二的低频二分类确认：当前圆环里的数字是不是2。
+"""任务二的低频数字确认：识别当前圆环里的1、2或3。
 
-只在圆环稳定后调用；确认成功后RingTask进入TRACK，不再执行OCR。
-1和3模板仅作为负样本，接口不会返回或跟踪1/3。
+只在圆环稳定后调用；确认指定数字后RingTask进入TRACK，不再执行OCR。
+无法可靠区分时返回未知，不强制猜测。
 """
 
 import time as pytime
@@ -20,9 +20,11 @@ OCR_MAX_ASPECT = 1.05
 OCR_MIN_FILL = 0.12
 OCR_MAX_FILL = 0.82
 
-# score是1-Dice，越小越好；margin是最佳负样本减2号分数，越大越可信。
-OCR_MAX_TWO_SCORE = 0.42
-OCR_MIN_TWO_MARGIN = 0.055
+# score是1-Dice，越小越好；margin是第二名减第一名，越大越可信。
+OCR_MAX_SCORE = 0.42
+OCR_MIN_MARGIN = 0.055
+# 细长的数字1在小尺寸裁剪下和2的模板差距略小，单独保留较低拒识门槛。
+OCR_MIN_MARGIN_ONE = 0.040
 
 _PERF_COUNTER = getattr(pytime, "perf_counter", pytime.time)
 _TEMPLATE_STACK = None
@@ -140,7 +142,6 @@ def _ensure_templates():
         (cv2.FONT_HERSHEY_DUPLEX, 3),
         (cv2.FONT_HERSHEY_DUPLEX, 5),
     )
-    # 1/3只作为“不是2”的负样本，不对外输出分类结果。
     for digit in (1, 2, 3):
         for font, thickness in variants:
             template = _make_template(digit, font, thickness)
@@ -152,7 +153,7 @@ def _ensure_templates():
 
 
 def warmup_two_templates():
-    """启动阶段生成并缓存模板，避免第一次B3确认承担初始化耗时。"""
+    """启动阶段生成并缓存1/2/3模板，避免第一次B3确认承担初始化耗时。"""
     tick = _PERF_COUNTER()
     _ensure_templates()
     return {
@@ -176,12 +177,11 @@ def crop_digit_roi(cv_bgr, candidate):
     return cv_bgr[y1:y2, x1:x2], (x1, y1, x2 - x1, y2 - y1)
 
 
-def confirm_digit_two(cv_bgr, candidate):
-    """返回is_two；无法确认、空白、1或3一律返回False。"""
+def recognize_digit(cv_bgr, candidate):
+    """可靠时返回1/2/3，否则返回0表示未知。"""
     tick = _PERF_COUNTER()
     roi, roi_rect = crop_digit_roi(cv_bgr, candidate)
     result = {
-        "is_two": False,
         "digit": 0,
         "accepted": False,
         "score": 1.0,
@@ -218,33 +218,51 @@ def confirm_digit_two(cv_bgr, candidate):
         template_pixels + glyph_pixels
     )
     scores = 1.0 - dice
-    two_score = float(np.min(scores[_TEMPLATE_LABELS == 2]))
-    other_score = float(np.min(scores[_TEMPLATE_LABELS != 2]))
-    margin = other_score - two_score
+    class_scores = {}
+    for digit in (1, 2, 3):
+        class_scores[digit] = float(np.min(
+            scores[_TEMPLATE_LABELS == digit]
+        ))
+    ordered = sorted(class_scores.items(), key=lambda item: item[1])
+    best_digit, best_score = ordered[0]
+    second_score = ordered[1][1]
+    margin = second_score - best_score
+    min_margin = (
+        OCR_MIN_MARGIN_ONE if best_digit == 1 else OCR_MIN_MARGIN
+    )
     accepted = (
-        two_score <= OCR_MAX_TWO_SCORE and
-        margin >= OCR_MIN_TWO_MARGIN
+        best_score <= OCR_MAX_SCORE and
+        margin >= min_margin
     )
     if accepted:
-        reason = "TWO"
-    elif two_score > OCR_MAX_TWO_SCORE and margin < OCR_MIN_TWO_MARGIN:
+        reason = {1: "ONE", 2: "TWO", 3: "THREE"}[best_digit]
+    elif best_score > OCR_MAX_SCORE and margin < min_margin:
         reason = "SCORE_MARGIN"
-    elif two_score > OCR_MAX_TWO_SCORE:
+    elif best_score > OCR_MAX_SCORE:
         reason = "SCORE"
     else:
         reason = "MARGIN"
 
     result.update({
-        "is_two": accepted,
-        "digit": 2 if accepted else 0,
+        "digit": int(best_digit) if accepted else 0,
         "accepted": accepted,
-        "score": two_score,
+        "score": best_score,
         "margin": margin,
         "normalized": normalized,
         "reason": reason,
         "metadata": metadata,
-        "two_score": two_score,
-        "other_score": other_score,
+        "class_scores": class_scores,
         "ocr_ms": (_PERF_COUNTER() - tick) * 1000.0,
     })
+    return result
+
+
+def confirm_digit_two(cv_bgr, candidate):
+    """兼容旧测试/脚本的二分类接口；新任务使用recognize_digit。"""
+    result = recognize_digit(cv_bgr, candidate)
+    is_two = bool(result.get("accepted", False) and result.get("digit") == 2)
+    result["is_two"] = is_two
+    if not is_two:
+        result["digit"] = 0
+        result["accepted"] = False
     return result

@@ -52,6 +52,8 @@ void Emm_V5_Origin_Modify_Params(uint8_t addr, bool svF, uint8_t o_mode, uint8_t
 void Emm_V5_Origin_Trigger_Return(uint8_t addr, uint8_t o_mode, bool snF); // 触发回零操作
 void Emm_V5_Origin_Interrupt(uint8_t addr); // 强制中断并退出回零
 
+void Emm_V5_tx_callback(UART_HandleTypeDef *huart);	// 发送中断回调
+
 // 复位串口2发送队列（串口错误后调用，避免队列状态卡死）
 void Emm_V5_Tx_Reset(void);
 

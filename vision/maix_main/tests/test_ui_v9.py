@@ -56,7 +56,9 @@ from vision_tasks import TASK_MATERIAL, TASK_RING, TASK_STACK  # noqa: E402
 from vision_ui import (  # noqa: E402
     PAGE_CENTER,
     PAGE_HOME,
+    PAGE_RING_CALIBRATE,
     PAGE_RING_HOME,
+    PAGE_ROI,
     VisionUI,
 )
 
@@ -99,6 +101,20 @@ class VisionUiTests(unittest.TestCase):
         ))
         self.assertNotIn("RING_VIEW_OCR", button_ids)
         self.assertIn("START_RING_RUN", button_ids)
+
+    def test_ring_calibrate_exposes_independent_roi_editor(self):
+        self.ui._open_task(TASK_RING)
+        self.ui._activate("OPEN_RING_CALIBRATE")
+        self.assertEqual(self.ui.page, PAGE_RING_CALIBRATE)
+        self.ui.render(self.frame, empty_result())
+        button_ids = {button[0] for button in self.ui.buttons}
+        self.assertIn("EDIT_RING_ROI", button_ids)
+
+        self.ui._activate("EDIT_RING_ROI")
+        self.assertEqual(self.ui.page, PAGE_ROI)
+        self.assertIs(
+            self.ui._task_config(), self.ui.draft_config["ring"]
+        )
 
     def test_b2_color_page_still_runs(self):
         self.ui._open_task(TASK_MATERIAL)

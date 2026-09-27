@@ -76,12 +76,6 @@ add_executable(${CMAKE_PROJECT_NAME}
         Control/Src/system.c
         APP/Src/track_map.c
         APP/Inc/track_map.h
-        APP/Src/planner.c
-        APP/Inc/planner.h
-        APP/Src/grid.c
-        APP/Inc/grid.h
-        APP/Src/obstacle_map.c
-        APP/Inc/obstacle_map.h
         APP/Src/obstacle_find.c
         APP/Inc/obstacle_find.h
         Test/Src/map_test.c
@@ -98,8 +92,12 @@ add_executable(${CMAKE_PROJECT_NAME}
         Test/Inc/bfs_test.h
         Control/Src/task.c
         Control/Inc/task.h
+        BSP/Src/debug_printf.c
+        BSP/Inc/debug_printf.h
         Control/Inc/control.h
         Control/Src/control.c
+        APP/Src/grid.c
+        APP/Inc/grid.h
 
 )
 

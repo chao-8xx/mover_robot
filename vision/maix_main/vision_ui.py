@@ -246,7 +246,7 @@ class VisionUI:
         elif task_id == TASK_MATERIAL:
             self.message = "F407 已启动物料识别"
         elif task_id == TASK_RING:
-            self.message = "F407 已启动2号圆环定位"
+            self.message = "F407 已启动数字圆环定位"
         else:
             self.message = "F407 已启动码垛物料识别"
         self._invalidate()
@@ -267,12 +267,12 @@ class VisionUI:
         self._invalidate()
 
     def set_runtime_ring_target(self, target_number):
-        # 新版B3固定确认数字2；保留入口兼容旧主程序调用。
-        target_number = 2
-        if self.saved_config["ring"]["target_number"] == 2:
+        if target_number not in (1, 2, 3):
+            return
+        if self.saved_config["ring"]["target_number"] == target_number:
             return
         self.saved_config["ring"]["target_number"] = target_number
-        self.message = "F407 圆环目标：2"
+        self.message = "F407 圆环目标：{}".format(target_number)
         self._invalidate()
 
     def current_view_mode(self):
@@ -495,7 +495,7 @@ class VisionUI:
             )
 
     def _draw_ring_home(self, canvas, preview_bgr, result):
-        self._header(canvas, "任务二 2号圆环定位", back=True)
+        self._header(canvas, "任务二 数字圆环定位", back=True)
         if self.portrait:
             rect = self._preview(canvas, preview_bgr, (8, 55, self.screen_w - 16, 292))
             y = rect[1] + rect[3] + 8
@@ -525,6 +525,7 @@ class VisionUI:
     def _draw_ring_calibrate(self, canvas, preview_bgr):
         self._header(canvas, "任务二调参", back=True)
         items = (
+            ("EDIT_RING_ROI", "圆环 ROI"),
             ("EDIT_RING_CENTER", "对准中心"),
             ("EDIT_RING_BLACK", "黑色阈值"),
             ("EDIT_RING_SIZE", "圆环尺寸"),
@@ -1147,9 +1148,10 @@ class VisionUI:
                     (x + 9, y + 20),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.43, (80, 255, 170), 1)
         if self.selected_task == TASK_RING:
-            info = "C:{} TWO:{} {}".format(
+            info = "C:{} N:{} LOCK:{} {}".format(
                 result.get("candidate_count", 0),
-                1 if result.get("is_two_confirmed", False) else 0,
+                result.get("target_number", 0),
+                1 if result.get("target_confirmed", False) else 0,
                 result.get("state", "SEARCH"),
             )
         elif result["found"]:
@@ -1422,6 +1424,9 @@ class VisionUI:
             self._open(PAGE_RING_RUN)
         elif button_id == "OPEN_RING_CALIBRATE":
             self._open(PAGE_RING_CALIBRATE)
+        elif button_id == "EDIT_RING_ROI":
+            self._begin_editor(PAGE_ROI)
+            self.ring_view_mode = VIEW_OVERLAY
         elif button_id == "EDIT_RING_CENTER":
             self._begin_editor(PAGE_CENTER)
             self.ring_view_mode = VIEW_OVERLAY

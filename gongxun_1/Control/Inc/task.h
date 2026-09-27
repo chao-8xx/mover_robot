@@ -86,6 +86,11 @@ void task_receive(void);
 // 任务执行总函数
 void task_process(void);
 
+void imu_task(void);
+void cam_task(void);
+uint8_t obstacle_find_task(float car_x, float car_y, float car_yaw);
+
+
 #endif //GONGXUN_1_TASK_H
 
 /*

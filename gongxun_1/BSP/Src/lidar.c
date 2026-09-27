@@ -22,10 +22,13 @@ static uint16_t rx_target_len = 0;      // 当前数据包应接收的总长度
 static uint8_t dma_rx_buf[DMA_BUF_LEN]; // DMA接收环形缓冲区
 static uint16_t dma_rd_ptr = 0;         // DMA读指针   从DMA缓冲区取数据的位置
 
-// 双缓冲实现变量
+// 协议层 双缓冲变量
 static lidar_scan_t scan_buffer[2];     // 扫描双缓冲区
 static lidar_scan_t *scan_work = NULL;  // 当前工作缓冲区
 static lidar_scan_t *scan_ok   = NULL;  // 当前已完成扫描的缓冲区
+
+static uint32_t lidar_xor_ok_cnt = 0;   // XOR校验成功计数
+static uint32_t lidar_xor_err_cnt = 0;  // XOR校验失败计数
 
 static uint8_t scan_ok_flag = 0;        // 扫描完成标志位
 static uint8_t scan_collect_flag = 0;   // 扫描数据收集标志位
@@ -33,6 +36,11 @@ static uint32_t scan_num = 0;           // 扫描数据收集计数
 
 
 /////////////////////////////////////// 内部辅助函数 ///////////////////////////////
+// 读取小端16位数据
+static uint16_t read_u16(const uint8_t *data) {
+    return ((uint16_t)data[0]) | (uint16_t)data[1] << 8;
+}
+
 // 清空扫描区
 static void lidar_scan_clear(lidar_scan_t *scan) {
     if (scan == NULL) return;
@@ -40,6 +48,7 @@ static void lidar_scan_clear(lidar_scan_t *scan) {
     memset(scan, 0, sizeof(*scan));
 }
 
+// 雷达开启扫描
 static void lidar_scan_start(uint32_t tick) {
     lidar_scan_t *now_scan;
 
@@ -73,6 +82,29 @@ static void lidar_scan_start(uint32_t tick) {
 
     // 开启下一圈扫描
     scan_work->start_time = tick;
+}
+
+// 计算D6 数据包的XOR校验值
+static uint16_t lidar_xor_check(const uint8_t *data, uint16_t len) {
+    uint16_t check_num;
+    uint16_t offset;
+
+    // 包头、M&T、LSN、FSA、LSA
+    check_num  = read_u16(&data[0]);
+    check_num ^= read_u16(&data[2]);
+    check_num ^= read_u16(&data[4]);
+    check_num ^= read_u16(&data[6]);
+
+    // CS 位于data[8] data[9] 不参与计算
+    for (uint8_t i = 0; i < len; i++) {
+        offset = FRAME_LEN + (uint16_t)i * 3;
+
+        // 每个采样点占3字节 前两个字节组成16位 最后一个字节单独参与XOR
+        check_num ^= read_u16(&data[offset]);
+        check_num ^= (uint16_t)data[offset + 2];
+    }
+
+    return check_num;
 }
 
 
@@ -236,6 +268,9 @@ void lidar_init(UART_HandleTypeDef *huart) {
     scan_work = &scan_buffer[0];
     scan_ok = &scan_buffer[1];
 
+    lidar_xor_ok_cnt = 0;
+    lidar_xor_err_cnt = 0;
+
     scan_ok_flag = 0;
     scan_collect_flag = 0;
     scan_num =0;
@@ -279,6 +314,16 @@ void lidar_change(void) {
 // 当前是否已扫描完数据
 uint8_t lidar_scan_ok(void) {
     return scan_ok_flag;
+}
+
+// 获取xor 校验成功计数
+uint32_t lidar_get_xor_ok_cnt(void) {
+    return lidar_xor_ok_cnt;
+}
+
+// 获取xor 校验失败计数
+uint32_t lidar_get_xor_err_cnt(void) {
+    return lidar_xor_err_cnt;
 }
 
 // 获取当前扫描数据  const表示只读 不可被上层修改
@@ -361,7 +406,16 @@ void lidar_process(void) {
 
         // rx_target_len非0且已收到完整数据包
         if (rx_target_len != 0 && rx_idx == rx_target_len) {
-            lidar_data_handle();
+            lsn = rx_buf[3];
+
+            // 进行XOR校验  通过则解析数据包
+            if (lidar_xor_check(rx_buf, lsn)) {
+                lidar_xor_ok_cnt++;
+                lidar_data_handle();
+            }
+            else {              // xor校验失败 数据包直接丢弃
+                lidar_xor_err_cnt++;
+            }
 
             rx_idx = 0;
             rx_target_len = 0;
