@@ -297,25 +297,25 @@ static void wheel_test_print_group(uint8_t type) {
     uint16_t start_angle = 0;   // 当前连续区间的起始角度
     uint16_t end_angle = 0;     // 当前连续区间的结束角度
 
-    uint8_t found_break;        // 当前角度是否是连续区间的结束角度
+    // uint8_t found_break;        // 当前角度是否是连续区间的结束角度
     uint8_t group_active = 0;   // 当前是否在一个连续区间内
     uint8_t group_count = 0;    // 连续区间数量
 
     // 先寻找一个非阻挡区当遍历起点
     for (uint16_t angle = 0; angle < 360; angle++) {
 
-        if (!get_wheel_masked) {
-            break_angle = angle;
-            found_break = 1;
-            break;
-        }
+        // if (!get_wheel_masked) {
+        //     break_angle = angle;
+        //     found_break = 1;
+        //     break;
+        // }
     }
 
     // 360度全部属于候选区域
-    if (!found_break) {
-        wheel_test_print_range(0, 359, type);
-        return;
-    }
+    // if (!found_break) {
+    //     wheel_test_print_range(0, 359, type);
+    //     return;
+    // }
 
     // 从非候选角度的下一个角度开始循环一整圈
     for (uint16_t step = 1; step <= 360U; step++)

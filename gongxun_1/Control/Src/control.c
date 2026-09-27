@@ -9,7 +9,7 @@
 #define MOVE_SPEED        250         // 底盘非任务区运行速度
 
 // 根据格子数量对于行走距离cm
-#define NUM_DELTA_DIST    5.0f        // 暂存区、粗加工区圆环间距5cm
+#define NUM_DELTA_DIST    8.0f        // 暂存区、粗加工区圆环间距5cm
 #define ONE_BLOCK_DIST    43.5f       // 一格走43.5cm
 #define TWO_BLOCK_DIST    84.0f       // 两格走84cm
 #define THREE_BLOCK_DIST  127.5f      // 三格走127.5cm
@@ -262,11 +262,11 @@ void calibrate_yaw(void)
     my_control.target_index += 1;
     if (my_control.target_index < TARGET_STEP_LEN) {
         my_control.step = my_control.target_pos[my_control.target_index];
-        remindState = GREEN_REMIND;
+        task_state.remindState = GREEN_REMIND;
     }
     else {
         my_control.step = BACK_PARKING_STEP;
-        remindState = BLUE_REMIND;
+        task_state.remindState = BLUE_REMIND;
     }
 }
 
@@ -417,13 +417,13 @@ void follow_target(float target_yaw, int16_t target_x, int16_t target_y)
 {
     Positional_PID_Cal(&yaw_pid, target_yaw, my_yaw);
     Positional_PID_Cal(&x_pid, target_x, task_state.follow_x);
-    Positional_PID_Cal(&x_pid, target_y, task_state.follow_y);
+    Positional_PID_Cal(&y_pid, target_y, task_state.follow_y);
 
     float omega_out = yaw_pid.output;
     float x_out = x_pid.output;
     float y_out = y_pid.output;
 
-    car_speed_move((int16_t)(-y_out), (int16_t)(x_out), (int16_t)(omega_out));
+    car_speed_move((int16_t)(-y_out), (int16_t)(-x_out), (int16_t)(omega_out));
 }
 
 
@@ -483,10 +483,16 @@ void catch_material(void)
             follow_target(my_control.target_yaw, task_state.follow_x, task_state.follow_y);
             if (!task_state.is_find_target) {   // 目标丢失 进入保护 回退步骤继续等待发现目标
                 car_stop();
+                PID_Reset(&yaw_pid);    // 清除误差和积分
+                PID_Reset(&x_pid);
+                PID_Reset(&y_pid);
                 catch_step = 4;
             }
             if (task_state.is_catch_target == 1) {  // 达到抓取条件
                 car_stop();
+                PID_Reset(&yaw_pid);    // 清除误差和积分
+                PID_Reset(&x_pid);
+                PID_Reset(&y_pid);
                 catch_step = 6;
             }
             break;
@@ -496,7 +502,7 @@ void catch_material(void)
             break;
         case 7:     // 夹爪夹住
             claw_ctrl(CLAW_CATCH);
-            servo_wait_ms(200);  // 等待200ms 使其夹爪闭合完全
+            servo_wait_ms(600);  // 等待600ms 使其夹爪闭合完全
             catch_num += 1;
             catch_step = 8;
             break;
@@ -537,28 +543,31 @@ void catch_material(void)
             break;
         case 12:    // 夹爪松开
             claw_ctrl(CLAW_LOOSE);
-            servo_wait_ms(200);  // 等待200ms 使其夹爪开张完全
+            servo_wait_ms(600);  // 等待600ms 使其夹爪开张完全
             catch_step = 13;
             break;
         case 13:    // 夹爪松开后 上升高度
             if (!servo_is_busy()) {
-                holder_rotate(HOLDER_CATCH);    // 云台转回抓取位置
                 catch_lift_to_height(LIFT_NORMAL);   // 上升指令
-                servo_wait_ms(1000);  // 等待1000ms 使其云台转到合适放置位置
                 catch_step = 14;
             }
             break;
-        case 14:    // 等待云台归位
+        case 14:
+            holder_rotate(HOLDER_CATCH);    // 云台转回抓取位置
+            servo_wait_ms(1000);  // 等待1000ms 使其云台转到合适放置位置
+            catch_step = 15;
+            break;
+        case 15:    // 等待云台归位
             if (!servo_is_busy()) {
                 if (catch_num < 3) {    // 未抓完
                     catch_step = 3; // 回到给maix发指令，开始抓取下一个
                 }
                 else if (catch_num >= 3) {  // 已抓完
-                    catch_step = 15;
+                    catch_step = 16;
                 }
             }
             break;
-        case 15:
+        case 16:
             catch_num = 0;
             serve_wait_time = 0;
             servo_reset_step = 0;
@@ -640,11 +649,17 @@ void put_material(void)
                             break;
                     }
                     car_stop();
+                    PID_Reset(&yaw_pid);    // 清除误差和积分
+                    PID_Reset(&x_pid);
+                    PID_Reset(&y_pid);
                     put_step = 5;
                 }
             }
             else {  // 目标丢失 进入保护 回退步骤继续等待发现目标
                 car_stop();
+                PID_Reset(&yaw_pid);    // 清除误差和积分
+                PID_Reset(&x_pid);
+                PID_Reset(&y_pid);
                 put_step = 3;
             }
             break;
@@ -655,17 +670,18 @@ void put_material(void)
             break;
         case 6:     // 等云台转完后
             if  (!servo_is_busy()) {
-                claw_ctrl(CLAW_LOOSE);  // 夹爪松开
+                // claw_ctrl(CLAW_LOOSE);  // 夹爪松开
                 catch_stretch_to_pos(STRETCH_PUT);  // 伸缩到放置位置
                 put_step = 7;
             }
+            break;
         case 7:     // 下降高度
             catch_lift_to_height(LIFT_PUT);
             put_step = 8;
             break;
         case 8:     // 夹爪夹紧 抓物料
             claw_ctrl(CLAW_CATCH);  // 夹爪夹紧
-            servo_wait_ms(200); // 等待200ms 夹爪完全夹住
+            servo_wait_ms(600); // 等待600ms 夹爪完全夹住
             put_step = 9;
             break;
         case 9:     // 等待夹爪夹紧 升起
@@ -693,7 +709,7 @@ void put_material(void)
             break;
         case 12:    // 夹爪松开
             claw_ctrl(CLAW_LOOSE);  // 夹爪松开
-            servo_wait_ms(200); // 等待200ms 待夹爪完全松开
+            servo_wait_ms(600); // 等待600ms 待夹爪完全松开
             put_step = 13;
             break;
         case 13:    // 夹爪松开完全后
@@ -705,12 +721,18 @@ void put_material(void)
             break;
         case 14:
             if (put_num < 3) {
-                car_run_distance(MOVE_SPEED,0.0f,-NUM_DELTA_DIST); // 移到下一个圆环
-                put_step = 3;   // 已放置个数小于3 继续
+                if (!car_is_busy()) {                       // 确认上一动作结束
+                    car_run_distance(MOVE_SPEED, 0.0f, NUM_DELTA_DIST);
+                    my_control.move_state = 1;              // 让顶部守卫等它走完
+                    put_step = 3;
+                }
             }
             else if (put_num >= 3) {
-                car_run_distance(MOVE_SPEED,0.0f,NUM_DELTA_DIST); // 移到中间圆环
-                put_step = 15;  // 放完 退出
+                if (!car_is_busy()) {
+                    car_run_distance(200, 0.0f, -NUM_DELTA_DIST);
+                    my_control.move_state = 1;
+                    put_step = 15;
+                }
             }
             break;
         case 15:

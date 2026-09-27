@@ -21,6 +21,9 @@ void hmi_solve(UART_HandleTypeDef *huart, uint16_t Size);
 // 串口屏控制发送指令 放入1ms中断
 void hmi_control_send_tick(void);
 
+// 阻塞式发送小车当前状态至串口屏
+void hmi_get_car_state(void);
+
 #endif //GONGXUN_1_HMI_APP_H
 
 // 发车：0x65 0x01 0x04 0x00 0xFF 0xFF 0xFF

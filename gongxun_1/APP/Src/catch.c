@@ -20,12 +20,12 @@ static volatile uint8_t servo_busy = 0;      // 夹取装置
 static volatile uint32_t servo_deadline = 0;
 
 // PID参数
-#define X_KP            3.5f    // x轴坐标与麦轮闭环
-#define X_KD            0.5f
+#define X_KP            0.6f    // x轴坐标与麦轮闭环
+#define X_KD            0.1f
 #define X_MAX_I         50.0f
 #define X_MAX_OUT       200
-#define Y_KP            3.5f    // y轴坐标与麦轮闭环
-#define Y_KD            0.5f
+#define Y_KP            0.6f    // y轴坐标与麦轮闭环
+#define Y_KD            0.1f
 #define Y_MAX_I         50.0f
 #define Y_MAX_OUT       200
 
@@ -66,7 +66,6 @@ void catch_init(void)
         Y_MAX_I,-Y_MAX_OUT,Y_MAX_OUT);
 
     // 清除pid误差与积分
-    PID_Reset(&follow_pid);
     PID_Reset(&x_pid);
     PID_Reset(&y_pid);
 }
@@ -139,7 +138,7 @@ void catch_stretch_dist(float delta_cm)
 void catch_stretch_to_pos(float dist)
 {
     // 超限保护
-    if (dist > 5.5f) {
+    if (dist > 5.5f || dist < 0.0f) {
         return;
     }
 
@@ -194,9 +193,8 @@ void catch_lift(float delta_cm)
 
     lift_deadline = HAL_GetTick()
                      + (uint32_t)(t_ms)
-                     + 500;   // 500ms 余量
+                     + 2000;   // 2000ms 余量
     lift_busy = 1;
-
     task_state.cur_lift_height += delta_cm;
 }
 

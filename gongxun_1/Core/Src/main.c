@@ -105,21 +105,9 @@ int main(void)
   MX_TIM2_Init();
   MX_TIM4_Init();
   /* USER CODE BEGIN 2 */
+  system_init();
   HAL_Delay(1000);
-  timer_init();       // 定时器初始化
-  my_hwt101_init();   // 陀螺仪
-  my_hmi_init();      // 串口屏
-  HAL_Delay(10);      // 等待一会儿
-  step_motor_init();  // 闭环步进电机
-  HAL_Delay(100);     // 等待一会儿
-  chassis_init();     // 底盘装置
-  catch_init();       // 夹取装置
-  HAL_Delay(100);     // 等待一会儿
-  bfs_init();
-  bfs_base_obstacle();
-  remind_init();
-  task_init();
-  // 夹爪初始化 临时存在
+
 
   /* USER CODE END 2 */
 
@@ -128,20 +116,9 @@ int main(void)
 
   while (1)
   {
-    hmi_SetValue("yaw",(int)(my_yaw * 100.0f));
-    HAL_Delay(5);
-
-    hmi_SetValue("X",(int)(task_state.cur_x));
-    HAL_Delay(1);
-    hmi_SetValue("Y",(int)(task_state.cur_y));
-    HAL_Delay(1);
-    HAL_Delay(5);
-
-    hmi_SetValue("X_",(int)(my_control.head_x));
-    HAL_Delay(1);
-    hmi_SetValue("Y_",(int)(my_control.head_y));
-    HAL_Delay(1);
-    HAL_Delay(5);
+    // hmi_get_car_state();
+    put_circle_send();
+    cam_task();          // 解析摄像头数据
 
     // lidar_process();  // 激光雷达处理
 

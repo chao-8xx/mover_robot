@@ -49,6 +49,7 @@ typedef struct {
     Turntable_Pos turntable_pos;    // 转盘当前位置
     Car_Work car_work;              // 车辆工作状态
     Task_Location task_location;    // 正在执行任务的位置
+    Remind_State remindState;       // 提示装置状态
     float cur_stretch_dist;         // 伸缩装置当前伸缩的距离
     float cur_lift_height;          // 升降装置当前的高度
     uint8_t cur_x, cur_y;           // 车辆当前坐标

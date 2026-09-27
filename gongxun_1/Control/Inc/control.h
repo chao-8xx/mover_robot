@@ -73,6 +73,10 @@ void normal_road_move(void);
 // 到目标点最后一段道路运行 步骤11
 void final_road_move(void);
 
+// 追踪目标 物料 圆环
+// 校准车身姿态 追踪x和y坐标
+void follow_target(float target_yaw, int16_t target_x, int16_t target_y);
+
 // 抓取物料 原料区->转盘
 void catch_material(void);
 // 放置物料 转盘->暂存区、粗加工区

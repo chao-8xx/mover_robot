@@ -11,10 +11,10 @@ typedef enum {
     NO_REMIND       // 无提醒
 } Remind_State;
 
-extern Remind_State remindState;   // 提示装置状态
-
 // 提示装置初始化  包含ws2812、板载LED、板载蜂鸣器
 void remind_init(void);
+// 初始化完成提醒 阻塞 蜂鸣器
+void init_ok_remind(void);
 // 提示装置控制（非阻塞）
 void remind_control(void);
 

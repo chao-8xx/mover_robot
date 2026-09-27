@@ -6,7 +6,6 @@ uint16_t work_time = 0;         // 工作时间
 uint8_t flash_times = 0;        // 闪光次数
 bool work_state = false;        // 工作状态
 
-Remind_State remindState;       // 提示装置状态
 LED_Color led_color = LED_OFF;  // ws2812颜色状态机
 
 // 提示装置初始化  包含ws2812、板载LED、板载蜂鸣器
@@ -16,10 +15,23 @@ void remind_init(void)
     led_buzzer_init();
 }
 
+// 初始化完成提醒 阻塞 蜂鸣器
+void init_ok_remind(void)
+{
+    buzzer_on();
+    HAL_Delay(40);
+    buzzer_off();
+    HAL_Delay(40);
+    buzzer_on();
+    HAL_Delay(40);
+    buzzer_off();
+    HAL_Delay(40);
+}
+
 // 提示装置控制（非阻塞）
 void remind_control(void)
 {
-    switch (remindState)
+    switch (task_state.remindState)
     {
         case RED_REMIND:
             led_color = LED_RED;
@@ -83,15 +95,15 @@ void remind_control(void)
         }
         if (work_state) {
             ws2812_all_on(led_color);
-            buzzer_on();
+            // buzzer_on();
         }
         else {
             ws2812_off();
-            buzzer_off();
+            // buzzer_off();
             if (flash_times > 2) {
                 flash_times = 0;
-                buzzer_off();
-                remindState = NO_REMIND;
+                // buzzer_off();
+                task_state.remindState = NO_REMIND;
             }
         }
     }

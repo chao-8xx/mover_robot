@@ -77,6 +77,5 @@ void PID_Reset(PID *pid)
 }
 
 PID yaw_pid;	// 偏航角PID，用于转向
-PID follow_pid;	// 车子定位校准控制pid，用于麦轮和物料y坐标闭环
 PID x_pid;		// 物料x坐标PID，用于麦轮和物料x坐标闭环
-PID y_pid;		// 物料y坐标PID，用于直线模组伸缩于物料y坐标闭环
+PID y_pid;		// 物料y坐标PID，用于麦轮和物料y坐标闭环

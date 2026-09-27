@@ -218,4 +218,23 @@ void hmi_control_send_tick(void)
     }
 }
 
+// 阻塞式发送小车当前状态至串口屏
+void hmi_get_car_state(void)
+{
+    hmi_SetValue("yaw",(int)(my_yaw * 100.0f));
+    HAL_Delay(5);
+
+    hmi_SetValue("X",(int)(task_state.cur_x));
+    HAL_Delay(1);
+    hmi_SetValue("Y",(int)(task_state.cur_y));
+    HAL_Delay(1);
+    HAL_Delay(5);
+
+    hmi_SetValue("X_",(int)(my_control.head_x));
+    HAL_Delay(1);
+    hmi_SetValue("Y_",(int)(my_control.head_y));
+    HAL_Delay(1);
+    HAL_Delay(5);
+}
+
 // hmi_SetValue("yaw",(int)(my_yaw * 100.0f));
