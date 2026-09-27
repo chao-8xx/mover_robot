@@ -1,7 +1,7 @@
 #ifndef GONGXUN_1_CONTROL_H
 #define GONGXUN_1_CONTROL_H
-#include "headfile.h"
 
+// ======== 步骤定义 ======== //
 // 离开、回到启停区所在步骤
 #define LEAVE_PARKING_STEP   2      // 离开启停区
 #define BACK_PARKING_STEP    3      // 回到启停区
@@ -31,9 +31,13 @@ typedef struct {
 
     uint8_t move_state;       // 移动状态 1：等待位移完成（用于在非任务区完成每段的移动）
     uint8_t rotate_state;     // 转向状态 1：旋转闭环进行中（用于在非任务区转向和调整姿态）
+    uint8_t lift_state;       // 升降状态 1：升降进行中
+    uint8_t stretch_state;    // 转向状态 1：伸缩进行中
 
     int16_t speed;            // 底盘运行速度（非任务区）
     float   target_yaw;       // 目标偏航角
+    float   target_lift;      // 升降装置目标高度
+    float   target_stretch;   // 目标伸缩距离
 
     uint8_t target_pos[TARGET_STEP_LEN];     // 目标点顺序 按顺序前往指定位置
     uint8_t target_index;     // 目标点顺序索引
@@ -45,11 +49,6 @@ extern Control_Variate my_control;
 
 // 控制变量初始化
 void control_variate_init(void);
-
-// 校准物料、圆环
-void calibrate_target(float target_yaw);
-// 追踪物料 原料区使用，伸缩装置与车身配合
-void follow_target(float target_yaw);
 
 // 离开启停区 步骤2
 void leave_parking(void);
@@ -73,6 +72,13 @@ void calibrate_yaw(void);
 void normal_road_move(void);
 // 到目标点最后一段道路运行 步骤11
 void final_road_move(void);
+
+// 抓取物料 原料区->转盘
+void catch_material(void);
+// 放置物料 转盘->暂存区、粗加工区
+void put_material(void);
+// 拿起物料 暂存区、粗加工区->转盘
+void pick_material(void);
 
 // 整套控制流程
 void control_process(void);

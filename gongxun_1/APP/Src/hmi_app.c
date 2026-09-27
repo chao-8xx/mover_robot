@@ -24,19 +24,14 @@ void hmi_touch(void) {
 void hmi_start(void)
 {
     car_run = true;
-    if (car_run) {
-        HAL_GPIO_WritePin(GPIOC, GPIO_PIN_0,GPIO_PIN_RESET);
-    }
-
+    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_0,GPIO_PIN_RESET);
 }
 
 // 触摸串口屏停车事件
 void hmi_stop(void)
 {
     car_run = false;
-    if (!car_run) {
-        HAL_GPIO_WritePin(GPIOC, GPIO_PIN_0,GPIO_PIN_SET);
-    }
+    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_0,GPIO_PIN_SET);
 }
 
 // 触摸串口屏事件总处理
@@ -136,6 +131,58 @@ void hmi_solve(UART_HandleTypeDef *huart, uint16_t Size)
                 }
             }
         }
+        else if (hmi_rxbuffer[1] == 0x33) { // 舵机控制  01：云台  02：转盘  03：夹爪
+            // 帧格式：DD 33 0x ... FF FF FF
+            if (Size >= 8 && hmi_rxbuffer[Size - 1] == 0xFF &&
+            hmi_rxbuffer[Size - 2] == 0xFF && hmi_rxbuffer[Size - 3] == 0xFF) {
+                if (hmi_rxbuffer[2] == 0x01) {      // 01云台： DD 33 01 00 FF FF FF（00:放置 01:左 02:中 03:右）
+                    if (hmi_rxbuffer[3] == 0x00) {  // 放置
+                        holder_rotate(HOLDER_PUT);
+                    }
+                    else if (hmi_rxbuffer[3] == 0x01) { // 左
+                        holder_rotate(HOLDER_LEFT);
+                    }
+                    else if (hmi_rxbuffer[3] == 0x02) { // 中
+                        holder_rotate(HOLDER_CATCH);
+                    }
+                    else if (hmi_rxbuffer[3] == 0x03) { // 右
+                        holder_rotate(HOLDER_RIGHT);
+                    }
+                }
+                else if (hmi_rxbuffer[2] == 0x02) { // 02转盘：DD 33 02 00 FF FF FF（01:一号位 02:二号位 03:三号位 04:安全位）
+                    if (hmi_rxbuffer[3] == 0x00) {  // 安全位置
+                        turntable_rotate(SAFE_LOCATION);
+                    }
+                    else if (hmi_rxbuffer[3] == 0x01) { // 一号位
+                        turntable_rotate(ONE_LOCATION);
+                    }
+                    else if (hmi_rxbuffer[3] == 0x02) { // 二号位
+                        turntable_rotate(TWO_LOCATION);
+                    }
+                    else if (hmi_rxbuffer[3] == 0x03) { // 三号位
+                        turntable_rotate(THREE_LOCATION);
+                    }
+                }
+                else if (hmi_rxbuffer[2] == 0x03) { // 03夹爪：DD 33 03 00 FF FF FF（00:松开 01:抓取）
+                    if (hmi_rxbuffer[3] == 0x00) {  // 松开
+                        claw_ctrl(CLAW_LOOSE);
+                    }
+                    else if (hmi_rxbuffer[3] == 0x01) { // 夹取
+                        claw_ctrl(CLAW_CATCH);
+                    }
+                }
+                else if (hmi_rxbuffer[2] == 0x04) { // DD 33 04 00 FF FF FF舵机复位
+                    holder_rotate(0.0f);    // 云台舵机角度回零
+                    turntable_rotate(0.0f); // 转盘舵机角度回零
+                    claw_ctrl(CLAW_LOOSE);  // 夹爪松开
+                }
+                else if (hmi_rxbuffer[2] == 0x05) { // DD 33 05 00 FF FF FF舵机回零，除了夹爪保持闭合
+                    holder_rotate(HOLDER_PUT);       // 云台舵机放置物料位置
+                    turntable_rotate(SAFE_LOCATION); // 转盘舵机安全位置
+                    claw_ctrl(CLAW_CATCH);           // 夹爪夹紧
+                }
+            }
+        }
     }
 }
 
@@ -161,10 +208,10 @@ void hmi_control_send_tick(void)
     }
     // 伸缩
     if (hmi_stretch_state) {
-        // 升降每条指令隔3ms
+        // 伸缩每条指令隔3ms
         stretch_time_gap ++;
         if (stretch_time_gap >= 3) {
-            catch_stretch_pos((float)hmi_stretch_mm/10.0f);
+            catch_stretch_dist((float)hmi_stretch_mm/10.0f);
             stretch_time_gap = 0;
             hmi_stretch_state = 0;
         }

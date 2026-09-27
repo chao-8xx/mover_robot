@@ -24,7 +24,9 @@ typedef enum {
     STOP,       // 车辆停止
     RUNNING,    // 底盘运动中 在去目标点位的路上
     CATCHING,   // 正在抓取 把物料从赛道上抓至车上
-    PUTTING     // 正在放置 把物料从车上放至赛道上
+    PUTTING,    // 正在放置 把物料从车上放至赛道上
+    PICKING,    // 正在拿起 把物料从赛道上放至车上
+    WAITING     // 正在等待 等待物料到来
 } Car_Work;
 
 // 目标点任务状态
@@ -39,20 +41,22 @@ typedef enum {
     ROAD        // 路上
 } Task_Location;
 
-#include "headfile.h"
-
 // 总任务状态
 typedef struct {
 
     // ==== 车辆当前运行状态 ==== //
     Claw_State claw_state;          // 夹爪状态
     Turntable_Pos turntable_pos;    // 转盘当前位置
-    Lift_Height lift_height;        // 升降装置当前高度
-    Stretch_Dist stretch_dist;      // 伸缩装置当前伸出距离
     Car_Work car_work;              // 车辆工作状态
     Task_Location task_location;    // 正在执行任务的位置
     float cur_stretch_dist;         // 伸缩装置当前伸缩的距离
+    float cur_lift_height;          // 升降装置当前的高度
     uint8_t cur_x, cur_y;           // 车辆当前坐标
+    float catch_cur_angle;          // 齿轮齿条电机当前旋转角度
+    int16_t follow_x, follow_y;     // 当前所追踪的目标的坐标
+    uint8_t is_find_target;         // 车辆是否发现目标 0:未发现 1:已发现
+    uint8_t is_stable_target;       // 目标是否稳定 0:不稳定 1:稳定
+    uint8_t is_catch_target;        // 是否可以抓取目标 0:不可抓取 1:可抓取
 
     // ==== 任务编码状态 ==== //
     // 物料颜色、位置对应索引
@@ -63,6 +67,9 @@ typedef struct {
     Area_Code  area_buf_one[3];
     Color_Code color_buf_two[3];    // 第二组
     Area_Code  area_buf_two[3];
+    // 第一二组完成情况
+    uint8_t one_finish;     // 第一组物料搬运是否完成(到达暂存区) 0:未完成 1:完成
+    uint8_t two_finish;     // 第二组物料搬运是否完成(放过粗加工区) 0:未完成 1:完成
 
 } Task_State;
 

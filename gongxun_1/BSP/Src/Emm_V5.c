@@ -326,6 +326,41 @@ void Emm_V5_En_Control(uint8_t addr, bool state, bool snF)
 }
 
 /**
+  * @brief    清零编码器
+  * @param    addr 电机地址
+  * @param    0x0A  命令码
+  * @param    0x6D  命令状态
+  * @retval   地址 + 命令码 + 命令状态 + 校验字节
+  */
+void Emm_V5_Clear_Encoder(uint8_t addr)
+{
+  uint8_t cmd[4] = {0};
+
+  cmd[0] =  addr;                       // 地址
+  cmd[1] =  0x0A;                       // 命令码
+  cmd[2] =  0x6D;                       // 命令状态
+  cmd[3] =  0x6B;                       // 校验字节
+
+  Emm_V5_Send(cmd, 4);
+}
+/**
+  * @brief    获取编码器
+  * @param    addr 电机地址
+  * @param    0x36  命令码
+  * @retval   地址 + 命令码 + 校验字节
+  */
+void Emm_V5_Get_Encoder(uint8_t addr)
+{
+  uint8_t cmd[3] = {0};
+
+  cmd[0] =  addr;                       // 地址
+  cmd[1] =  0x36;                       // 命令码
+  cmd[2] =  0x6B;                       // 校验字节
+
+  Emm_V5_Send(cmd, 3);
+}
+
+/**
   * @brief    速度模式控制
   * @param    addr 电机地址
   * @param    dir  方向，0为CW，其他值为CCW
@@ -361,7 +396,7 @@ void Emm_V5_Vel_Control(uint8_t addr, uint8_t dir, uint16_t vel, uint8_t acc, bo
   * @param    snF  同步运动标志，false为不启用，true为启用
   * @retval   地址 + 命令码 + 命令状态 + 校验字节
   */
-void Emm_V5_Pos_Control(uint8_t addr, uint8_t dir, uint16_t vel, uint8_t acc, uint32_t clk, bool raF, bool snF)
+void Emm_V5_Pos_Control(uint8_t addr, uint8_t dir, uint16_t vel, uint16_t acc, uint32_t clk, bool raF, bool snF)
 {
   uint8_t cmd[16] = {0};
 

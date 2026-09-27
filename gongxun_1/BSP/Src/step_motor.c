@@ -54,6 +54,12 @@ void step_motor_init()
     }
 }
 
+// 电机编码器清零
+void motor_encoder_clear(Motor_Num motor_num)
+{
+    Emm_V5_Clear_Encoder(motor_num);
+}
+
 // 电机定速控制（非阻塞，可在主循环或定时器中断中调用,正：逆时针，负：顺时针）
 void motor_set_speed(Motor_Num motor_num,int16_t speed)
 {
@@ -76,7 +82,7 @@ void motor_set_speed(Motor_Num motor_num,int16_t speed)
     step_motor_update_speed(motor_num, speed);
 }
 
-// 电机定速定位置控制（非阻塞，可在主循环或定时器中断中调用）
+// 电机定速定位置控制 相对（非阻塞，可在主循环或定时器中断中调用）
 void motor_set_speedPos(Motor_Num motor_num,int16_t speed,int32_t pulse)
 {
     uint8_t addr = step_motor_get_addr(motor_num);
@@ -98,10 +104,36 @@ void motor_set_speedPos(Motor_Num motor_num,int16_t speed,int32_t pulse)
     clk = (pulse < 0) ? (uint32_t)(-(int32_t)pulse) : (uint32_t)pulse;
 
     if (motor_num != Motor_5 && motor_num != Motor_6) {
-        Emm_V5_Pos_Control(addr, dir, vel, STEP_MOTOR_DEFAULT_ACC, clk, false, false);
+        Emm_V5_Pos_Control(addr, dir, vel, STEP_MOTOR_CHASSIS_ACC, clk, false, false);
     }
     else {
-        Emm_V5_Pos_Control(addr, dir, vel, 0, clk, false, false);   // 5、6号电机不需要加速度，需要及时性
+        Emm_V5_Pos_Control(addr, dir, vel, STEP_MOTOR_CATCH_ACC, clk, false, false);   // 5、6号电机不需要加速度，需要及时性
     }
+    step_motor_update_speed(motor_num, speed);
+}
+
+// 电机定速定位置控制 绝对（非阻塞，可在主循环或定时器中断中调用）
+void motor_set_speed_Pos(Motor_Num motor_num,int16_t speed,int32_t pos)
+{
+    uint8_t addr = step_motor_get_addr(motor_num);
+    uint8_t dir;
+    uint16_t vel;
+    uint32_t clk;
+
+    if (addr == 0) {
+        return;
+    }
+
+    vel = (speed < 0) ? (uint16_t)(-(int32_t)speed) : (uint16_t)speed;
+    if (vel > 5000) {
+        vel = 5000;
+    }
+
+    // pulse 正负决定方向，取绝对值作为相对脉冲数
+    dir = (pos < 0) ? 1 : 0;
+    clk = (pos < 0) ? (uint32_t)(-(int32_t)pos) : (uint32_t)pos;
+
+    Emm_V5_Pos_Control(addr, dir, vel, STEP_MOTOR_CATCH_ACC, clk, true, false);
+
     step_motor_update_speed(motor_num, speed);
 }

@@ -115,7 +115,7 @@ void car_speed_move (int16_t x_speed, int16_t y_speed, int16_t omega_speed)
     my_chassis.omega = omega_speed;
     chassis_solve();
 
-    chassis_mode = CHASSIS_MOVE;
+    // chassis_mode = CHASSIS_MOVE;
 }
 
 // 小车旋转 只旋转不位移
@@ -230,7 +230,7 @@ static void car_move_xy(int16_t speed, float x_cm, float y_cm)
     int32_t px, py;
     int32_t w[4];
     float max_cm, speed_cm_s;
-    static float acc = (float)STEP_MOTOR_DEFAULT_ACC;
+    static float acc = (float)STEP_MOTOR_CHASSIS_ACC;
     uint32_t t_ms = 0;
 
     if (chassis_mode != CHASSIS_IDLE) {
@@ -279,7 +279,7 @@ static void car_move_xy(int16_t speed, float x_cm, float y_cm)
     }
     else {
         float t_ramp_s = my_absf((float)speed)
-                     * (256.0f - (float)STEP_MOTOR_DEFAULT_ACC) * 50e-6f; // ZDT官方资料，曲线加减速时间计算公式
+                     * (256.0f - (float)STEP_MOTOR_CHASSIS_ACC) * 50e-6f; // ZDT官方资料，曲线加减速时间计算公式
         t_ms = (uint32_t)(((max_cm / speed_cm_s) + t_ramp_s) * 1000.0f);  // 梯形公式
     }
 

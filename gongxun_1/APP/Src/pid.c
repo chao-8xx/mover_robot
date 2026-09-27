@@ -23,7 +23,6 @@ void Incremental_PID_Cal(PID *pid, float set_value,float get_value)
 			pid->output = pid->maxOutput;                                           // 输出限幅
 		else if (pid->output < pid->minOutput)
 			pid->output = pid->minOutput;													//输出限幅
-
 }
 
 

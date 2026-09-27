@@ -3,8 +3,10 @@
 
 // ---- 电机数量与默认速度、加速度 ---- //
 #define MAX_SPEED              3000
+#define STEP_ANGLE_DIV         16.0f
 #define STEP_MOTOR_COUNT       6
-#define STEP_MOTOR_DEFAULT_ACC 25
+#define STEP_MOTOR_CHASSIS_ACC 25   // 底盘加速度
+#define STEP_MOTOR_CATCH_ACC   0 // 夹取装置加速度
 
 // ---- 定义结构体和枚举 ---- //
 typedef enum {
@@ -19,10 +21,14 @@ typedef enum {
 // ---- 函数声明 ---- //
 // 闭环步进电机初始化
 void step_motor_init();
+// 电机编码器清零
+void motor_encoder_clear(Motor_Num motor_num);
 // 电机定速控制
 void motor_set_speed(Motor_Num motor_num,int16_t speed);
 // 电机定速定位置控制（pulse 为相对脉冲数，正负代表方向）
 void motor_set_speedPos(Motor_Num motor_num,int16_t speed,int32_t pulse);
+// 电机定速定位置控制 绝对（非阻塞，可在主循环或定时器中断中调用）
+void motor_set_speed_Pos(Motor_Num motor_num,int16_t speed,int32_t pos);
 
 // ---- 变量声明 ---- //
 extern int16_t motor1_speed;

@@ -1,8 +1,4 @@
-﻿//
-// Created by mechreuo on 2026/6/3.
-//
-
-#ifndef GONGXUN_1_CAMERA_H
+﻿#ifndef GONGXUN_1_CAMERA_H
 #define GONGXUN_1_CAMERA_H
 
 // cam 通信协议
@@ -83,8 +79,8 @@ typedef struct
     uint8_t cmd;
     uint8_t target;
     uint8_t frame_id;    // 最近参与窗口计算的单帧ID
-    uint8_t valid;
-    uint8_t stable;
+    uint8_t valid;       // 有效时 可抓取
+    uint8_t stable;      // 转盘稳定时
     uint8_t valid_count;
     uint8_t sample_count;
     int16_t dx;          // stable时取最佳三帧中值，否则取全部有效帧中值

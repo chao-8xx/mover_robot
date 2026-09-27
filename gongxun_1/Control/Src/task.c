@@ -29,6 +29,10 @@ void task_init()
         task_state.area_buf_two[i] = 0;
     }
 
+    // 任务初始化未完成状态
+    task_state.one_finish = 0;
+    task_state.two_finish = 0;
+
     // 车辆本身状态机初始化
     task_state.cur_x = 0;
     task_state.cur_y = 0;
@@ -37,10 +41,7 @@ void task_init()
     // 任务状态机初始化
     task_state.claw_state = LOOSE;          // 夹爪：松开
     task_state.turntable_pos = LOCATION_1;  // 转盘：一号位
-    task_state.lift_height = PICK_HEIGHT;   // 升降装置：默认高度
-    task_state.stretch_dist = ORIGIN_DIST;  // 伸缩装置：原点距离
     task_state.car_work = STOP;             // 车辆工作状态：停止
-    // task_state.task_location = ;            // 位置：用串口屏设置起始坐标
 }
 
 // 任务解析 把接收到的C0、C1等颜色字节转化为状态

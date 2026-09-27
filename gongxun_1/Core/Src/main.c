@@ -119,6 +119,7 @@ int main(void)
   bfs_base_obstacle();
   remind_init();
   task_init();
+  // 夹爪初始化 临时存在
 
   /* USER CODE END 2 */
 

@@ -41,8 +41,10 @@ void Emm_V5_Reset_Clog_Pro(uint8_t addr); // 解除堵转保护
 void Emm_V5_Read_Sys_Params(uint8_t addr, SysParams_t s); // 读取参数
 void Emm_V5_Modify_Ctrl_Mode(uint8_t addr, bool svF, uint8_t ctrl_mode); // 在线修改控制/闭环控制模式
 void Emm_V5_En_Control(uint8_t addr, bool state, bool snF); // 使能控制
+void Emm_V5_Clear_Encoder(uint8_t addr); // 清零编码器
+void Emm_V5_Get_Encoder(uint8_t addr); // 获取编码器
 void Emm_V5_Vel_Control(uint8_t addr, uint8_t dir, uint16_t vel, uint8_t acc, bool snF); // 速度模式控制
-void Emm_V5_Pos_Control(uint8_t addr, uint8_t dir, uint16_t vel, uint8_t acc, uint32_t clk, bool raF, bool snF); // 位置模式控制
+void Emm_V5_Pos_Control(uint8_t addr, uint8_t dir, uint16_t vel, uint16_t acc, uint32_t clk, bool raF, bool snF); // 位置模式控制
 void Emm_V5_Stop_Now(uint8_t addr, bool snF); // 电机立即停止运动
 void Emm_V5_Synchronous_motion(uint8_t addr); // 触发同步启动运动
 void Emm_V5_Origin_Set_O(uint8_t addr, bool svF); // 设置当前圈数零位位置
