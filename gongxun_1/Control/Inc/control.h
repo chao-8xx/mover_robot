@@ -16,6 +16,11 @@
 #define CALIBRATE_YAW_STEP      9    // 校准角度
 #define NORMAL_ROAD_MOVE_STEP   10   // 常规道路
 #define FINAL_ROAD_MOVE_STEP    11   // 最后一段路
+// 执行对物料各项任务的所在步骤 含跟踪物料
+#define SCAN_GET_TASK_STEP      12   // 扫码获取任务
+#define CATCH_MATERIAL_STEP     13   // 抓取物料
+#define PUT_MATERIAL_STEP       14   // 放置物料 从车上放到暂存区、粗加工区
+#define PICK_MATERIAL_STEP      15   // 拿起物料 从粗加工区拿到车上
 
 // 控制变量结构体
 typedef struct {
@@ -33,6 +38,9 @@ typedef struct {
     uint8_t rotate_state;     // 转向状态 1：旋转闭环进行中（用于在非任务区转向和调整姿态）
     uint8_t lift_state;       // 升降状态 1：升降进行中
     uint8_t stretch_state;    // 转向状态 1：伸缩进行中
+
+    uint8_t is_send_color;
+    uint8_t is_send_circle;
 
     int16_t speed;            // 底盘运行速度（非任务区）
     float   target_yaw;       // 目标偏航角
@@ -73,6 +81,17 @@ void normal_road_move(void);
 // 到目标点最后一段道路运行 步骤11
 void final_road_move(void);
 
+// 扫码获取任务
+void scan_get_task(void);
+
+// 目标状态获取 将摄像头所捕获的状态转化成车辆状态机
+void target_state_get(void);
+// 确认是否稳定可抓取 1:可抓取
+uint8_t catch_is_ok(void);
+// 将当前需要抓取的颜色发给maix
+void send_color_conduct(void);
+// 将当前锁定的圆环编号发给maix
+void send_circle_conduct(void);
 // 追踪目标 物料 圆环
 // 校准车身姿态 追踪x和y坐标
 void follow_target(float target_yaw, int16_t target_x, int16_t target_y);

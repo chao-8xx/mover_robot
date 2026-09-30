@@ -519,41 +519,37 @@ void car_follow_material_test(void)
     // 放入主循环
     // cam_task();                     // 解析摄像头数据
 
-    static uint8_t time = 0;
-
+    // static uint8_t time = 0;
     // 更新物料发现状态
-    if (maix_vision.ok == 0x01) {
-        time ++;
-        task_state.is_find_target = 1;
-        task_state.follow_x = maix_vision.dx;
-        task_state.follow_y = maix_vision.dy;
-        if (time >= 200) {
-            task_state.remindState = GREEN_REMIND;
-        }
-    }
-    else {
-        time ++;
-        task_state.is_find_target = 0;
-        task_state.follow_x = 0;
-        task_state.follow_y = 0;
-        if (time >= 200) {
-            task_state.remindState = RED_REMIND;
-        }
-
-    }
+    // if (maix_vision.ok == 1) {
+    //     time ++;
+    //     task_state.is_find_target = 1;
+    //     task_state.follow_x = maix_vision.dx;
+    //     task_state.follow_y = maix_vision.dy;
+    //     if (time >= 200) {
+    //         task_state.remindState = GREEN_REMIND;
+    //     }
+    // }
+    // else {
+    //     time ++;
+    //     task_state.is_find_target = 0;
+    //     task_state.follow_x = 0;
+    //     task_state.follow_y = 0;
+    //     if (time >= 200) {
+    //         task_state.remindState = RED_REMIND;
+    //     }
+    //
+    // }
+    // 更新物料发现状态
+    target_state_get();
     // 追踪物料
-    if (task_state.is_find_target == 1) {
-        follow_target(0.0f,0,0);
+    if (task_state.is_find_target == 1 && task_state.is_stable_target == 1) {
+        follow_target(0.0f,(int16_t)0,(int16_t)0);
+        buzzer_off();
     }
     else {
         car_stop();
-    }
-    // 判断是否达到抓取条件
-    if (maix_result.valid == 0x01) {
-        task_state.is_catch_target = 1;
-    }
-    else {
-        task_state.is_catch_target = 0;
+        buzzer_off();
     }
 }
 
@@ -660,7 +656,7 @@ void car_follow_catch_material_test(void)
             break;
         case 4:     // 追踪物料
             car_follow_material_test();
-            if (task_state.is_catch_target == 1) {
+            if (catch_is_ok() == 1) {
                 car_stop();
                 PID_Reset(&yaw_pid);    // 清除误差和积分
                 PID_Reset(&x_pid);
@@ -876,7 +872,7 @@ void car_follow_put_material_test(void)
             break;
         case 4:     // 追踪圆环
             car_follow_material_test();
-            if (task_state.is_catch_target == 1) {
+            if (catch_is_ok() == 1) {
                 car_stop();
                 PID_Reset(&yaw_pid);    // 清除误差和积分
                 PID_Reset(&x_pid);
@@ -943,14 +939,14 @@ void car_follow_put_material_test(void)
         case 14:
             if (put_num < 3) {
                 if (!car_is_busy()) {                       // 确认上一动作结束
-                    car_run_distance(200, 0.0f, 8.0f);
+                    car_run_distance(200, 0.0f, 12.0f);
                     my_control.move_state = 1;              // 让顶部守卫等它走完
                     test_step = 3;
                 }
             }
             else if (put_num >= 3) {
                 if (!car_is_busy()) {
-                    car_run_distance(200, 0.0f, -8.0f);
+                    car_run_distance(200, 0.0f, -12.0f);
                     my_control.move_state = 1;
                     test_step = 15;
                 }

@@ -36,13 +36,14 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
         catch_tick();           // 夹取装置非阻塞计时
     }
     else if (htim ->Instance == TIM7) {    // 5ms中断
+        imu_task();
         imu_get();
         remind_control();
     }
     else if (htim ->Instance == TIM2) {    // 10ms中断
-        // task_process();
         if (car_run) {
-            car_follow_put_material_test();
+            task_process();
+            // car_follow_material_test();
         }
     }
 }

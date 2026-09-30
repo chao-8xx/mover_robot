@@ -32,8 +32,8 @@ typedef enum {
 // 目标点任务状态
 // 正在执行任务的位置
 typedef enum {
-    PARKING_1,  // 启停区1
     PARKING_2,  // 启停区2
+    PARKING_1,  // 启停区1
     SCAN,       // 扫码区
     MATERIAL,   // 原料区
     TEMPORARY,  // 暂存区
@@ -63,14 +63,17 @@ typedef struct {
     // 物料颜色、位置对应索引
     uint8_t index_1;    // 第一组
     uint8_t index_2;    // 第二组
+    uint8_t index;      // 总顺序索引
     // 存放任务物料颜色和位置顺序数组(一一对应)
     Color_Code color_buf_one[3];    // 第一组
     Area_Code  area_buf_one[3];
     Color_Code color_buf_two[3];    // 第二组
     Area_Code  area_buf_two[3];
+    // 将放置的物料颜色按照任务顺序排列成数组
+    Color_Code color_buf[6];        // 总顺序
     // 第一二组完成情况
-    uint8_t one_finish;     // 第一组物料搬运是否完成(到达暂存区) 0:未完成 1:完成
-    uint8_t two_finish;     // 第二组物料搬运是否完成(放过粗加工区) 0:未完成 1:完成
+    uint8_t one_finish;     // 第一组物料搬运是否完成(放到暂存区) 0:未完成 1:完成
+    uint8_t two_finish;     // 第二组物料搬运是否完成(从粗加工区拿起) 0:未完成 1:完成
 
 } Task_State;
 
@@ -89,6 +92,7 @@ void task_process(void);
 
 void imu_task(void);
 void cam_task(void);
+void send_conduct_task(void);
 uint8_t obstacle_find_task(float car_x, float car_y, float car_yaw);
 
 

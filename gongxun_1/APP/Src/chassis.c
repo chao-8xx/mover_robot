@@ -12,7 +12,7 @@
 #define CHASSIS_YAW_MAX_I    50.0f
 #define CHASSIS_YAW_MAX_OUT  120
 #define CHASSIS_YAW_SETTLE   50        // 50 个 10ms = 稳定 500ms 后才算转到位
-#define CHASSIS_MOVE_MARGIN_MS 500     // 位置移动结束的额外余量ms
+#define CHASSIS_MOVE_MARGIN_MS 200     // 位置移动结束的额外余量ms
 
 // 转向电机死区速度
 #define ROTATE_DEAD_SPEED  0

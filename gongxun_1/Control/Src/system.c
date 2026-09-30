@@ -5,7 +5,7 @@ void system_init(void)
 {
     timer_disable();        // 先失能定时器
     HAL_Delay(100);         // 等待一会儿
-    car_reset = false;       // 未完成初始化/复位
+    car_reset = false;      // 未完成初始化/复位
 
     task_init();            // 任务初始化
     timer_init();           // 定时器初始化

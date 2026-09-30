@@ -42,6 +42,14 @@ void task_init()
     task_state.claw_state = LOOSE;          // 夹爪：松开
     task_state.turntable_pos = LOCATION_1;  // 转盘：一号位
     task_state.car_work = STOP;             // 车辆工作状态：停止
+
+    // 没码时 手动设置任务 后续可删
+    task_state.color_buf_one[0] = TASK_RED; // 第一组 红绿蓝
+    task_state.color_buf_one[1] = TASK_GREEN;
+    task_state.color_buf_one[2] = TASK_BLUE;
+    task_state.color_buf_two[0] = TASK_YELLOW; // 第二组 黄黑浅蓝
+    task_state.color_buf_two[1] = TASK_BLACK;
+    task_state.color_buf_two[2] = TASK_LOW_BLUE;
 }
 
 // 任务解析 把接收到的C0、C1等颜色字节转化为状态
@@ -118,7 +126,6 @@ void task_process(void)
 void imu_task(void) {
     // 处理陀螺仪数据
     if(hwt101_rx_flag || hwt101_error_flag) {
-
         // 先清除标志位
         hwt101_error_flag = 0;
         hwt101_rx_flag = 0;
@@ -137,6 +144,18 @@ void cam_task(void) {
     maix_result_task();  // 维护5帧VALID/STABLE 并处理视觉数据超时
 }
 
+// 给maix发数据处理任务
+void send_conduct_task(void)
+{
+    if (my_control.is_send_color == 1) {
+        send_color_conduct();
+        my_control.is_send_color = 0;
+    }
+    if (my_control.is_send_circle == 1) {
+        send_circle_conduct();
+        my_control.is_send_circle = 0;
+    }
+}
 
 // 障碍物检测任务
 uint8_t obstacle_find_task(float car_x, float car_y, float car_yaw) {

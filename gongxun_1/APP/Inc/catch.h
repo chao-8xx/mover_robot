@@ -2,7 +2,7 @@
 #define GONGXUN_1_CATCH_H
 
 // 夹爪舵机角度定义
-#define CLAW_CATCH  18.0f    // 夹爪夹取角度
+#define CLAW_CATCH  3.0f     // 夹爪夹取角度
 #define CLAW_LOOSE  80.0f    // 夹爪松开角度
 
 // 转盘舵机角度定义
@@ -12,7 +12,7 @@
 #define SAFE_LOCATION   100.0f  // 安全位置，不超尺寸
 
 // 云台舵机角度定义
-#define HOLDER_PUT      240.0f   // 云台放置物料角度
+#define HOLDER_PUT      244.0f   // 云台放置物料角度
 #define HOLDER_CATCH    90.0f    // 云台抓取中间物料角度
 #define HOLDER_RIGHT    50.0f    // 云台抓取右侧物料角度
 #define HOLDER_LEFT     130.0f   // 云台抓取左侧物料角度
@@ -21,13 +21,13 @@
 #define LIFT_NORMAL     14.5f    // 默认高度
 #define LIFT_PUT        13.0f    // 放置高度 放入转盘
 #define LIFT_CATCH      7.0f     // 从原料区抓取高度
-#define LIFT_PUT_ONE    0.0f     // 一次放置 放在圆环
+#define LIFT_PUT_ONE    (-0.5f)  // 一次放置 放在圆环
 #define LIFT_PUT_TWO    5.0f     // 二次放置 叠在一次放置处
 
 // 伸缩装置目标位置
 #define STRETCH_NORMAL   0.0f   // 默认位置
 #define STRETCH_CATCH    3.5f   // 抓取位置 从原料区
-#define STRETCH_PUT      3.5f   // 放置位置 放入转盘
+#define STRETCH_PUT      3.0f   // 放置位置 放入转盘
 #define STRETCH_PUT_MID  4.0f   // 放置中心圆环位置 放入圆环
 #define STRETCH_PUT_SIDE 5.2f   // 放置中心圆环位置 放入圆环
 

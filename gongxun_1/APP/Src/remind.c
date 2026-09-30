@@ -19,13 +19,13 @@ void remind_init(void)
 void init_ok_remind(void)
 {
     buzzer_on();
-    HAL_Delay(40);
+    HAL_Delay(200);
     buzzer_off();
-    HAL_Delay(40);
+    HAL_Delay(200);
     buzzer_on();
-    HAL_Delay(40);
+    HAL_Delay(200);
     buzzer_off();
-    HAL_Delay(40);
+    HAL_Delay(200);
 }
 
 // 提示装置控制（非阻塞）
@@ -95,14 +95,14 @@ void remind_control(void)
         }
         if (work_state) {
             ws2812_all_on(led_color);
-            // buzzer_on();
+            buzzer_on();
         }
         else {
             ws2812_off();
             // buzzer_off();
             if (flash_times > 2) {
                 flash_times = 0;
-                // buzzer_off();
+                buzzer_off();
                 task_state.remindState = NO_REMIND;
             }
         }

@@ -106,8 +106,8 @@ int main(void)
   MX_TIM4_Init();
   /* USER CODE BEGIN 2 */
   system_init();
-  HAL_Delay(1000);
-
+  init_ok_remind();
+  HAL_Delay(800);
 
   /* USER CODE END 2 */
 
@@ -117,8 +117,9 @@ int main(void)
   while (1)
   {
     // hmi_get_car_state();
-    put_circle_send();
     cam_task();          // 解析摄像头数据
+
+    send_conduct_task();
 
     // lidar_process();  // 激光雷达处理
 
