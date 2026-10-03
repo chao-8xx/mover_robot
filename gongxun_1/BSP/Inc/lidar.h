@@ -2,7 +2,8 @@
 #define __AX_LIDAR_H
 
 
-// 表示这一次完整的雷达扫描的一整圈数据
+// 按相邻有效起始包分段的雷达扫描；已观测错误会丢弃工作圈。
+// 整个起始包静默丢失仍无法在这里证明物理整圈完整性。
 typedef struct {
     uint16_t distance[360];  // 雷达距离数据数组  每个整数角度保留的最近距离
     uint8_t valid[360];      // 该整数角度在本圈是否真的收到过有效数据
@@ -12,7 +13,7 @@ typedef struct {
     uint16_t raw_count;      // 本圈收到的原始采样点总数   即多个采样点落入同一整数角度也都计数  按手册算 应该是400
     uint16_t valid_count;    // 圈实际被填充的整数角度格子数量  最大360
 
-    uint32_t scan_num;       // 完整圈数编号
+    uint32_t scan_num;       // 发布扫描编号，不等于严格的物理旋转圈数
     uint32_t start_time;     // 本圈扫描开始时间戳
     uint32_t end_time;       // 本圈扫描结束时间戳
 } lidar_scan_t;
@@ -29,12 +30,17 @@ void lidar_init(UART_HandleTypeDef *huart);
 void lidar_start(void);
 void lidar_stop(void);
 void lidar_change(void);
-const lidar_scan_t* lidar_get_scan(void);   // 获取最新完成的一整圈 没有完整圈时返回 NULL
+const lidar_scan_t* lidar_get_scan(void);   // 获取最新发布扫描；尚未发布时返回NULL
 void lidar_process(void);
+void lidar_rx_callback(UART_HandleTypeDef *huart); // DMA整环完成，只记录接收进度
+void lidar_error_callback(UART_HandleTypeDef *huart); // 中断标记错误，主循环恢复
 
 uint8_t lidar_scan_ok(void);
 uint32_t lidar_get_xor_ok_cnt(void);
 uint32_t lidar_get_xor_err_cnt(void);
+uint32_t lidar_get_rx_error_cnt(void);
+uint32_t lidar_get_dma_overrun_cnt(void); // 已观测满环或覆盖，未观测整环不能据此排除
+uint32_t lidar_get_scan_drop_cnt(void);   // 因坏包/接收中断放弃的工作扫描
 
 
 #endif

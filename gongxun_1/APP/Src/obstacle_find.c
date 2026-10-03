@@ -23,6 +23,10 @@ static uint8_t get_angle_right(uint16_t angle, uint16_t start, uint16_t end) {
 
 // 判断当前角度是否被小车四个轮子占用的角度范围内
 static uint8_t get_wheel_blocked(uint16_t angle) {
+    // 未标定时四组0~0只是占位值，不能把真正的0度回波误删。
+    if (!LIDAR_WHEEL_MASK_ENABLE)
+        return 0;
+
     if (get_angle_right(angle, LEFT_FORNT_WHEEL_START, LEFT_FORNT_WHEEL_END))
         return 1;
     if (get_angle_right(angle, RIGHT_FORNT_WHEEL_START, RIGHT_FORNT_WHEEL_END))
@@ -208,46 +212,43 @@ static void cluster_finish(lidar_cluster_t *cluster)
 }
 
 
-// 合并跨越359度和0度的同一组雷达点
-static void cluster_merge(const point_cloud_t *source) {
-    lidar_cluster_t *first; // 指向第一个聚类
-    lidar_cluster_t *last;  // 指向最后一个聚类
-    uint16_t total_count;   // 合并后的总点数
+// 从真正断开的位置开始遍历，让跨0度的一组点先完整收集，再判断最小点数。
+static uint16_t cluster_start_angle(const point_cloud_t *source) {
+    uint16_t first_angle = 0;
+    uint16_t last_angle = LIDAR_ANGLE_COUNT - 1;
+    uint16_t miss_angle_num = 0;
+    const lidar_point_t *pre_point;
 
-    // 聚类大于等于2时才进行合并
-    if (source == NULL || obstacle_result.cluster_count < 2)
-        return;
+    while (first_angle < LIDAR_ANGLE_COUNT && !source->points[first_angle].valid)
+        first_angle++;
+    if (first_angle == LIDAR_ANGLE_COUNT)
+        return 0;
 
-    first = &obstacle_result.clusters[0];
-    last = &obstacle_result.clusters[obstacle_result.cluster_count - 1];
+    while (!source->points[last_angle].valid)
+        last_angle--;
 
-    // 只有聚类确实分别接触0度和359度时才允许首尾合并
-    if (first->start_angle != 0 || last->end_angle != 359 ||
-        !cluster_points_connected(&source->points[359],&source->points[0]))
-        return;
+    // 首尾本来就断开时，仍按原来的角度顺序处理。
+    miss_angle_num = first_angle + LIDAR_ANGLE_COUNT - 1 - last_angle;
+    if (miss_angle_num > CLUSTER_MAX_MISS_ANGLE ||
+        !cluster_points_connected(&source->points[last_angle], &source->points[first_angle]))
+        return first_angle;
 
+    pre_point = &source->points[first_angle];
+    miss_angle_num = 0;
+    for (uint16_t angle = first_angle + 1; angle <= last_angle; angle++) {
+        const lidar_point_t *point = &source->points[angle];
+        if (!point->valid) {
+            miss_angle_num++;
+            continue;
+        }
+        if (miss_angle_num > CLUSTER_MAX_MISS_ANGLE || !cluster_points_connected(pre_point, point))
+            return angle;
+        pre_point = point;
+        miss_angle_num = 0;
+    }
 
-    total_count = first->point_count + last->point_count;
-
-    // 按各自点数加权  重新计算合并后的中心位置
-    first->center_point.x = (first->center_point.x * (float)first->point_count + last->center_point.x * (float)last->point_count) / (float)total_count;
-    first->center_point.y = (first->center_point.y * (float)first->point_count + last->center_point.y * (float)last->point_count) / (float)total_count;
-
-    first->start_angle = last->start_angle;
-    first->point_count = total_count;
-
-    // 更新包围框和最近点距离
-    if (last->min_x < first->min_x)     first->min_x = last->min_x;
-    if (last->max_x > first->max_x)     first->max_x = last->max_x;
-    if (last->min_y < first->min_y)     first->min_y = last->min_y;
-    if (last->max_y > first->max_y)     first->max_y = last->max_y;
-    if (last->nearest_distance < first->nearest_distance)   first->nearest_distance = last->nearest_distance;
-    first->width = first->max_x - first->min_x;
-    first->height = first->max_y - first->min_y;
-
-    // 最后一项已合并到第一项  减少一次聚类的有效数量
-    cluster_clear(last);
-    obstacle_result.cluster_count--;
+    // 整圈都连通时，任选起点都只会得到一个完整聚类。
+    return first_angle;
 }
 
 
@@ -258,6 +259,7 @@ void obstacle_cluster_update(const point_cloud_t *cloud, uint32_t tick){
 
     uint8_t real_cluster = 0;         // 当前存在聚类标志位
     uint8_t miss_angle_num = 0;       // 连续无效点计数
+    uint16_t start_angle;
     uint32_t next_update_flag = obstacle_result.update_flag + 1;// 递增更新序号
 
     if (cloud == NULL)
@@ -271,11 +273,13 @@ void obstacle_cluster_update(const point_cloud_t *cloud, uint32_t tick){
     obstacle_result.cloud_flag = cloud->update_flag;
     obstacle_result.update_tick = tick;
 
-    // 遍历360度雷达点云  按相邻点距离聚类
-    for (uint16_t angle = 0; angle < 360; angle++){
+    start_angle = cluster_start_angle(cloud);
+    // 从断开处绕一圈，0/359边界与其他位置使用相同的缺点和距离规则。
+    for (uint16_t step = 0; step < LIDAR_ANGLE_COUNT; step++){
+        uint16_t angle = (start_angle + step) % LIDAR_ANGLE_COUNT;
         const lidar_point_t *current_point = &cloud->points[angle]; // 更新当前点指针
 
-        // 无效角度会结束当前连续聚类   待优化：可考虑将无效点也纳入聚类，但不计入点数，避免因单个无效点导致聚类中断
+        // 少量缺点暂时保留聚类，缺点本身不计入有效点数。
         if (current_point->valid == 0){
             if (real_cluster){
                 miss_angle_num ++;
@@ -314,6 +318,4 @@ void obstacle_cluster_update(const point_cloud_t *cloud, uint32_t tick){
     // 处理遍历结束时仍未保存的最后一个聚类
     if (real_cluster)
         cluster_finish(&current_cluster);
-
-    cluster_merge(cloud);
 }

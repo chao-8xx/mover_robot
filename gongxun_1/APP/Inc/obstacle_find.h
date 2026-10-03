@@ -16,6 +16,9 @@
 
 
 // 四车轮遮挡参数  待调
+#ifndef LIDAR_WHEEL_MASK_ENABLE
+#define LIDAR_WHEEL_MASK_ENABLE    0    // 实车复核四轮范围后改为1，0表示关闭屏蔽
+#endif
 #define LEFT_FORNT_WHEEL_START     0    // 左前轮遮挡起始角度
 #define LEFT_FORNT_WHEEL_END       0    // 左前轮遮挡结束角度
 

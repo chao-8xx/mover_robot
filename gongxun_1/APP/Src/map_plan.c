@@ -97,6 +97,11 @@ uint8_t map_plan_check(const map_path_t *path, map_unknown_mode_t mode) {
         path->road_count + 1 != path->node_count ||
         (mode != map_unknown_allow && mode != map_unknown_stop)) return 0;
 
+    // 单节点路径没有道路可供下面的循环检查，也必须保证节点编号有效。
+    for (uint8_t i = 0; i < path->node_count; i++) {
+        if (path->nodes[i] >= MAP_NODE_COUNT) return 0;
+    }
+
     for (uint8_t i = 0; i < path->road_count; i++) {
         uint8_t road_id;
         uint16_t cost;

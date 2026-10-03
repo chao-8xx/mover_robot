@@ -190,26 +190,36 @@ uint8_t obstacle_find_task(float car_x, float car_y, float car_yaw) {
     return 1;
 }
 
-// 从完整雷达扫描到道路状态的入口。当前车轮遮挡测试不调用这个函数
+// 从完整雷达扫描到道路状态的入口。当前安装标定测试不调用这个函数
 uint8_t map_obstacle_task(float car_x, float car_y, float car_yaw, uint8_t pose_valid) {
-    static uint8_t wait_new_scan = 1;
+    static uint8_t wait_new_scan = 2;  // 2: 记录旧圈；1: 丢弃跨越恢复时刻的圈
     static uint32_t skip_scan_num = 0;
     const lidar_scan_t *scan;
 
-    if (!pose_valid || !map_update_is_ready() ||
+    if (!pose_valid || !map_update_is_ready() || car_get_state() != CHASSIS_IDLE ||
         !isfinite(car_x) || !isfinite(car_y) || !isfinite(car_yaw) ||
         map_check_area(car_x, car_y) != map_normal) {
         lidar_process();
+        wait_new_scan = 2;
+        skip_scan_num = 0;
+        return 0;
+    }
+
+    // 先记住已经发布的旧圈，再丢弃恢复后第一圈：它可能在恢复前就开始采集
+    if (wait_new_scan == 2) {
+        lidar_process();
+        scan = lidar_get_scan();
+        if (scan == NULL || scan->scan_num == 0)
+            return 0;
+        skip_scan_num = scan->scan_num;
         wait_new_scan = 1;
         return 0;
     }
 
-    // 位姿刚恢复时跳过一圈，避免用当前位姿解释恢复前的旧扫描
-    if (wait_new_scan) {
+    if (wait_new_scan == 1) {
         lidar_process();
         scan = lidar_get_scan();
-        if (scan == NULL || scan->scan_num == 0 || scan->scan_num == skip_scan_num)
-            return 0;
+        if (scan == NULL || scan->scan_num == skip_scan_num) return 0;
         skip_scan_num = scan->scan_num;
         wait_new_scan = 0;
         return 0;
