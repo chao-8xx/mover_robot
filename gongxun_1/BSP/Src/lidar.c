@@ -408,8 +408,8 @@ void lidar_process(void) {
         if (rx_target_len != 0 && rx_idx == rx_target_len) {
             lsn = rx_buf[3];
 
-            // 进行XOR校验  通过则解析数据包
-            if (lidar_xor_check(rx_buf, lsn)) {
+            // 计算值必须等于帧内小端CS；校验值为0也可以合法，不能仅判断非零
+            if (lidar_xor_check(rx_buf, lsn) == read_u16(&rx_buf[8])) {
                 lidar_xor_ok_cnt++;
                 lidar_data_handle();
             }

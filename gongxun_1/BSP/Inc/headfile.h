@@ -43,8 +43,12 @@
 
 // 应用、算法
 #include "bfs.h"        // BFS广度优先搜索算法
-#include "grid.h"       // 48x48占据栅格
+#include "grid.h"       // 旧栅格接口，本版道路地图不使用
 #include "track_map.h"  // 5x5赛道拓扑
+#include "map_data.h"   // 道路状态和已确认障碍物
+#include "map_update.h" // 跨圈障碍确认与道路更新
+#include "map_plan.h"   // 9节点12道路路径搜索
+#include "map_lidar.h"  // 雷达聚类到地图
 // #include "planner.h"    // BFS与动态重规划
 #include "tf2d.h"       // 2D坐标变换
 // #include "obstacle_map.h" // 障碍物地图投影
@@ -62,6 +66,7 @@
 #include "run_test.h"   // 底盘测试
 #include "bfs_test.h"   // BFS测试
 #include "map_test.h"   // 地图测试
+#include "map_stage_test.h" // 新地图各阶段手动测试
 
 // 任务、比赛控制
 #include "control.h"    // 控制函数

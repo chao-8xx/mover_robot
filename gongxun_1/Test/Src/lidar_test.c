@@ -218,10 +218,10 @@ static wheel_mask_t wheel_mask[360];
 
 static uint8_t get_wheel_masked(uint16_t angle, uint8_t type) {
 
-    const wheel_mask_t *mask = &wheel_mask[angle];
-
     if (angle >= 360)
         return 0;
+
+    const wheel_mask_t *mask = &wheel_mask[angle];
 
     // 近距离点数量大于60个时 认为该角度被车轮遮挡
     if (type == WHEEL_TEST_TYPE_NEAR)
@@ -243,7 +243,7 @@ static void wheel_test_print_range(uint16_t start_angle, uint16_t end_angle, uin
     uint32_t near_total = 0;
     uint32_t near_sum = 0;
 
-    uint16_t near_min = 0;
+    uint16_t near_min = 9999;
     uint16_t near_max = 0;
     angle = start_angle;
 
@@ -258,7 +258,7 @@ static void wheel_test_print_range(uint16_t start_angle, uint16_t end_angle, uin
         // 更新最小值和最大值
         if (mask->near_cnt != 0) {
             if (mask->min_near < near_min)  near_min = mask->min_near;
-            if (mask->max_near < near_max)  near_max = mask->max_near;
+            if (mask->max_near > near_max)  near_max = mask->max_near;
         }
         if (angle == end_angle)
             break;
@@ -297,14 +297,14 @@ static void wheel_test_print_group(uint8_t type) {
     uint16_t start_angle = 0;   // 当前连续区间的起始角度
     uint16_t end_angle = 0;     // 当前连续区间的结束角度
 
-    uint8_t found_break;        // 当前角度是否是连续区间的结束角度
+    uint8_t found_break = 0;    // 当前角度是否是连续区间的结束角度
     uint8_t group_active = 0;   // 当前是否在一个连续区间内
     uint8_t group_count = 0;    // 连续区间数量
 
     // 先寻找一个非阻挡区当遍历起点
     for (uint16_t angle = 0; angle < 360; angle++) {
 
-        if (!get_wheel_masked) {
+        if (!get_wheel_masked(angle, type)) {
             break_angle = angle;
             found_break = 1;
             break;
@@ -460,6 +460,342 @@ void wheel_mask_test(void) {
     test_finished = 1;
 }
 
+
+//////////////////////////////////// 雷达安装标定测试 ////////////////////////////////////
+// 车体坐标沿用tf2d.c：原点选车体中心，+X向右，+Y向前，单位mm。
+// 全程固定小车。先移走挡板采背景，再把同一块50~100mm宽的平面挡板
+// 依次放在前、右、左，挡板要竖直且覆盖雷达扫描高度；每次仅放一块。
+// 下表是挡板朝向雷达的表面中心坐标，不是从雷达外壳量的距离，也不是圆杆圆心。
+// 挡板表面应分别垂直于车体前后/左右轴。先按卷尺实测修改下表，再编译测试。
+// 本测试直接读取未屏蔽的整圈数据，不使用聚类结果，不改写tf_base。
+#define INSTALL_TEST_SCAN_COUNT       100U     // 每组采100圈，与车轮测试一致
+#define INSTALL_TEST_MIN_HIT           60U     // 至少60圈识别到同一块挡板
+#define INSTALL_TEST_MIN_DISTANCE     450U     // 排除大部分车轮/底盘近距离回波
+#define INSTALL_TEST_MAX_DISTANCE    2000U     // 标定目标应放在这个范围内
+#define INSTALL_TEST_CHANGE_MM        100U     // 挡板要比原背景至少近100mm
+#define INSTALL_TEST_MAX_SIZE_MM     200.0f    // 多个分散目标或宽大背景，不拿来标定
+#define INSTALL_TEST_MAX_STD_MM       25.0f    // 单个目标跨圈位置波动限值
+#define INSTALL_TEST_MAX_ERROR_MM     25.0f    // 三点拟合与假设检查的误差限值
+#define INSTALL_TEST_SIGN_MARGIN_MM    5.0f    // 两种方向误差太接近时不下结论
+
+static const point2d_t install_test_reference[3] = {
+    {   0.0f, 800.0f },  // 前方挡板表面中心，相对于车体原点
+    { 800.0f,   0.0f },  // 右侧挡板表面中心
+    {-800.0f,   0.0f },  // 左侧挡板表面中心
+};
+
+// 背景角度统计，保存每个角度的命中次数和距离范围
+typedef struct {
+    uint16_t count;
+    uint16_t min_distance;
+    uint16_t max_distance;
+} install_background_t;
+
+static install_background_t install_background[360];
+static point2d_t install_test_measured[3];  // 当前极坐标函数输出的三组平均位置
+
+// 背景中稳定可见的角度：只接受明显变近的回波；长期无回波的角度接受新目标。
+// 时有时无或距离波动大的背景不可靠，不能据此判断挡板。
+static uint8_t install_test_changed(uint16_t angle, uint16_t distance) {
+    const install_background_t *background = &install_background[angle];
+
+    if (background->count <= 20U) return 1;
+    if (background->count < INSTALL_TEST_MIN_HIT ||
+        background->max_distance - background->min_distance > 50) return 0;
+
+    return (uint32_t)distance + INSTALL_TEST_CHANGE_MM <= background->min_distance;
+}
+
+// 一个完整圈提取新增挡板。用XY平均处理跨0度目标，不能直接平均359度和0度。
+static uint8_t install_test_get_point(const lidar_scan_t *scan, point2d_t *point) {
+    point2d_t sum = {0.0f, 0.0f};
+    float min_x = 0.0f, max_x = 0.0f;
+    float min_y = 0.0f, max_y = 0.0f;
+    uint16_t count = 0;
+
+    for (uint16_t angle = 0; angle < 360U; angle++) {
+        uint16_t distance = scan->distance[angle];
+        point2d_t now;
+
+        if (!scan->valid[angle] || distance < INSTALL_TEST_MIN_DISTANCE ||
+            distance > INSTALL_TEST_MAX_DISTANCE || !install_test_changed(angle, distance))
+            continue;
+
+        now = tf_lidar_polar_to_xy(angle, distance);
+        if (count == 0) {
+            min_x = max_x = now.x;
+            min_y = max_y = now.y;
+        } else {
+            if (now.x < min_x) min_x = now.x;
+            if (now.x > max_x) max_x = now.x;
+            if (now.y < min_y) min_y = now.y;
+            if (now.y > max_y) max_y = now.y;
+        }
+        sum.x += now.x;
+        sum.y += now.y;
+        count++;
+    }
+
+    // 一圈允许只有一个角度命中窄挡板；靠100圈重复性确认，不套用聚类>=3点。
+    if (count == 0 || max_x - min_x > INSTALL_TEST_MAX_SIZE_MM ||
+        max_y - min_y > INSTALL_TEST_MAX_SIZE_MM) return 0;
+
+    point->x = sum.x / (float)count;
+    point->y = sum.y / (float)count;
+    return 1;
+}
+
+// 计算三点变换后的均方根误差。sign=1沿用当前转换，sign=-1先镜像X再旋转。
+static float install_test_error(int8_t sign, const tf_transform2d_t *tf) {
+    float sum = 0.0f;
+
+    for (uint8_t i = 0; i < 3U; i++) {
+        point2d_t source = install_test_measured[i];
+        point2d_t result;
+        float dx, dy;
+
+        source.x *= (float)sign;
+        result = tf_transform_point(source, tf);
+        dx = result.x - install_test_reference[i].x;
+        dy = result.y - install_test_reference[i].y;
+        sum += dx * dx + dy * dy;
+    }
+    return sqrtf(sum / 3.0f);
+}
+
+// 已知三点求旋转和平移。正反两个角度方向分别拟合，避免把倒装镜像误当成90度旋转。
+static uint8_t install_test_fit(int8_t sign, tf_transform2d_t *tf) {
+    point2d_t source_center = {0.0f, 0.0f};
+    point2d_t target_center = {0.0f, 0.0f};
+    float dot = 0.0f, cross = 0.0f;
+    float source_area, target_area;
+    float yaw;
+    point2d_t rotated;
+
+    // 三点共线时不能可靠区分镜像方向，拒绝给出安装结果。
+    source_area = (install_test_measured[1].x - install_test_measured[0].x) *
+                  (install_test_measured[2].y - install_test_measured[0].y) -
+                  (install_test_measured[1].y - install_test_measured[0].y) *
+                  (install_test_measured[2].x - install_test_measured[0].x);
+    target_area = (install_test_reference[1].x - install_test_reference[0].x) *
+                  (install_test_reference[2].y - install_test_reference[0].y) -
+                  (install_test_reference[1].y - install_test_reference[0].y) *
+                  (install_test_reference[2].x - install_test_reference[0].x);
+    if (!isfinite(source_area) || !isfinite(target_area) ||
+        fabsf(source_area) < 10000.0f || fabsf(target_area) < 10000.0f) return 0;
+
+    for (uint8_t i = 0; i < 3U; i++) {
+        source_center.x += (float)sign * install_test_measured[i].x / 3.0f;
+        source_center.y += install_test_measured[i].y / 3.0f;
+        target_center.x += install_test_reference[i].x / 3.0f;
+        target_center.y += install_test_reference[i].y / 3.0f;
+    }
+
+    for (uint8_t i = 0; i < 3U; i++) {
+        float sx = (float)sign * install_test_measured[i].x - source_center.x;
+        float sy = install_test_measured[i].y - source_center.y;
+        float tx = install_test_reference[i].x - target_center.x;
+        float ty = install_test_reference[i].y - target_center.y;
+
+        dot += sx * tx + sy * ty;
+        cross += sx * ty - sy * tx;
+    }
+    if (!isfinite(dot) || !isfinite(cross))
+        return 0;
+
+    // 错误镜像模型可能恰好没有唯一最优角，此时取0度计算其误差，不影响另一模型。
+    yaw = fabsf(dot) + fabsf(cross) < 1.0f ? 0.0f : atan2f(cross, dot) * 180.0f / TF_PI;
+    tf_transform_set(tf, 0.0f, 0.0f, yaw);
+    rotated = tf_transform_point(source_center, tf);
+    tf_transform_set(tf, target_center.x - rotated.x, target_center.y - rotated.y, yaw);
+    return 1;
+}
+
+// 只输出测量结论，不自动把尚未实车复核的参数写进正式坐标变换。
+static void install_test_print_result(void) {
+    tf_transform2d_t normal_tf, mirror_tf, hypothesis;
+    const tf_transform2d_t *best;
+    float normal_error, mirror_error, error;
+    int8_t sign;
+
+    if (!install_test_fit(1, &normal_tf) || !install_test_fit(-1, &mirror_tf)) {
+        printf("INSTALL FAIL: 三点共线或数据无效，请重新摆放并复位测试\r\n");
+        return;
+    }
+
+    normal_error = install_test_error(1, &normal_tf);
+    mirror_error = install_test_error(-1, &mirror_tf);
+    printf("INSTALL rms_current_sign=%.1f rms_mirror_sign=%.1f mm\r\n",
+           normal_error, mirror_error);
+    if (!isfinite(normal_error) || !isfinite(mirror_error) ||
+        fabsf(normal_error - mirror_error) < INSTALL_TEST_SIGN_MARGIN_MM ||
+        fminf(normal_error, mirror_error) > INSTALL_TEST_MAX_ERROR_MM) {
+        printf("INSTALL FAIL: 方向不明确或拟合误差过大，检查目标坐标/背景/车是否移动\r\n");
+        return;
+    }
+
+    sign = normal_error < mirror_error ? 1 : -1;
+    best = sign == 1 ? &normal_tf : &mirror_tf;
+    printf("INSTALL RESULT sign=%d tx=%.1f ty=%.1f yaw=%.2f rms=%.1f\r\n",
+           (int)sign, best->tx, best->ty, best->yaw_deg,
+           sign == 1 ? normal_error : mirror_error);
+    printf("sign=1: 沿用当前-sin；sign=-1: 当前转换还需X镜像，不能只改安装角\r\n");
+    for (uint8_t i = 0; i < 3U; i++) {
+        point2d_t source = install_test_measured[i];
+        point2d_t result;
+        source.x *= (float)sign;
+        result = tf_transform_point(source, best);
+        printf("INSTALL CHECK point=%u base=(%.1f,%.1f) expected=(%.1f,%.1f)mm\r\n",
+               (unsigned int)(i + 1), result.x, result.y,
+               install_test_reference[i].x, install_test_reference[i].y);
+    }
+
+    error = install_test_error(1, &tf_base);
+    printf("INSTALL current_tf_base rms=%.1f mm\r\n", error);
+    // 检验用户提出的零偏移、+90度假设，同时保留-90度和0度作对照。
+    for (int16_t yaw = -90; yaw <= 90; yaw += 90) {
+        tf_transform_set(&hypothesis, 0.0f, 0.0f, (float)yaw);
+        error = install_test_error(sign, &hypothesis);
+        printf("INSTALL hypothesis sign=%d tx=0 ty=0 yaw=%d rms=%.1f %s\r\n",
+               (int)sign, (int)yaw, error,
+               error <= INSTALL_TEST_MAX_ERROR_MM ? "PASS" : "FAIL");
+    }
+    printf("结果是lidar->base安装参数，不是base->map的my_yaw换算；重复测试后再采用\r\n");
+}
+
+static void install_test_prompt(uint8_t stage) {
+    static const char *names[3] = {"前方", "右侧", "左侧"};
+
+    if (stage == 0) {
+        printf("INSTALL 背景：移走挡板，人离开扫描平面，短按KEY1采100圈\r\n");
+    } else {
+        printf("INSTALL %s：挡板表面中心放在车体坐标(%.1f,%.1f)mm，短按KEY1采100圈\r\n",
+               names[stage - 1], install_test_reference[stage - 1].x,
+               install_test_reference[stage - 1].y);
+    }
+}
+
+// 雷达安装标定任务，与wheel_mask_test一样轮询DMA、按圈号去重、分组统计。
+void lidar_install_test(void) {
+    static uint8_t test_started = 0, test_finished = 0;
+    static uint8_t stage = 0, collecting = 0, skip_first_scan = 0;
+    static uint16_t scan_count = 0, hit_count = 0;
+    static uint32_t last_scan_num = 0, skip_count = 0, last_key_tick = 0;
+    static uint32_t xor_ok_start = 0, xor_err_start = 0;
+    static point2d_t sum = {0.0f, 0.0f};
+    static float square_sum = 0.0f;
+    const lidar_scan_t *scan;
+    point2d_t point;
+    uint8_t pressed;
+    uint32_t tick = HAL_GetTick();
+
+    lidar_process();  // 等待摆放挡板和结束后也持续接收，避免DMA堵住
+    // 当前timer.c没有调用key_tick，测试在主循环每5ms调用一次，不改定时器。
+    // 这个独立测试不要同时调用key_handle，否则短按事件可能先被其他任务取走。
+    if (tick - last_key_tick >= 5U) {
+        last_key_tick = tick;
+        key_tick();
+    }
+    pressed = key_getshortpress();  // 采集过程中按下的键丢弃，不带到下一组
+    if (test_finished) return;
+
+    if (!test_started) {
+        test_started = 1;
+        memset(install_background, 0, sizeof(install_background));
+        memset(install_test_measured, 0, sizeof(install_test_measured));
+        printf("===== LIDAR INSTALL TEST START =====\r\n");
+        printf("车体原点=自选车体中心，X右Y前；固定小车，全程只移动挡板\r\n");
+        install_test_prompt(stage);
+        return;
+    }
+
+    scan = lidar_get_scan();
+    if (!collecting) {
+        if (pressed != 1U) return;
+        collecting = 1;
+        scan_count = hit_count = 0;
+        skip_count = 0;
+        sum.x = sum.y = square_sum = 0.0f;
+        last_scan_num = scan == NULL ? 0 : scan->scan_num;
+        skip_first_scan = 1;  // 丢掉摆放过程中跨越的那一圈，下一圈才是完整静止圈
+        xor_ok_start = lidar_get_xor_ok_cnt();
+        xor_err_start = lidar_get_xor_err_cnt();
+        printf("INSTALL collect start stage=%u\r\n", (unsigned int)stage);
+        return;
+    }
+
+    if (scan == NULL || scan->scan_num == 0 || scan->scan_num == last_scan_num) return;
+    if (last_scan_num != 0 && scan->scan_num > last_scan_num + 1)
+        skip_count += scan->scan_num - last_scan_num - 1;
+    last_scan_num = scan->scan_num;
+    if (skip_first_scan) {
+        skip_first_scan = 0;
+        return;
+    }
+
+    if (stage == 0) {
+        for (uint16_t angle = 0; angle < 360U; angle++) {
+            install_background_t *background = &install_background[angle];
+            uint16_t distance = scan->distance[angle];
+            if (!scan->valid[angle] || distance == 0) continue;
+            if (background->count == 0) {
+                background->min_distance = background->max_distance = distance;
+            } else {
+                if (distance < background->min_distance) background->min_distance = distance;
+                if (distance > background->max_distance) background->max_distance = distance;
+            }
+            background->count++;
+        }
+    } else if (install_test_get_point(scan, &point)) {
+        sum.x += point.x;
+        sum.y += point.y;
+        square_sum += point.x * point.x + point.y * point.y;
+        hit_count++;
+    }
+    scan_count++;
+    if (scan_count % 20U == 0U)
+        printf("INSTALL stage=%u collect=%u/%u hit=%u\r\n", (unsigned int)stage,
+               (unsigned int)scan_count, (unsigned int)INSTALL_TEST_SCAN_COUNT,
+               (unsigned int)hit_count);
+    if (scan_count < INSTALL_TEST_SCAN_COUNT) return;
+
+    collecting = 0;
+    printf("INSTALL skip=%lu xor_ok=%lu xor_err=%lu\r\n", (unsigned long)skip_count,
+           (unsigned long)(lidar_get_xor_ok_cnt() - xor_ok_start),
+           (unsigned long)(lidar_get_xor_err_cnt() - xor_err_start));
+    if (stage != 0) {
+        float deviation;
+        float angle;
+        if (hit_count < INSTALL_TEST_MIN_HIT) {
+            printf("INSTALL FAIL: 挡板命中不足，检查背景距离/扫描高度/人员遮挡，重采本组\r\n");
+            install_test_prompt(stage);
+            return;
+        }
+        point.x = sum.x / (float)hit_count;
+        point.y = sum.y / (float)hit_count;
+        deviation = sqrtf(fmaxf(0.0f, square_sum / (float)hit_count -
+                                        point.x * point.x - point.y * point.y));
+        angle = atan2f(-point.x, point.y) * 180.0f / TF_PI;
+        if (angle < 0.0f) angle += 360.0f;
+        printf("INSTALL POINT stage=%u raw_angle=%.2f raw_xy=(%.1f,%.1f) std=%.1fmm\r\n",
+               (unsigned int)stage, angle, point.x, point.y, deviation);
+        if (!isfinite(deviation) || deviation > INSTALL_TEST_MAX_STD_MM) {
+            printf("INSTALL FAIL: 目标波动过大，请固定挡板后重采本组\r\n");
+            install_test_prompt(stage);
+            return;
+        }
+        install_test_measured[stage - 1] = point;
+    }
+
+    stage++;
+    if (stage <= 3U) {
+        install_test_prompt(stage);
+    } else {
+        install_test_print_result();
+        test_finished = 1;
+        printf("===== LIDAR INSTALL TEST END，复位可重新测量 =====\r\n");
+    }
+}
 
 // 极坐标转换函数测试
 void tf2d_test_polar(void)

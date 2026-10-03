@@ -113,7 +113,7 @@ int main(void)
   tf_init();
   // obstacle_map_init();
 
-  HAL_Delay(1000);
+  HAL_Delay(5000);
 
   // my_hmi_init();      // 串口屏
   // HAL_Delay(10);      // 等待一会儿
@@ -137,20 +137,9 @@ int main(void)
   while (1)
   {
 
-    // hmi_SetValue("yaw",(int)(my_yaw * 100.0f));
-    // HAL_Delay(5);
-
-    // hmi_SetValue("X",(int)(task_state.cur_x));
-    // HAL_Delay(1);
-    // hmi_SetValue("Y",(int)(task_state.cur_y));
-    // HAL_Delay(1);
-    // HAL_Delay(5);
-
-    // hmi_SetValue("X_",(int)(my_control.head_x));
-    // HAL_Delay(1);
-    // hmi_SetValue("Y_",(int)(my_control.head_y));
-    // HAL_Delay(1);
-    // HAL_Delay(5);
+    // 雷达安装标定测试：按串口提示放置挡板，短按KEY1采集下一组
+    lidar_install_test();
+    // wheel_mask_test();  // 四车轮遮挡测试，需要时切换回来
 
     // lidar_test();
 
@@ -183,12 +172,12 @@ int main(void)
     // }
     //
 
-    imu_task();
-
-    if (obstacle_find_task(500.0f, 500.0f, my_yaw)) {
-      point_cloud_test();
-      obstacle_cluster_test();
-    }
+    // imu_task();
+    //
+    // if (obstacle_find_task(500.0f, 500.0f, my_yaw)) {
+    //   point_cloud_test();
+    //   obstacle_cluster_test();
+    // }
 
 
 
