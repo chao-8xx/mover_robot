@@ -170,12 +170,38 @@ static void test_path_input(void) {
           "invalid node in longer path rejects");
 }
 
+static void test_time_and_pause(void) {
+    map_scan_obs_t box = r8_box();
+    map_obs_t old;
+    map_update_init(300.0f, 50.0f);
+    map_update_scan(&box, 1, 1, 0);
+    map_update_scan(&box, 1, 2, MAP_CANDIDATE_TIMEOUT_MS + 1);
+    check(road_is(8, road_unknown) && map_obs_get(0, &old) && old.seen_num == 1,
+          "long reception gap expires candidate even when scan IDs are adjacent");
+    map_update_scan(&box, 1, 3, MAP_CANDIDATE_TIMEOUT_MS + 2);
+    check(road_is(8, road_blocked), "fresh second observation confirms after timeout");
+    box.center_x = box.min_x = box.max_x = 775.0f;
+    box.center_y = box.min_y = box.max_y = 2125.0f;
+    map_update_scan(&box, 1, 4, MAP_CANDIDATE_TIMEOUT_MS + 3);
+    map_update_clear_candidates();
+    check(obstacle_count(obs_unknown) == 0 && obstacle_count(obs_ok) == 1 &&
+          road_is(8, road_blocked) && map_update_change_get() == 1,
+          "pause clears candidates and preserves confirmed blocking");
+    box = r8_box();
+    map_update_init(300.0f, 50.0f);
+    map_update_scan(&box, 1, 1, UINT32_MAX - 50);
+    map_update_scan(&box, 1, 2, 25);
+    check(road_is(8, road_blocked), "tick wrap preserves a fresh candidate");
+    check(!map_update_scan(&box, 1, 3, 24), "backwards timestamp rejects without changing map");
+}
+
 int main(void) {
     check(map_stage_test(), "existing embedded map stage checks");
     test_candidate_lifetime();
     test_configuration_and_input();
     test_lidar_adapter();
     test_path_input();
+    test_time_and_pause();
     printf("[MAP HOST] RESULT %u passed, %u failed\n",
            (unsigned)(checks - failures), (unsigned)failures);
     return failures ? 1 : 0;

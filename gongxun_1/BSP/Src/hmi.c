@@ -3,18 +3,38 @@
 uint8_t hmi_rxbuffer[HMI_RX_SIZE];   // hmi 接收缓冲区
 char hmi_txbuffer[HMI_TX_SIZE];   // hmi 发送缓冲区
 
-uint8_t tx_len;     // 发送字节数
-
-static uint8_t hmi_end_cmd[HMI_TX_SIZE] = {0xFF,0xFF,0xFF};  // 串口屏结束符序列
+static const uint8_t hmi_end_cmd[HMI_END_CMD_LEN] = {0xFF,0xFF,0xFF};  // 串口屏结束符序列
 
 static UART_HandleTypeDef *hmi_uart = NULL;
+static volatile uint8_t hmi_error_flag = 0;
+
+// UART5是正常模式DMA，每次收完或启动失败都要再次开启
+static void hmi_receive_start(void) {
+    uint32_t primask;
+    if (hmi_uart == NULL || hmi_uart->hdmarx == NULL) return;
+
+    primask = __get_PRIMASK();
+    __disable_irq();
+    if (HAL_UARTEx_ReceiveToIdle_DMA(hmi_uart, hmi_rxbuffer, sizeof(hmi_rxbuffer)) == HAL_OK) {
+        __HAL_DMA_DISABLE_IT(hmi_uart->hdmarx,DMA_IT_HT);
+        hmi_error_flag = 0;
+    } else {
+        hmi_rx_reset(); // 重启失败期间可能漏字节，之前的半条指令也放弃
+        hmi_error_flag = 1; // 不等待，下一次周期入口继续重试
+    }
+    __set_PRIMASK(primask);
+}
 
 
 // hmi 串口初始化
 void hmi_init(UART_HandleTypeDef *huart) {
     hmi_uart = huart;
+    hmi_error_flag = 0;
+    hmi_rx_reset();
+    if (hmi_uart == NULL || hmi_uart->hdmarx == NULL) return;
 
-    if (HAL_UARTEx_ReceiveToIdle_DMA(hmi_uart, hmi_rxbuffer, sizeof(hmi_rxbuffer)) != HAL_OK)
+    hmi_receive_start();
+    if (hmi_error_flag)
     {
         HAL_GPIO_WritePin(GPIOC, GPIO_PIN_0, GPIO_PIN_RESET);   // 常亮 = 启动失败
     }
@@ -22,12 +42,11 @@ void hmi_init(UART_HandleTypeDef *huart) {
     {
         HAL_GPIO_WritePin(GPIOC, GPIO_PIN_0, GPIO_PIN_SET);     // 灭 = 启动成功
     }
-    __HAL_DMA_DISABLE_IT(hmi_uart->hdmarx,DMA_IT_HT);      // 禁止半传输中断
 }
 
 // hmi 串口接收
 void hmi_rx_callback(UART_HandleTypeDef *huart, uint16_t Size) {
-    if (huart != hmi_uart) {
+    if (hmi_uart == NULL || huart != hmi_uart || Size > HMI_RX_SIZE) {
         return;
     }
 
@@ -35,8 +54,17 @@ void hmi_rx_callback(UART_HandleTypeDef *huart, uint16_t Size) {
     hmi_solve(huart, Size);
 
     // 重新开启 DMA 空闲中断接收
-    HAL_UARTEx_ReceiveToIdle_DMA(hmi_uart,hmi_rxbuffer,sizeof(hmi_rxbuffer));
-    __HAL_DMA_DISABLE_IT(hmi_uart->hdmarx,DMA_IT_HT);      // 禁止半传输中断
+    hmi_receive_start();
+}
+
+void hmi_error_callback(UART_HandleTypeDef *huart) {
+    if (hmi_uart == NULL || huart != hmi_uart) return;
+    hmi_rx_reset(); // HAL接收错误中止DMA后，不能拼接错误前后的两半命令
+    hmi_error_flag = 1;
+}
+
+void hmi_rx_task(void) {
+    if (hmi_error_flag) hmi_receive_start();
 }
 
 /**
@@ -50,30 +78,31 @@ void hmi_rx_callback(UART_HandleTypeDef *huart, uint16_t Size) {
  */
 void hmi_SendCmd(const char *format, ...) {
     va_list args;       // 可变参数列表
+    char cmd_buffer[HMI_TX_SIZE]; // 先在本次调用中拼好，不改正在发送的全局缓冲
+    int cmd_len;
+    uint32_t primask;
 
-    // 将上层传入的格式化字符串 解析到 hmi_txbuffer 中
+    if (hmi_uart == NULL || format == NULL)
+        return;
+
+    // 留出三个结束符的位置；过长指令直接放弃，不发送被截断的屏幕语法
     va_start(args,format);  // args:参数列表    format:最后一个具名参数
-    vsnprintf(hmi_txbuffer, HMI_TX_SIZE, format, args); //format:格式串   args:参数列表
+    cmd_len = vsnprintf(cmd_buffer, HMI_TX_SIZE - HMI_END_CMD_LEN + 1, format, args);
     va_end(args);
+    if (cmd_len < 0 || cmd_len > HMI_TX_SIZE - HMI_END_CMD_LEN)
+        return;
 
-    // 获取需要发送的有效字符串长度
-    tx_len = strlen(hmi_txbuffer);
+    memcpy(&cmd_buffer[cmd_len], hmi_end_cmd, HMI_END_CMD_LEN);
 
-    // 发送数据太多 则截断
-    if (tx_len > HMI_TX_SIZE - HMI_END_CMD_LEN) {
-        tx_len = HMI_TX_SIZE - HMI_END_CMD_LEN;
-    }
-
-    // 在发送的字符串后面添加三个 0xFF 作为结束符
-    hmi_txbuffer[tx_len]     = hmi_end_cmd[0];
-    hmi_txbuffer[tx_len + 1] = hmi_end_cmd[1];
-    hmi_txbuffer[tx_len + 2] = hmi_end_cmd[2];
-
-    // 发送封装好的字符串数据   总长度 = 字符长度 + 3个结束符
-    // 上一次 DMA 没发完就不发，避免 BUSY 和缓冲被覆盖
+    // 检查空闲、复制、启动放在同一临界区，避免另一个调用在启动前抢写
+    // 格式化在临界区外；DMA读取的是长期有效的hmi_txbuffer，不是栈数组
+    primask = __get_PRIMASK();
+    __disable_irq();
     if (hmi_uart->gState == HAL_UART_STATE_READY) {
-        HAL_UART_Transmit_DMA(hmi_uart,(uint8_t *)hmi_txbuffer, tx_len + 3);
+        memcpy(hmi_txbuffer, cmd_buffer, (uint16_t)cmd_len + HMI_END_CMD_LEN);
+        HAL_UART_Transmit_DMA(hmi_uart,(uint8_t *)hmi_txbuffer, (uint16_t)cmd_len + HMI_END_CMD_LEN);
     }
+    __set_PRIMASK(primask);
 }
 
 /**

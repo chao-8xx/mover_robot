@@ -48,8 +48,8 @@ void my_hwt101_init(void);          // HWT101初始化（串口3） 初始化加
 void imu_get(void);
 
 // 全局变量
-volatile extern uint8_t hwt101_rx_flag;
-volatile extern uint8_t hwt101_error_flag;
+extern volatile uint8_t hwt101_rx_flag;
+extern volatile uint8_t hwt101_error_flag;
 
 extern float yaw_rate;  // 全局偏航角角速度
 extern float now_yaw;   // 全局偏航角角度

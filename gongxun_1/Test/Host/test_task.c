@@ -9,6 +9,8 @@ static Chassis_Mode mode = CHASSIS_IDLE;
 static uint32_t point_cloud_calls = 0;
 static uint16_t failures = 0;
 static uint16_t checks = 0;
+static uint32_t dropped_scans = 0;
+static uint8_t drop_after_process = 0;
 
 // 完整 task.c 中未被本套检查调用的外设入口，保持链接独立。
 uint8_t qr_data[QR_DATA_LEN + 1];
@@ -18,11 +20,22 @@ volatile uint8_t cam_rx_flag;
 volatile uint8_t cam_error_flag;
 void control_variate_init(void) {}
 void control_process(void) {}
-void hwt101_rx_handle(void) {}
-void cam_rx_handle(void) {}
+static uint8_t imu_error_seen = 0;
+static uint8_t cam_error_seen = 0;
+void hwt101_rx_handle(void) {
+    imu_error_seen = hwt101_error_flag;
+    hwt101_error_flag = 0;
+}
+void cam_rx_handle(void) {
+    cam_error_seen = cam_error_flag;
+    cam_error_flag = 0;
+}
 void maix_result_task(void) {}
 
-void lidar_process(void) {}
+void lidar_process(void) {
+    if (drop_after_process && --drop_after_process == 0) dropped_scans++;
+}
+uint32_t lidar_get_scan_drop_cnt(void) { return dropped_scans; }
 
 const lidar_scan_t *lidar_get_scan(void) {
     return have_scan ? &scan : 0;
@@ -150,9 +163,37 @@ static void test_observed_movement(void) {
 }
 
 int main(void) {
+    hwt101_rx_flag = hwt101_error_flag = 1;
+    imu_task();
+    check(imu_error_seen == 1, "imu task preserves error until driver handles it");
+    cam_rx_flag = cam_error_flag = 1;
+    cam_task();
+    check(cam_error_seen == 1, "camera task preserves error until driver handles it");
     test_pose_recovery();
     test_configuration_and_pose_gates();
     test_observed_movement();
+    map_update_init(300.0f, 50.0f);
+    publish_scan(20);
+    obstacle_find_task(1200.0f, 1200.0f, 0.0f);
+    map_lidar_handle(1);
+    dropped_scans++;
+    check(!run_map(1), "reception discontinuity restarts map scan gate");
+    map_obs_t old;
+    check(map_obs_get(0, &old) && old.state == obs_no,
+          "reception discontinuity clears unconfirmed observation");
+    publish_scan(21);
+    check(!run_map(1), "first completion after reception discontinuity is discarded");
+    publish_scan(22);
+    check(run_map(1) && map_obs_get(0, &old) && old.seen_num == 1,
+          "clean recovered scan begins new confirmation");
+    publish_scan(23);
+    check(run_map(1) && map_obs_get(0, &old) && old.state == obs_ok,
+          "second clean recovered scan confirms normally");
+    map_update_init(300.0f, 50.0f);
+    publish_scan(24);
+    drop_after_process = 2;
+    check(!run_map(1) && map_obs_get(0, &old) && old.state == obs_no,
+          "discontinuity in second parser call rejects before writing map");
     printf("[TASK HOST] RESULT %u passed, %u failed\n",
            (unsigned)(checks - failures), (unsigned)failures);
     return failures ? 1 : 0;

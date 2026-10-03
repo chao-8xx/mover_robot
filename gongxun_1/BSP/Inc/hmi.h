@@ -20,6 +20,8 @@ typedef struct {
 
 void hmi_init(UART_HandleTypeDef *huart);
 void hmi_rx_callback(UART_HandleTypeDef *huart, uint16_t Size);
+void hmi_error_callback(UART_HandleTypeDef *huart);
+void hmi_rx_task(void); // 非阻塞重试正常模式DMA接收
 
 void hmi_SendCmd(const char *format, ...);
 void hmi_SetText(const char *objName, const char *text);

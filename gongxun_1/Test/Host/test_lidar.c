@@ -34,6 +34,7 @@ HAL_StatusTypeDef HAL_UART_Transmit(UART_HandleTypeDef *u, uint8_t *b, uint16_t 
 #define HOST_NOOP_UART(name) void name(UART_HandleTypeDef *u) { (void)u; }
 HOST_NOOP_UART(cam_init)
 HOST_NOOP_UART(hmi_init)
+HOST_NOOP_UART(hmi_error_callback)
 HOST_NOOP_UART(debug_uart_init)
 HOST_NOOP_UART(Emm_V5_tx_callback)
 HOST_NOOP_UART(debug_tx_callback)

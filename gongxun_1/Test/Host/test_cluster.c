@@ -209,9 +209,29 @@ static void test_circle(void) {
     check(all_pass, "two missing angle group is invariant at all 360 circle positions");
 }
 
+static void test_invalid_pose(void) {
+    lidar_scan_t scan = {0};
+    scan.scan_num = 3;
+    scan.valid[90] = 1;
+    scan.distance[90] = 1000;
+    uint32_t old_flag = cloud.update_flag;
+    check(!point_cloud_update(&scan, NAN, 0, 0, 100) && cloud.update_flag == old_flag,
+          "nonfinite pose rejects without publishing a poisoned cloud");
+    check(point_cloud_update(&scan, 0, 0, 0, 100),
+          "same scan can retry after correcting invalid pose");
+    scan.scan_num = 4;
+    tf_base.tx = NAN;
+    check(!point_cloud_update(&scan, 0, 0, 0, 101), "nonfinite installation rejects cloud");
+    tf_transform_set(&tf_base, 0, 0, 0);
+    check(point_cloud_update(&scan, 0, 0, 0, 101), "corrected installation can retry same scan");
+    scan.scan_num = 0;
+    check(!point_cloud_update(&scan, 0, 0, 0, 102), "unpublished scan zero cannot create cloud");
+}
+
 int main(void) {
     tf_init();
     test_mask();
+    test_invalid_pose();
     test_seam();
     test_gap();
     test_limits();

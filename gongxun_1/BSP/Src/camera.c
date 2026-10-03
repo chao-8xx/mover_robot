@@ -168,12 +168,20 @@ void cam_rx_handle(void) {
 
         cam_rd = 0;
 
+        // 接收链断开后，旧结果不能继续参与下一段数据的滤波
+        qr_ok = 0;
+        qr_tick = 0;
+        memset(&maix_vision, 0, sizeof(maix_vision));
+        maix_filter_reset();
+        maix_result.new_data = 1; // 通知上层这次结果已经失效
+        maix_result.tick = HAL_GetTick();
+
         // 重新开启DMA空闲中断 禁止HC中断
         if (HAL_UARTEx_ReceiveToIdle_DMA(cam_uart, cam_rx_buf, CAM_LEN) == HAL_OK) {
             __HAL_DMA_DISABLE_IT(cam_uart->hdmarx, DMA_IT_HT);
             printf("[CAM RX] DMA错误后重启成功\r\n");
         } else {
-            printf("[CAM RX] DMA重启失败\r\n");
+            cam_error_flag = 1; // 保留恢复请求，下一次cam_task继续重试
         }
         return;
     }
@@ -279,8 +287,11 @@ void cam_init(UART_HandleTypeDef *huart)
     maix_filter_reset();
 
     // 开启DMA空闲中断接收 IDLE只通知主循环批量处理新字节
-    HAL_UARTEx_ReceiveToIdle_DMA(cam_uart, cam_rx_buf, sizeof(cam_rx_buf));
-    __HAL_DMA_DISABLE_IT(cam_uart->hdmarx,DMA_IT_HT);      // 禁止半传输中断
+    if (cam_uart != NULL && cam_uart->hdmarx != NULL) {
+        if (HAL_UARTEx_ReceiveToIdle_DMA(cam_uart, cam_rx_buf, sizeof(cam_rx_buf)) == HAL_OK)
+            __HAL_DMA_DISABLE_IT(cam_uart->hdmarx, DMA_IT_HT);
+        else cam_error_flag = 1; // 初次启动失败也交给主循环恢复
+    }
 }
 
 // 串口接收缓冲区清空，丢弃所有未处理的字节
@@ -561,7 +572,7 @@ void maix_send_frame(uint8_t cmd, const uint8_t *data, uint8_t len)
         printf("Maix TX failed: UART not initialized\r\n");
         return;
     }
-    if (len > 1) {
+    if (len > 1 || (len != 0 && data == NULL)) {
         printf("Maix TX failed: invalid len=%u\r\n", len);
         return;            // 此处的len只能为0/1  为0时 停止 为1时 启动maix
     }

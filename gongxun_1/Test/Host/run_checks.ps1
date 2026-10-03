@@ -41,6 +41,7 @@ function Run-Check {
 }
 
 try {
+    Run-Check 'serial' @('Test/Host/test_serial.c') 'Test/Host/serial_headfile'
     Run-Check 'lidar' @('Test/Host/test_lidar.c') 'Test/Host/lidar_headfile'
     Run-Check 'cluster' @('Test/Host/test_cluster.c', 'APP/Src/obstacle_find.c', 'APP/Src/tf2d.c') 'Test/Host/cluster_headfile'
     Run-Check 'cluster_mask' @('Test/Host/test_cluster.c', 'APP/Src/obstacle_find.c', 'APP/Src/tf2d.c') 'Test/Host/cluster_headfile' @('-DLIDAR_WHEEL_MASK_ENABLE=1', '-O2')

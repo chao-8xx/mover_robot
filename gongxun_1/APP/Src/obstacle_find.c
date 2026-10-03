@@ -47,7 +47,10 @@ uint8_t point_cloud_update(const lidar_scan_t *scan, float car_x, float car_y, f
     point2d_t p_map;
 
     // 避免重复更新同一帧点云
-    if (scan == NULL || scan->scan_num == last_cloud_scan_num)  return 0;
+    if (scan == NULL || scan->scan_num == 0 || scan->scan_num == last_cloud_scan_num ||
+        !isfinite(car_x) || !isfinite(car_y) || !isfinite(car_yaw) ||
+        !isfinite(tf_base.tx) || !isfinite(tf_base.ty) ||
+        !isfinite(tf_base.sin_yaw) || !isfinite(tf_base.cos_yaw)) return 0;
 
     last_cloud_scan_num = scan->scan_num;
 

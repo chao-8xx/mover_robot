@@ -9,6 +9,7 @@ static uint8_t map_ready = 0;
 static uint8_t map_has_scan = 0;
 static float map_safe_radius = 0.0f;
 static uint32_t map_last_scan = 0;
+static uint32_t map_last_tick = 0;
 static uint32_t map_change_num = 0;
 
 ///////////////////////////////////// 内部调用函数 ////////////////////////////////////////
@@ -137,6 +138,7 @@ uint8_t map_update_init(float car_width_mm, float safety_mm) {
     map_data_init();
     map_has_scan = 0;
     map_last_scan = 0;
+    map_last_tick = 0;
     map_change_num = 0;
     map_safe_radius = car_width_mm * 0.70710678f + safety_mm;
     map_ready = 1;
@@ -147,13 +149,28 @@ uint8_t map_update_is_ready(void) {
     return map_ready;
 }
 
+// 中断连续观察时重新确认候选；已经确认的障碍和道路状态保持不变
+void map_update_clear_candidates(void) {
+    map_obs_t old;
+    for (uint8_t i = 0; i < MAP_OBS_MAX; i++) {
+        if (map_obs_get(i, &old) && old.state == obs_unknown) map_obs_clear(i);
+    }
+}
+
 uint8_t map_update_scan(const map_scan_obs_t *obs, uint8_t count,
                         uint32_t scan_num, uint32_t tick) {
     uint8_t used[MAP_OBS_MAX] = {0};
     map_obs_t old;
 
     if (!map_ready || count > MAP_OBS_MAX || (count != 0 && obs == 0) ||
-        (map_has_scan && scan_num <= map_last_scan)) return 0;
+        (map_has_scan && scan_num <= map_last_scan) ||
+        (map_has_scan && tick - map_last_tick >= 0x80000000U)) return 0;
+
+    // 发布编号相邻也可能相隔很久，不能让停更前的候选一直保留确认次数
+    for (uint8_t i = 0; i < MAP_OBS_MAX; i++) {
+        if (map_obs_get(i, &old) && old.state == obs_unknown &&
+            tick - old.last_tick > MAP_CANDIDATE_TIMEOUT_MS) map_obs_clear(i);
+    }
 
     // 调用间如果跳过了完整扫描，候选也必须计入漏扫次数
     if (map_has_scan && scan_num > map_last_scan + 1) {
@@ -212,6 +229,7 @@ uint8_t map_update_scan(const map_scan_obs_t *obs, uint8_t count,
 
     map_has_scan = 1;
     map_last_scan = scan_num;
+    map_last_tick = tick;
     return 1;
 }
 

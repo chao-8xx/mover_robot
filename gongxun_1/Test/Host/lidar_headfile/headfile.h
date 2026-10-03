@@ -46,6 +46,7 @@ void debug_uart_init(UART_HandleTypeDef *);
 void cam_rx_callback(UART_HandleTypeDef *, uint16_t);
 void hwt101_rx_callback(UART_HandleTypeDef *, uint16_t);
 void hmi_rx_callback(UART_HandleTypeDef *, uint16_t);
+void hmi_error_callback(UART_HandleTypeDef *);
 void Emm_V5_tx_callback(UART_HandleTypeDef *);
 void debug_tx_callback(UART_HandleTypeDef *);
 void cam_error_callback(UART_HandleTypeDef *);

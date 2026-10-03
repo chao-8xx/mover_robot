@@ -69,13 +69,13 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
     {
         hwt101_error_callback(huart);
     }
-    else if (huart->Instance == USART2)
-    {
-        Emm_V5_Tx_Reset();
-    }
     else if (huart->Instance == UART4)
     {
         lidar_error_callback(huart); // HAL已经停止RX DMA，交给主循环重新开启
+    }
+    else if (huart->Instance == UART5)
+    {
+        hmi_error_callback(huart);
     }
     else if (huart->Instance == USART6)
     {

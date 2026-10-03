@@ -63,6 +63,7 @@ static uint8_t hwt101_state = 0;
 // 上一帧 wz 和时间，用于差分计算偏航角加速度
 static float hwt101_prev_wz = 0.0f;
 static uint32_t hwt101_prev_ms = 0;
+static uint8_t hwt101_has_prev_wz = 0; // 必须先有真实上一帧，才能计算差分
 
 // 全局变量
 float yaw_rate = 0.0f;          // 全局偏航角角速度
@@ -90,10 +91,14 @@ void hwt101_init(UART_HandleTypeDef *huart)
     // 角速度差分
     hwt101_prev_wz = 0.0f;
     hwt101_prev_ms = HAL_GetTick();
+    hwt101_has_prev_wz = 0;
 
     // 开启陀螺仪的DMA空闲中断  现只存在空闲中断IDLE 和 IC 传输完成中断
-    HAL_UARTEx_ReceiveToIdle_DMA(hwt101_uart, hwt101_dma_buf, sizeof(hwt101_dma_buf));
-    __HAL_DMA_DISABLE_IT(hwt101_uart->hdmarx,DMA_IT_HT);      // 禁止半传输中断
+    if (hwt101_uart != NULL && hwt101_uart->hdmarx != NULL) {
+        if (HAL_UARTEx_ReceiveToIdle_DMA(hwt101_uart, hwt101_dma_buf, sizeof(hwt101_dma_buf)) == HAL_OK)
+            __HAL_DMA_DISABLE_IT(hwt101_uart->hdmarx, DMA_IT_HT);
+        else hwt101_error_flag = 1;
+    }
 }
 
 // 陀螺仪接收处理函数
@@ -113,13 +118,16 @@ void hwt101_rx_handle(void)
         hwt101_rd = 0;
         hwt101_state = 0;
         hwt101_idx = 0;
+        hwt101.valid = 0; // 下一有效帧到来前，不再沿用断线前的数据有效标志
+        hwt101_has_prev_wz = 0;
+        hwt101.yaw_accel = 0.0f;
 
         // 重新开启DMA空闲中断 禁止HC中断
         if (HAL_UARTEx_ReceiveToIdle_DMA(hwt101_uart, hwt101_dma_buf, sizeof(hwt101_dma_buf)) == HAL_OK) {
             __HAL_DMA_DISABLE_IT(hwt101_uart->hdmarx, DMA_IT_HT);
             printf("[HWT101 RX] DMA错误后重启成功\r\n");
         } else {
-            printf("[HWT101 RX] DMA重启失败\r\n");
+            hwt101_error_flag = 1; // 下次主循环继续重试，不反复打印塞满日志
         }
         return;
     }
@@ -207,7 +215,7 @@ static void hwt101_parse_frame(void)
             // 角加速度(°/s²) = Δwz(°/s) / Δt(s)
             now_ms = HAL_GetTick();
             dt_ms = now_ms - hwt101_prev_ms;
-            if (dt_ms > 0 && dt_ms < 1000)  // 间隔合理才计算，避免异常值
+            if (hwt101_has_prev_wz && dt_ms > 0 && dt_ms < 1000)  // 两帧都存在且间隔合理才计算
             {
                 hwt101.yaw_accel = (hwt101.wz - hwt101_prev_wz) * 1000.0f / (float)dt_ms;
             }
@@ -217,6 +225,7 @@ static void hwt101_parse_frame(void)
             }
             hwt101_prev_wz = hwt101.wz;
             hwt101_prev_ms = now_ms;
+            hwt101_has_prev_wz = 1;
             break;
 
         case HWT101_TYPE_ANGLE: // 0x53：姿态角
@@ -333,8 +342,8 @@ void hwt101_tick(void)
         case HWT101_RST_UNLOCK:   // 发送解锁
             // 注意：不能用 HAL_UART_GetState()，RX DMA 运行时它会返回 BUSY_RX；
             // 发送只关心 gState，和 RX 的 RxState 是分开的
-            if (hwt101_uart->gState == HAL_UART_STATE_READY) {
-                HAL_UART_Transmit_IT(hwt101_uart, (uint8_t *)hwt101_unlock_cmd, 5);
+            if (hwt101_uart->gState == HAL_UART_STATE_READY &&
+                HAL_UART_Transmit_IT(hwt101_uart, (uint8_t *)hwt101_unlock_cmd, 5) == HAL_OK) {
                 hwt101_rst_tick = HAL_GetTick();
                 hwt101_rst_state = HWT101_RST_WAIT_UNLOCK;
             }
@@ -347,8 +356,8 @@ void hwt101_tick(void)
             break;
 
         case HWT101_RST_ZERO:   // 发送 Z 角度归零
-            if (hwt101_uart->gState == HAL_UART_STATE_READY) {
-                HAL_UART_Transmit_IT(hwt101_uart, (uint8_t *)hwt101_zero_yaw_cmd, 5);
+            if (hwt101_uart->gState == HAL_UART_STATE_READY &&
+                HAL_UART_Transmit_IT(hwt101_uart, (uint8_t *)hwt101_zero_yaw_cmd, 5) == HAL_OK) {
                 hwt101_rst_tick = HAL_GetTick();
                 hwt101_rst_state = HWT101_RST_WAIT_ZERO;
             }
@@ -361,10 +370,11 @@ void hwt101_tick(void)
             break;
 
         case HWT101_RST_SAVE:   // 发送保存
-            if (hwt101_uart->gState == HAL_UART_STATE_READY) {
-                HAL_UART_Transmit_IT(hwt101_uart, (uint8_t *)hwt101_save_cmd, 5);
+            if (hwt101_uart->gState == HAL_UART_STATE_READY &&
+                HAL_UART_Transmit_IT(hwt101_uart, (uint8_t *)hwt101_save_cmd, 5) == HAL_OK) {
                 hwt101_rst_state = HWT101_RST_IDLE;
                 hwt101_prev_wz = 0.0f;
+                hwt101_has_prev_wz = 0;
                 hwt101.yaw_accel = 0.0f;
             }
             break;
@@ -383,7 +393,9 @@ void my_hwt101_init(void)
     // 等待陀螺仪输出第一帧有效数据，最多等 2 秒
     uint32_t wait_start = HAL_GetTick();
     while (!hwt101_data_valid() && (HAL_GetTick() - wait_start < 2000)) {
-
+        // 中断只通知；等待期间也要解析DMA里的字节，否则valid一直不会变
+        hwt101_rx_flag = 0;
+        hwt101_rx_handle();
     }
     // 只有收到有效数据后再复位偏航角，复位指令才有意义
     if (hwt101_data_valid()) {

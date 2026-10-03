@@ -12,6 +12,7 @@
 
 void debug_uart_init(UART_HandleTypeDef *huart);
 uint16_t debug_printf_write(const uint8_t *data, uint16_t len);
+void debug_printf_task(void);
 
 void debug_tx_callback(UART_HandleTypeDef *huart);
 void debug_error_callback(UART_HandleTypeDef *huart);
