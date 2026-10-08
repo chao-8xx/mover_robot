@@ -58,12 +58,13 @@ typedef struct {
     uint8_t is_find_target;         // 车辆是否发现目标 0:未发现 1:已发现
     uint8_t is_stable_target;       // 目标是否稳定 0:不稳定 1:稳定
     uint8_t is_catch_target;        // 是否可以抓取目标 0:不可抓取 1:可抓取
+    uint8_t send_task_hmi_ok;       // 是否把任务发送给串口屏显示 1:发送
 
     // ==== 任务编码状态 ==== //
+    uint8_t openmv_task_get_ok;     // openmv扫码获取数据成功标志
     // 物料颜色、位置对应索引
     uint8_t index_1;    // 第一组
     uint8_t index_2;    // 第二组
-    uint8_t index;      // 总顺序索引
     // 存放任务物料颜色和位置顺序数组(一一对应)
     Color_Code color_buf_one[3];    // 第一组
     Area_Code  area_buf_one[3];
@@ -71,6 +72,7 @@ typedef struct {
     Area_Code  area_buf_two[3];
     // 将放置的物料颜色按照任务顺序排列成数组
     Color_Code color_buf[6];        // 总顺序
+    uint8_t index;      // 总顺序索引
     // 第一二组完成情况
     uint8_t one_finish;     // 第一组物料搬运是否完成(放到暂存区) 0:未完成 1:完成
     uint8_t two_finish;     // 第二组物料搬运是否完成(从粗加工区拿起) 0:未完成 1:完成
@@ -81,20 +83,23 @@ typedef struct {
 #define MAX_STRETCH_DIST    6.0f      // 最远伸出距离，防止超限导致电机堵转
 // ======== 结构体、枚举、结构体声明 ======== //
 extern Task_State task_state;
+// ======== 变量声明 ======== //
+extern uint8_t openmv_start;         // openmv启动标志
+extern uint8_t openmv_end;           // openmv结束标志
+extern uint8_t qr_ready;             // 0=无 1=解析成功 2=失败/超时
 
 // ======== 函数声明 ======== //
 // 任务初始化
 void task_init();
 // 任务接收
-void task_receive(void);
-// 任务执行总函数
-void task_process(void);
+uint8_t task_receive(void);
 
 void imu_task(void);
 void cam_task(void);
+void openmv_work_task(void);
 void send_conduct_task(void);
 uint8_t obstacle_find_task(float car_x, float car_y, float car_yaw);
-
+void hmi_get_car_state_task(void);
 
 #endif //GONGXUN_1_TASK_H
 

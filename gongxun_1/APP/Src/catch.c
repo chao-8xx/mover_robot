@@ -19,6 +19,8 @@ static volatile uint32_t stretch_deadline = 0;
 static volatile uint8_t servo_busy = 0;      // 夹取装置
 static volatile uint32_t servo_deadline = 0;
 
+static volatile int32_t lift_pos_cmd = 0;   // 记录上一次发给驱动器的绝对目标位置
+
 // PID参数
 #define X_KP            0.6f    // x轴坐标与麦轮闭环
 #define X_KD            0.1f
@@ -38,7 +40,13 @@ static float my_absf(float data)
 // 抓取装置位置复位
 void catch_init(void)
 {
-    // 夹爪初始高度15.0cm
+    motor_encoder_clear(Motor_5);   // 升降，清零点为绝对零点
+    HAL_Delay(20);                  // 等清零帧真正发出去，再允许后面的位置命令
+    lift_pos_cmd = 0;
+    lift_busy = 0;
+    lift_deadline = 0;
+
+    // 夹爪初始高度为15cm
     task_state.cur_lift_height = LIFT_NORMAL;
     // 夹爪初始伸出距离0.0cm
     task_state.cur_stretch_dist = STRETCH_NORMAL;
@@ -127,7 +135,7 @@ void catch_stretch_dist(float delta_cm)
     }
     stretch_deadline = HAL_GetTick()
                        + (uint32_t)((float)pulses / pulses_per_ms)
-                       + 100;   // 100ms 余量
+                       + 300;   // 300ms 余量
     stretch_busy = 1;
 
     // 刷新伸缩装置当前伸出距离
@@ -151,8 +159,16 @@ void catch_stretch_to_pos(float dist)
     my_control.stretch_state = 1;
 }
 
+// 绝对式换算函数
+static int32_t lift_height_to_pos(float height_cm)
+{
+    float p = (LIFT_NORMAL - height_cm) * 10.0f
+              * (float)PULSE_PER_CIRCLE / (float)MM_PER_CIRCLE;
+    return (int32_t)(p + (p >= 0.0f ? 0.5f : -0.5f));
+}
+
 // 抓取装置夹爪升降 单位：cm
-// 正：上升 负：下降  电机顺时针上升（pulse为负）
+// 正：上升 负：下降  电机顺时针上升（pulse为负） 相对模式
 void catch_lift(float delta_cm)
 {
     int32_t pulse = 0;
@@ -187,31 +203,61 @@ void catch_lift(float delta_cm)
         t_ms = (uint32_t)((float)pulses / pulses_per_ms);
     }
     else {
-        float t_ramp_s = my_absf((float)acc) * (256.0f - (float)STEP_MOTOR_CATCH_ACC) * 50e-6f;
+        float t_ramp_s = my_absf((float)STEP_MOVE_SPEED)
+                       * (256.0f - (float)STEP_MOTOR_CATCH_ACC) * 50e-6f;
         t_ms = (uint32_t)((float)pulses / pulses_per_ms + t_ramp_s);  // 梯形公式
     }
 
     lift_deadline = HAL_GetTick()
                      + (uint32_t)(t_ms)
-                     + 2000;   // 2000ms 余量
+                     + 1400;   // 1400ms 余量
     lift_busy = 1;
     task_state.cur_lift_height += delta_cm;
 }
 
-// 抓取装置夹爪升降至固定高度 单位:cm
+// 抓取装置夹爪升降至固定高度 单位:cm 绝对模式
 void catch_lift_to_height(float height)
 {
     // 超限保护
-    if (height < 0.0f || height > 140.0f) {
+    if (height < -1.0f || height > 15.0f) {
         return;
     }
 
-    float delta = height - task_state.cur_lift_height;
-    if (delta == 0.0f) {
-        return;
-    }
-    catch_lift(delta);
+    // 绝对模式
+    int32_t pos;
+    int32_t diff;
+    uint32_t pulses;
+    float pulses_per_ms;
+    uint32_t t_ms = 0;
+    static float acc = (float)STEP_MOTOR_CATCH_ACC;
 
+    pos  = lift_height_to_pos(height);
+    diff = pos - lift_pos_cmd;                       // 本次要走的绝对位置差
+    pulses = (diff < 0) ? (uint32_t)(-diff) : (uint32_t)diff;
+
+    // 绝对位置命令：覆盖重发同目标也是安全的
+    motor_set_speed_Pos(Motor_5, STEP_MOVE_SPEED, pos);
+    lift_pos_cmd = pos;
+
+    // ---- 沿用原来的时间估算 ----
+    pulses_per_ms = (float)STEP_MOVE_SPEED * PULSE_PER_CIRCLE / 60000.0f;
+    if (pulses_per_ms < 0.01f) {
+        pulses_per_ms = 0.01f;
+    }
+
+    if (acc < 1.0f) {
+        t_ms = (uint32_t)((float)pulses / pulses_per_ms);
+    }
+    else {
+        float t_ramp_s = my_absf((float)STEP_MOVE_SPEED)
+                       * (256.0f - (float)STEP_MOTOR_CATCH_ACC) * 50e-6f;
+        t_ms = (uint32_t)((float)pulses / pulses_per_ms + t_ramp_s);
+    }
+
+    lift_deadline = HAL_GetTick() + t_ms + 1400;   // 余量
+    lift_busy = 1;
+
+    task_state.cur_lift_height = height;
     my_control.lift_state = 1;
 }
 
@@ -249,7 +295,7 @@ uint8_t servo_is_busy(void)
 // 升降是否还在执行
 uint8_t lift_is_busy(void)
 {
-    return lift_busy;
+    return (lift_busy) ? 1 : 0;
 }
 
 // 伸缩是否还在执行
@@ -276,8 +322,9 @@ void catch_tick(void)
         servo_busy = 0;
     }
 
-    // 未发车时，hmi可控制夹取装置
+    // hmi可控制夹取装置 和状态接收
     if (!car_run) {
-        hmi_control_send_tick();    // 串口屏控制发送指令
+        hmi_control_send_tick();
     }
+    // hmi_control_send_tick();    // 串口屏控制发送指令
 }

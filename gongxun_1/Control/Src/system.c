@@ -24,6 +24,8 @@ void system_init(void)
     bfs_base_obstacle();
     HAL_Delay(100);         // 等待一会儿
 
+    init_ok_remind();       // 初始化完成提醒
+
     car_reset = true;       // 系统完成初始化/复位
 }
 
@@ -36,6 +38,7 @@ void system_control(void)
     }
 
     // 任务控制逻辑
+    control_process();
 }
 
 // 是否具备发车条件

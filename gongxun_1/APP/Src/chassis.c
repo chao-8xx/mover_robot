@@ -7,12 +7,12 @@
 #define CHASSIS_CM_PER_PULSE         ((3.14159265f * CHASSIS_WHEEL_DIAM_CM) / CHASSIS_MOTOR_PULSE_PER_REV)  // cm/脉冲
 
 // 偏航 PID：输出是电机速度(RPM)，正负方向按实际转向调整
-#define CHASSIS_YAW_KP       3.8f
-#define CHASSIS_YAW_KD       0.2f
-#define CHASSIS_YAW_MAX_I    50.0f
-#define CHASSIS_YAW_MAX_OUT  120
-#define CHASSIS_YAW_SETTLE   50        // 50 个 10ms = 稳定 500ms 后才算转到位
-#define CHASSIS_MOVE_MARGIN_MS 200     // 位置移动结束的额外余量ms
+#define CHASSIS_YAW_KP         3.8f
+#define CHASSIS_YAW_KD         0.2f
+#define CHASSIS_YAW_MAX_I      50.0f
+#define CHASSIS_YAW_MAX_OUT    120
+#define CHASSIS_YAW_SETTLE     50        // 50 个 10ms = 稳定 500ms 后才算转到位
+#define CHASSIS_MOVE_MARGIN_MS 500     // 位置移动结束的额外余量ms
 
 // 转向电机死区速度
 #define ROTATE_DEAD_SPEED  0

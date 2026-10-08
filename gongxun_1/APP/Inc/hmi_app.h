@@ -1,6 +1,9 @@
 #ifndef GONGXUN_1_HMI_APP_H
 #define GONGXUN_1_HMI_APP_H
 
+// 发送状态标志位 1:发送
+extern uint8_t hmi_state_send;       // 发送状态标志位 1:发送
+extern uint8_t hmi_send_cold;        // 是否进入冷却 1:是
 
 // 串口屏初始化
 void my_hmi_init(void);
@@ -21,8 +24,7 @@ void hmi_solve(UART_HandleTypeDef *huart, uint16_t Size);
 // 串口屏控制发送指令 放入1ms中断
 void hmi_control_send_tick(void);
 
-// 阻塞式发送小车当前状态至串口屏
-void hmi_get_car_state(void);
+
 
 #endif //GONGXUN_1_HMI_APP_H
 

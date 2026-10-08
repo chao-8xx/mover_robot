@@ -6,6 +6,9 @@ int16_t motor2_speed = 0;
 int16_t motor3_speed = 0;
 int16_t motor4_speed = 0;
 
+// 位置记录
+static int32_t step_motor_pos[STEP_MOTOR_COUNT] = {0};
+
 // 张大头 Emm_V5 驱动器地址：Motor_1 ~ Motor_6 对应 1 ~ 6
 static const uint8_t step_motor_addr[STEP_MOTOR_COUNT] = {1, 2, 3, 4, 5, 6};
 
@@ -57,7 +60,10 @@ void step_motor_init()
 // 电机编码器清零
 void motor_encoder_clear(Motor_Num motor_num)
 {
-    Emm_V5_Clear_Encoder(motor_num);
+    uint8_t addr = step_motor_get_addr(motor_num);
+    if (addr != 0) {
+        Emm_V5_Clear_Encoder(addr);
+    }
 }
 
 // 电机定速控制（非阻塞，可在主循环或定时器中断中调用,正：逆时针，负：顺时针）
@@ -110,6 +116,7 @@ void motor_set_speedPos(Motor_Num motor_num,int16_t speed,int32_t pulse)
         Emm_V5_Pos_Control(addr, dir, vel, STEP_MOTOR_CATCH_ACC, clk, false, false);   // 5、6号电机不需要加速度，需要及时性
     }
     step_motor_update_speed(motor_num, speed);
+    step_motor_pos[motor_num] += pulse;    // pulse 正=下降方向=位置增大，符号一致
 }
 
 // 电机定速定位置控制 绝对（非阻塞，可在主循环或定时器中断中调用）
@@ -129,8 +136,8 @@ void motor_set_speed_Pos(Motor_Num motor_num,int16_t speed,int32_t pos)
         vel = 5000;
     }
 
-    // pulse 正负决定方向，取绝对值作为相对脉冲数
-    dir = (pos < 0) ? 1 : 0;
+    int32_t cur = step_motor_pos[motor_num];
+    dir = (pos < cur) ? 1 : 0;             // 位置值减小 = 上升 = dir 1
     clk = (pos < 0) ? (uint32_t)(-(int32_t)pos) : (uint32_t)pos;
 
     Emm_V5_Pos_Control(addr, dir, vel, STEP_MOTOR_CATCH_ACC, clk, true, false);

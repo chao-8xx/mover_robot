@@ -1,19 +1,26 @@
 #include "headfile.h"
 
-#define TARGET_DX   (0)           // 目标dx
+#define TARGET_DX   (0)          // 目标dx
 #define TARGET_DY   (20)         // 目标dy
 
+#define TARGET_CIRCLE_DX (0)     // 圆环目标dx
+#define TARGET_CIRCLE_DY (-5)     // 圆环目标dy
+
 #define LEAVE_PARK_DX     15.0f       // 离开启停区的横向距离
-#define LEAVE_PARK_DY     21.0f       // 离开启停区的纵向距离
+#define LEAVE_PARK_DY     18.0f       // 离开启停区的纵向距离
 
-#define MOVE_SPEED        250         // 底盘非任务区运行速度
+#define MOVE_SPEED        400         // 底盘非任务区运行速度
 
-// 根据格子数量对于行走距离cm
-#define NUM_DELTA_DIST    16.0f        // 暂存区、粗加工区圆环间距16cm
-#define ONE_BLOCK_DIST    43.5f       // 一格走43.5cm
-#define TWO_BLOCK_DIST    88.0f       // 两格走88.0cm
-#define THREE_BLOCK_DIST  127.5f      // 三格走127.5cm
-#define FOUR_BLOCK_DIST   172.0f      // 四格走172.0cm
+// 根据格子数量对于行走距离 cm
+#define NUM_DELTA_DIST    13.0f       // 暂存区、粗加工区圆环间距
+#define ONE_BLOCK_DIST    43.5f       // 一格
+#define TWO_BLOCK_DIST    87.0f       // 两格
+#define THREE_BLOCK_DIST  127.5f      // 三格
+#define FOUR_BLOCK_DIST   172.5f      // 四格
+
+// 舵机等待时间 ms
+#define CLAW_WAIT         600         // 等待夹爪
+#define HOLDER_WAIT       800         // 等待云台
 
 // 任务完成标志
 uint8_t scan_finish = 0;    // 扫码任务完成标志
@@ -76,7 +83,7 @@ void leave_parking(void)
                 leave_step = 1;
                 break;
             case 1:
-                car_run_distance(my_control.speed, 0.0f, LEAVE_PARK_DX);
+                car_run_distance(my_control.speed, 0.0f, LEAVE_PARK_DY);
                 my_control.move_state = 1;
                 leave_step = 2;
                 break;
@@ -99,7 +106,7 @@ void leave_parking(void)
                 leave_step = 1;
                 break;
             case 1:
-                car_run_distance(my_control.speed, 0.0f, -LEAVE_PARK_DX);
+                car_run_distance(my_control.speed, 0.0f, -LEAVE_PARK_DY);
                 my_control.move_state = 1;
                 leave_step = 2;
                 break;
@@ -128,7 +135,7 @@ void back_parking(void)
                 back_step = 1;
                 break;
             case 1:
-                car_run_distance(my_control.speed, 0.0f, -LEAVE_PARK_DX);
+                car_run_distance(my_control.speed, 0.0f, -LEAVE_PARK_DY);
                 my_control.move_state = 1;
                 back_step = 2;
                 break;
@@ -151,7 +158,7 @@ void back_parking(void)
                 back_step = 1;
                 break;
             case 1:
-                car_run_distance(my_control.speed, 0.0f, LEAVE_PARK_DX);
+                car_run_distance(my_control.speed, 0.0f, LEAVE_PARK_DY);
                 my_control.move_state = 1;
                 back_step = 2;
                 break;
@@ -521,13 +528,6 @@ void final_road_move(void)
 }
 
 
-// 扫码获取任务
-void scan_get_task(void)
-{
-    scan_finish = 1;
-    my_control.step = CALIBRATE_YAW_STEP;   // 跳到校准角度步骤 校准完再离开
-}
-
 // 目标状态获取 将摄像头所捕获的状态转化成车辆状态机
 void target_state_get(void)
 {
@@ -565,8 +565,35 @@ uint8_t catch_is_ok(void)
         stable_frame = 0;
     }
 
-    // 稳定1帧，即达到抓取条件
-    if (stable_frame >= 1) {
+    // 稳定20帧，即达到抓取条件
+    if (stable_frame >= 20) {
+        stable_frame = 0;
+        task_state.is_catch_target = 1;
+    }
+    else {
+        task_state.is_catch_target = 0;
+    }
+
+    return task_state.is_catch_target;
+}
+
+// 确认是否稳定可放置 1:可放置
+uint8_t put_is_ok(void)
+{
+    static uint8_t stable_frame = 0;
+
+    // 确认目标是否跟踪到可抓取位置附近 发现且稳定时
+    if ((task_state.follow_x < TARGET_CIRCLE_DX + 5 && task_state.follow_x > TARGET_CIRCLE_DX - 5) &&
+        (task_state.follow_y < TARGET_CIRCLE_DY + 5 && task_state.follow_y > TARGET_CIRCLE_DY - 5) &&
+        task_state.is_find_target) {
+        stable_frame += 1;
+        }
+    else {
+        stable_frame = 0;
+    }
+
+    // 稳定20帧，即达到抓取条件
+    if (stable_frame >= 20) {
         stable_frame = 0;
         task_state.is_catch_target = 1;
     }
@@ -580,103 +607,98 @@ uint8_t catch_is_ok(void)
 // 将当前需要抓取的颜色发给maix
 void send_color_conduct(void)
 {
-    if ((!task_state.one_finish && !task_state.two_finish) ||
-        (task_state.one_finish && task_state.two_finish)) {   // 第一二组未完成或都完成
-        switch (task_state.color_buf_one[task_state.index_1])
-        {
-            case TASK_RED:
-                maix_start_blob(MAIX_COLOR_RED);
-                task_state.index_1 += 1;
-                break;
-            case TASK_YELLOW:
-                maix_start_blob(MAIX_COLOR_YELLOW);
-                task_state.index_1 += 1;
-                break;
-            case TASK_BLUE:
-                maix_start_blob(MAIX_COLOR_BLUE);
-                task_state.index_1 += 1;
-                break;
-            case TASK_GREEN:
-                maix_start_blob(MAIX_COLOR_GREEN);
-                task_state.index_1 += 1;
-                break;
-            case TASK_BLACK:
-                maix_start_blob(MAIX_COLOR_BLACK);
-                task_state.index_1 += 1;
-                break;
-            case TASK_LOW_BLUE:
-                maix_start_blob(MAIX_COLOR_LIGHTBLUE);
-                task_state.index_1 += 1;
-                break;
-            default:
-                maix_start_blob(MAIX_COLOR_NONE);
-                task_state.index_1 += 1;
-                break;
-        }
-        if (task_state.index_1 > 2) {
-            task_state.index_1 = 0;
-        }
+    switch (task_state.color_buf[task_state.index])
+    {
+        case TASK_RED:
+            maix_start_blob(MAIX_COLOR_RED);
+            task_state.index += 1;
+            break;
+        case TASK_YELLOW:
+            maix_start_blob(MAIX_COLOR_YELLOW);
+            task_state.index += 1;
+            break;
+        case TASK_BLUE:
+            maix_start_blob(MAIX_COLOR_BLUE);
+            task_state.index += 1;
+            break;
+        case TASK_GREEN:
+            maix_start_blob(MAIX_COLOR_GREEN);
+            task_state.index += 1;
+            break;
+        case TASK_BLACK:
+            maix_start_blob(MAIX_COLOR_BLACK);
+            task_state.index += 1;
+            break;
+        case TASK_LOW_BLUE:
+            maix_start_blob(MAIX_COLOR_LIGHTBLUE);
+            task_state.index += 1;
+            break;
+        default:
+            maix_start_blob(MAIX_COLOR_NONE);
+            task_state.index += 1;
+            break;
     }
-    else if (task_state.one_finish && !task_state.two_finish) {   // 第一组已完成 第二组未完成
-        switch (task_state.color_buf_two[task_state.index_2])
-        {
-            case TASK_RED:
-                maix_start_blob(MAIX_COLOR_RED);
-                task_state.index_2 += 1;
-                break;
-            case TASK_YELLOW:
-                maix_start_blob(MAIX_COLOR_YELLOW);
-                task_state.index_2 += 1;
-                break;
-            case TASK_BLUE:
-                maix_start_blob(MAIX_COLOR_BLUE);
-                task_state.index_2 += 1;
-                break;
-            case TASK_GREEN:
-                maix_start_blob(MAIX_COLOR_GREEN);
-                task_state.index_2 += 1;
-                break;
-            case TASK_BLACK:
-                maix_start_blob(MAIX_COLOR_BLACK);
-                task_state.index_2 += 1;
-                break;
-            case TASK_LOW_BLUE:
-                maix_start_blob(MAIX_COLOR_LIGHTBLUE);
-                task_state.index_2 += 1;
-                break;
-            default:
-                maix_start_blob(MAIX_COLOR_NONE);
-                break;
-        }
-        if (task_state.index_2 > 2) {
-            task_state.index_2 = 0;
-        }
+    if (task_state.index > 5) {
+        task_state.index = 0;
     }
 }
 
 // 将当前锁定的圆环编号发给maix
+uint8_t put_pos_num = 0;
 void send_circle_conduct(void)
 {
-    static uint8_t send_num = 0;
-    switch (send_num)
+    switch (put_pos_num)
     {
         case 0:
             maix_start_ring(MAIX_RING_1);
-            send_num += 1;
             break;
         case 1:
             maix_start_ring(MAIX_RING_2);
-            send_num += 1;
             break;
         case 2:
             maix_start_ring(MAIX_RING_3);
-            send_num += 1;
             break;
         default:
             break;
     }
-    if (send_num > 2) {
-        send_num = 0;
+}
+
+// 将当前需要抓取的码垛发给maix
+void send_onup_conduct(void)
+{
+    switch (task_state.color_buf[task_state.index])
+    {
+        case TASK_RED:
+            maix_start_onup(MAIX_COLOR_RED);
+            task_state.index += 1;
+            break;
+        case TASK_YELLOW:
+            maix_start_onup(MAIX_COLOR_YELLOW);
+            task_state.index += 1;
+            break;
+        case TASK_BLUE:
+            maix_start_onup(MAIX_COLOR_BLUE);
+            task_state.index += 1;
+            break;
+        case TASK_GREEN:
+            maix_start_onup(MAIX_COLOR_GREEN);
+            task_state.index += 1;
+            break;
+        case TASK_BLACK:
+            maix_start_onup(MAIX_COLOR_BLACK);
+            task_state.index += 1;
+            break;
+        case TASK_LOW_BLUE:
+            maix_start_onup(MAIX_COLOR_LIGHTBLUE);
+            task_state.index += 1;
+            break;
+        default:
+            maix_start_onup(MAIX_COLOR_NONE);
+            task_state.index += 1;
+            break;
+    }
+    if (task_state.index > 5) {
+        task_state.index = 0;
     }
 }
 
@@ -693,6 +715,78 @@ void follow_target(float target_yaw, int16_t target_x, int16_t target_y)
     float y_out = y_pid.output;
 
     car_speed_move((int16_t)(-y_out), (int16_t)(-x_out), (int16_t)(omega_out));
+}
+
+
+// 扫码获取任务
+void scan_get_task(void)
+{
+    static uint8_t scan_step = 0;   // 0=发起 1=等待 2=重试 3=失败
+    static uint8_t retry = 0;
+    switch (scan_step)
+    {
+        case 0:                      // 到达扫码点，发起扫码
+            qr_ready = 0;
+            openmv_start = 1;        // 启动openmv 由openmv_work_task在主循环发出
+            retry = 0;
+            scan_step = 1;
+            break;
+        case 1:                      // 等待解析结果
+            if (qr_ready == 1) {                 // 成功
+                qr_ready  = 0;
+                openmv_end = 1;                  // 停止扫码
+                task_state.remindState = GREEN_REMIND;  // 扫码成功提示
+                scan_finish = 1;                        // 扫码完成
+                task_state.send_task_hmi_ok = 1;        // 将任务发送给串口屏
+                my_control.step = CALIBRATE_YAW_STEP;   // 校准角度
+                scan_step = 0;                          // 复位，供下一轮使用
+            }
+            else if (qr_ready == 2) {   // 超时/解析失败
+                qr_ready = 0;
+                if (++retry < 3) {
+                    openmv_start = 1;   // 再来一次
+                } else {
+                    openmv_end = 1;
+                    task_state.remindState = RED_REMIND;    // 报警
+                    scan_finish = 1;                        // 扫码完成 直接默认了
+                    task_state.send_task_hmi_ok = 1;        // 将任务发送给串口屏
+                    my_control.step = CALIBRATE_YAW_STEP;
+                    scan_step = 0;
+                }
+            }
+            break;
+        default:
+            break;
+    }
+
+}
+
+// 发送任务码置串口屏上 阻塞式 反正只发一遍
+void scan_send_task_hmi(void)
+{
+    if (task_state.send_task_hmi_ok == 0) return;
+
+    uint16_t color_1 = 0,color_2 = 0;
+    uint16_t area_1 = 0,area_2 = 0;
+
+    color_1 = task_state.color_buf_one[0] * 100 + task_state.color_buf_one[1] * 10 +
+        task_state.color_buf_one[2] * 1;
+    area_1 = task_state.area_buf_one[0] * 100 + task_state.area_buf_one[1] * 10 +
+        task_state.area_buf_one[2] * 1;
+    color_2 = task_state.color_buf_two[0] * 100 + task_state.color_buf_two[1] * 10 +
+        task_state.color_buf_two[2] * 1;
+    area_2 = task_state.area_buf_two[0] * 100 + task_state.area_buf_two[1] * 10 +
+        task_state.area_buf_two[2] * 1;
+
+    hmi_SetValue("color1",(int)(color_1));
+    HAL_Delay(10);
+    hmi_SetValue("area1",(int)(area_1));
+    HAL_Delay(10);
+    hmi_SetValue("color2",(int)(color_2));
+    HAL_Delay(10);
+    hmi_SetValue("area2",(int)(area_2));
+    HAL_Delay(10);
+    task_state.send_task_hmi_ok = 0;
 }
 
 
@@ -742,17 +836,18 @@ void catch_material(void)
         case 3:     // 给maix发送识别指令
             my_control.is_send_color = 1;
             temp_yaw = my_yaw;
-            catch_step = 5;
+            catch_stretch_to_pos(STRETCH_CATCH);
+            catch_step = 4;
             break;
         case 4:     // 发现目标且目标稳定时 进入目标校准(第一次到达原料区)
             target_state_get(); // 获取状态
-            if (task_state.is_find_target) {
+            if (task_state.is_find_target && task_state.is_stable_target == 1) {
                 catch_step = 5;
             }
             break;
         case 5:     // 目标校准
             target_state_get(); // 获取状态
-            if (task_state.is_find_target == 1 && task_state.is_stable_target == 1) {   // 目标丢失 进入保护 回退步骤继续等待发现目标
+            if (task_state.is_find_target == 1) {   // 目标丢失 进入保护 回退步骤继续等待发现目标
                 HAL_GPIO_WritePin(GPIOC, GPIO_PIN_0, GPIO_PIN_SET);
                 follow_target(temp_yaw, TARGET_DX, TARGET_DY);
             }
@@ -766,16 +861,19 @@ void catch_material(void)
                 PID_Reset(&yaw_pid);    // 清除误差和积分
                 PID_Reset(&x_pid);
                 PID_Reset(&y_pid);
+                task_state.remindState = BLUE_REMIND;   // 蓝色提示
                 catch_step = 6;
             }
             break;
         case 6:     // 下降高度准备抓取
-            catch_lift_to_height(LIFT_CATCH);
-            catch_step = 7;
+            if (!lift_is_busy()) {
+                catch_lift_to_height(LIFT_CATCH);
+                catch_step = 7;
+            }
             break;
         case 7:     // 夹爪夹住
             claw_ctrl(CLAW_CATCH);
-            servo_wait_ms(600);  // 等待600ms 使其夹爪闭合完全
+            servo_wait_ms(CLAW_WAIT);  // 等待夹爪闭合完全
             catch_num += 1;
             catch_step = 8;
             break;
@@ -805,7 +903,7 @@ void catch_material(void)
             break;
         case 10:    // 让云台转到合适放置位置
             holder_rotate(HOLDER_PUT);
-            servo_wait_ms(1000);  // 等待1000ms 使其云台转到合适放置位置
+            servo_wait_ms(HOLDER_WAIT);  // 等待云台转到合适放置位置
             catch_step = 11;
             break;
         case 11:    // 等待云台转到合适放置位置 下降高度放置
@@ -816,7 +914,7 @@ void catch_material(void)
             break;
         case 12:    // 夹爪松开
             claw_ctrl(CLAW_LOOSE);
-            servo_wait_ms(600);  // 等待600ms 使其夹爪开张完全
+            servo_wait_ms(CLAW_WAIT);  // 等待夹爪开张完全
             catch_step = 13;
             break;
         case 13:    // 夹爪松开后 上升高度
@@ -827,7 +925,7 @@ void catch_material(void)
             break;
         case 14:
             holder_rotate(HOLDER_CATCH);    // 云台转回抓取位置
-            servo_wait_ms(1000);  // 等待1000ms 使其云台转到合适放置位置
+            servo_wait_ms(HOLDER_WAIT);  // 等待云台转到合适放置位置
             catch_step = 15;
             break;
         case 15:    // 等待云台归位
@@ -841,7 +939,7 @@ void catch_material(void)
             }
             break;
         case 16:
-            // maix_stop();    // maix停止视觉任务
+            maix_stop();    // maix停止视觉任务
             catch_num = 0;
             serve_wait_time = 0;
             servo_reset_step = 0;
@@ -849,6 +947,7 @@ void catch_material(void)
             catch_finish = 1;
             catch_step = 0;
             my_control.step = CALIBRATE_YAW_STEP;   // 跳到校准角度步骤 校准完再离开
+            holder_rotate(HOLDER_PUT);    // 云台转回放置位置
             break;
         default:
             break;
@@ -863,6 +962,7 @@ void put_material(void)
     static uint8_t servo_reset_step = 0;    // 舵机复位步骤
     static uint8_t put_num = 0;             // 当前已放置个数
     static float temp_yaw = 0.0f;
+    static uint16_t lose_time = 0;          // 等待超时时间
 
     // 不在粗加工区或暂存区 退出
     if (task_state.task_location != PROCESS && task_state.task_location != TEMPORARY) {
@@ -908,7 +1008,7 @@ void put_material(void)
                 my_control.is_send_circle = 1;
             }
             else if (task_state.one_finish && task_state.two_finish) {
-                my_control.is_send_color = 1;
+                my_control.is_send_onup = 1;
             }
             temp_yaw = my_yaw;
             put_step = 5;
@@ -916,9 +1016,9 @@ void put_material(void)
         case 5:     // 追踪目标
             target_state_get(); // 获取状态
             if (task_state.is_find_target) {   // 发现目标 开始跟踪
-                follow_target(temp_yaw, TARGET_DX, TARGET_DY);
-                // if (catch_is_ok() == 1) {  // 达到抓取条件
-                if (maix_result.valid == 1) {  // 达到抓取条件
+                follow_target(temp_yaw, TARGET_CIRCLE_DX, TARGET_CIRCLE_DY);
+                if (put_is_ok() == 1) {  // 达到放置条件
+                // if (maix_result.valid == 1) {  // 达到抓取条件
                     switch (put_num)
                     {
                         case 0:
@@ -948,12 +1048,15 @@ void put_material(void)
                 PID_Reset(&yaw_pid);    // 清除误差和积分
                 PID_Reset(&x_pid);
                 PID_Reset(&y_pid);
-                put_step = 4;
+                if (++lose_time >= 800) { // 超时
+                    lose_time = 0;
+                    put_step = 4;   // 再发一遍
+                }
             }
             break;
         case 6:     // 云台转回转盘处 开始放置物料
             holder_rotate(HOLDER_PUT);
-            servo_wait_ms(1000);  // 等待1000ms 待云台完成转向
+            servo_wait_ms(HOLDER_WAIT);  // 等待云台完成转向
             put_step = 7;
             break;
         case 7:     // 等云台转完后
@@ -964,23 +1067,23 @@ void put_material(void)
             }
             break;
         case 8:     // 下降高度
-            catch_lift_to_height(LIFT_CATCH);
+            catch_lift_to_height(LIFT_PUT);
             put_step = 9;
             break;
         case 9:     // 夹爪夹紧 抓物料
             claw_ctrl(CLAW_CATCH);  // 夹爪夹紧
-            servo_wait_ms(600); // 等待600ms 夹爪完全夹住
+            servo_wait_ms(CLAW_WAIT); // 等待夹爪完全夹住
             put_step = 10;
             break;
         case 10:     // 等待夹爪夹紧 升起
             if (!servo_is_busy()) {
                 catch_lift_to_height(LIFT_NORMAL);
-                put_step = 10;
+                put_step = 11;
             }
             break;
         case 11:    // 云台转到放置处
             holder_rotate(HOLDER_CATCH);
-            servo_wait_ms(1000); // 等待1000ms 待云台转到目标位置
+            servo_wait_ms(HOLDER_WAIT); // 等云台转到目标位置
             catch_stretch_to_pos(STRETCH_PUT_MID);  // 伸缩到置放置中心圆环位置
             put_step = 12;
             break;
@@ -997,13 +1100,14 @@ void put_material(void)
             break;
         case 13:    // 夹爪松开
             claw_ctrl(CLAW_LOOSE);  // 夹爪松开
-            servo_wait_ms(600); // 等待600ms 待夹爪完全松开
+            servo_wait_ms(CLAW_WAIT); // 等待夹爪完全松开
             put_step = 14;
             break;
         case 14:    // 夹爪松开完全后
             if (!servo_is_busy()) {
                 catch_lift_to_height(LIFT_NORMAL);
                 put_num += 1;
+                put_pos_num = put_num;
                 put_step = 15;
             }
             break;
@@ -1017,26 +1121,32 @@ void put_material(void)
             }
             else if (put_num >= 3) {
                 if (!car_is_busy()) {
-                    car_run_distance(200, 0.0f, -NUM_DELTA_DIST);
+                    car_run_distance(MOVE_SPEED, 0.0f, -NUM_DELTA_DIST);
                     my_control.move_state = 1;
                     put_step = 16;
                 }
             }
             break;
         case 16:
-            // maix_stop();    // maix停止视觉任务
+            maix_stop();    // maix停止视觉任务
             put_num = 0;
+            put_pos_num = put_num;
             serve_wait_time = 0;
             servo_reset_step = 0;
             if (task_state.task_location == PROCESS) {    // 如果放在粗加工区
                 task_state.car_work = PICKING; // 小车结束放置状态 把物料从粗加工区拿起
                 my_control.step = PICK_MATERIAL_STEP;   // 跳到拿起物料步骤
-                if (task_state.one_finish && !task_state.two_finish) {
-                    task_state.two_finish = 1;
+                if ((!task_state.one_finish && !task_state.two_finish) ||
+                    (task_state.one_finish && task_state.two_finish)) {
+                    task_state.index = 0;
+                }
+                else if (task_state.one_finish && !task_state.two_finish) {
+                    task_state.index = 3;
                 }
             }
             else if (task_state.task_location == TEMPORARY) {   // 如果放在暂存区
                 task_state.car_work = RUNNING; // 小车结束放置状态 去往下一个点位
+                holder_rotate(HOLDER_PUT);    // 云台转回放置位置
                 my_control.step = CALIBRATE_YAW_STEP;   // 跳到校准角度步骤 校准完再离开
                 if (!task_state.one_finish) {
                     task_state.one_finish = 1;
@@ -1058,6 +1168,8 @@ void pick_material(void)
     static uint8_t servo_reset_step = 0;    // 舵机复位步骤
     static uint8_t pick_num = 0;            // 当前已拿起个数
     static float temp_yaw = 0.0f;
+    static uint16_t lose_time = 0;          // 等待超时时间
+    static uint16_t lock_time = 0;          // 等待超时时间
 
     // 不在粗加工区 退出
     if (task_state.task_location != PROCESS) {
@@ -1088,40 +1200,55 @@ void pick_material(void)
             }
             else if (serve_wait_time >= 30 && servo_reset_step == 2) {
                 claw_ctrl(CLAW_LOOSE);
-                servo_reset_step = 0;
-                serve_wait_time = 0;
-                pick_step = 3;
+                if (!car_is_busy()) {
+                    servo_reset_step = 0;
+                    serve_wait_time = 0;
+                    pick_step = 3;
+                }
             }
             break;
         case 3:     // 回到一号圆环
-            car_run_distance(MOVE_SPEED,0.0f,2.0f*NUM_DELTA_DIST);
+            car_run_distance(MOVE_SPEED,0.0f,-NUM_DELTA_DIST);
+            my_control.move_state = 1;
             pick_step = 4;
             break;
         case 4:     // 给maix发送识别指令
-            my_control.is_send_color = 1;
+            my_control.is_send_onup = 1;
             temp_yaw = my_yaw;
+            catch_stretch_to_pos(STRETCH_PUT_MID);
             pick_step = 5;
             break;
         case 5:
             target_state_get(); // 获取状态
             if (task_state.is_find_target == 1) {   // 目标丢失 进入保护 回退步骤继续等待发现目标
                 follow_target(temp_yaw, TARGET_DX, TARGET_DY);
+                if (catch_is_ok() == 1) {  // 达到抓取条件
+                    car_stop();
+                    PID_Reset(&yaw_pid);    // 清除误差和积分
+                    PID_Reset(&x_pid);
+                    PID_Reset(&y_pid);
+                    pick_step = 6;
+                }
+                else {
+                    if (++lock_time >= 500) {  // 超时直接抓
+                        lock_time = 0;
+                        pick_step = 6;
+                    }
+                }
             }
             else {
                 car_stop();
-                catch_step = 4;
-            }
-            if (catch_is_ok() == 1) {  // 达到抓取条件
-                car_stop();
-                PID_Reset(&yaw_pid);    // 清除误差和积分
-                PID_Reset(&x_pid);
-                PID_Reset(&y_pid);
-                catch_step = 6;
+                if (++lose_time >= 800) { // 超时
+                    lose_time = 0;
+                    my_control.is_send_onup = 1;   // 重发同一个环（put_pos_num 没变，不会串环）
+                }
             }
             break;
         case 6:     // 下降抓取
-            catch_lift_to_height(LIFT_CATCH);
-            pick_step = 7;
+            if (!lift_is_busy()) {
+                catch_lift_to_height(LIFT_PUT_ONE);
+                pick_step = 7;
+            }
             break;
         case 7:     // 夹爪抓取
             claw_ctrl(CLAW_CATCH);
@@ -1137,7 +1264,7 @@ void pick_material(void)
         case 9:     // 伸缩到放置位置 云台转到放置位置
             catch_stretch_to_pos(STRETCH_PUT);
             holder_rotate(HOLDER_PUT);
-            servo_wait_ms(1000); // 待云台转到目标位置
+            servo_wait_ms(HOLDER_WAIT); // 等待云台转到目标位置
             pick_step = 10;
             break;
         case 10:     // 待位置稳定
@@ -1160,7 +1287,7 @@ void pick_material(void)
             break;
         case 13:    // 云台转回去
             holder_rotate(HOLDER_CATCH);
-            servo_wait_ms(1000);
+            servo_wait_ms(HOLDER_WAIT);
             pick_step = 14;
             break;
         case 14:    // 等云台转回去后 根据剩余物料判断是否继续
@@ -1185,23 +1312,29 @@ void pick_material(void)
             break;
         case 15:    // 根据已经放好的物料数决定是否结束
             if (pick_num < 3) {
-                car_run_distance(MOVE_SPEED,0.0f,-NUM_DELTA_DIST);  // 到达下一个圆环
+                car_run_distance(MOVE_SPEED,0.0f,NUM_DELTA_DIST);  // 到达下一个圆环
+                my_control.move_state = 1;
                 pick_step = 4;
             }
             else if (pick_num >= 3) {
-                car_run_distance(MOVE_SPEED,0.0f,NUM_DELTA_DIST);   // 回到中心圆环
+                car_run_distance(MOVE_SPEED,0.0f,-NUM_DELTA_DIST);   // 回到中心圆环
+                my_control.move_state = 1;
                 pick_step = 16;
             }
             break;
         case 16:    // 结束
-            // maix_stop();    // maix停止视觉任务
+            maix_stop();    // maix停止视觉任务
             pick_num = 0;
             serve_wait_time = 0;
             servo_reset_step = 0;
             if (task_state.task_location == PROCESS) {    // 在粗加工区
                 task_state.car_work = RUNNING; // 小车结束拿起状态 去往下一个点位
                 my_control.step = CALIBRATE_YAW_STEP;   // 跳到校准角度步骤 校准完再离开
+                if (task_state.one_finish && !task_state.two_finish) {
+                    task_state.two_finish = 1;
+                }
             }
+            holder_rotate(HOLDER_PUT);    // 云台转回放置位置
             pick_finish = 1;
             pick_step = 0;
             break;
@@ -1338,7 +1471,9 @@ void control_process(void)
 
         case 99:
         default:
-            car_stop();
+            if (car_run) {
+                car_stop();
+            }
             car_run = false;
             my_control.step = 99;
             break;

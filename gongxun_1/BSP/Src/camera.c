@@ -26,8 +26,7 @@ volatile uint8_t cam_error_flag = 0; // 错误回调标志位
 uint8_t qr_tx_frame[6];          // OpenMV控制命令发送缓冲区
 uint8_t qr_data[QR_DATA_LEN + 1];// 接收到的二维码数据
 uint8_t qr_ok = 0;               // 接收到二维码数据的标志位
-uint32_t qr_tick = 0;             // F407收到二维码结果的时间
-
+uint32_t qr_tick = 0;            // F407收到二维码结果的时间
 
 
 // Maix命令发送和最新单帧原始结果

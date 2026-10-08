@@ -41,6 +41,7 @@ typedef struct {
 
     uint8_t is_send_color;
     uint8_t is_send_circle;
+    uint8_t is_send_onup;
 
     int16_t speed;            // 底盘运行速度（非任务区）
     float   target_yaw;       // 目标偏航角
@@ -81,20 +82,27 @@ void normal_road_move(void);
 // 到目标点最后一段道路运行 步骤11
 void final_road_move(void);
 
-// 扫码获取任务
-void scan_get_task(void);
 
 // 目标状态获取 将摄像头所捕获的状态转化成车辆状态机
 void target_state_get(void);
 // 确认是否稳定可抓取 1:可抓取
 uint8_t catch_is_ok(void);
+// 确认是否稳定可放置 1:可放置
+uint8_t put_is_ok(void);
 // 将当前需要抓取的颜色发给maix
 void send_color_conduct(void);
 // 将当前锁定的圆环编号发给maix
 void send_circle_conduct(void);
+// 将当前需要抓取的码垛发给maix
+void send_onup_conduct(void);
 // 追踪目标 物料 圆环
 // 校准车身姿态 追踪x和y坐标
 void follow_target(float target_yaw, int16_t target_x, int16_t target_y);
+
+// 扫码获取任务
+void scan_get_task(void);
+// 发送任务码置串口屏上
+void scan_send_task_hmi(void);
 
 // 抓取物料 原料区->转盘
 void catch_material(void);
@@ -108,18 +116,3 @@ void control_process(void);
 
 
 #endif //GONGXUN_1_CONTROL_H
-
-/* 步骤说明：
- * 0：复位陀螺仪
- * 1：等一会儿
- * 2：离开启停区
- * 3：回到启停区
- * 4：规划去启停区的路径（根据发车点确定）
- * 5：规划去扫码区的路径（根据发车点确定）
- * 6：规划去原料区的路径（根据发车点确定）
- * 7：规划去暂存区的路径（根据发车点确定）
- * 8：规划去粗加工区的路径（根据发车点确定）
- * 9：普通段：转好头后连续直行
- * 10：最后一段：车头转到要求向量后进点
- * 99：停车
-*/

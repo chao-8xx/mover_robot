@@ -106,8 +106,6 @@ int main(void)
   MX_TIM4_Init();
   /* USER CODE BEGIN 2 */
   system_init();
-  init_ok_remind();
-  HAL_Delay(800);
 
   /* USER CODE END 2 */
 
@@ -116,10 +114,15 @@ int main(void)
 
   while (1)
   {
-    // hmi_get_car_state();
-    cam_task();          // 解析摄像头数据
+    // 阻塞式给串口屏发送任务显示 全局只执行一次
+    if (task_state.send_task_hmi_ok == 1) {
+      scan_send_task_hmi();
+    }
 
-    send_conduct_task();
+    cam_task();               // 解析摄像头数据
+    openmv_work_task();       // openmv扫码启动中止任务
+    send_conduct_task();      // 给maix发数据处理任务
+    hmi_get_car_state_task(); // 非阻塞式发送小车当前状态至串口屏任务
 
     // lidar_process();  // 激光雷达处理
 

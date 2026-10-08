@@ -8,6 +8,15 @@ uint8_t hmi_stretch_state = 0;  // 串口屏控制伸缩标志  1：可接收指
 int16_t hmi_lift_mm = 0;        // 串口屏控制升降距离 mm
 int16_t hmi_stretch_mm = 0;     // 串口屏控制伸缩距离 mm
 
+// 把小车状态显示在串口屏上 便于调试
+uint8_t hmi_state_wait = 200;     // 整体状态发送间隔时间 ms
+uint8_t hmi_state_send = 0;       // 发送状态标志位 1:发送
+uint8_t hmi_send_cold = 0;        // 是否进入冷却 1:是
+uint8_t hmi_send_cold_wait = 5;   // 冷却时间
+
+// 急停状态
+uint8_t hmi_rapid_stop = 0;       // 1:触发急停 所有电机急停
+
 // 串口屏初始化
 void my_hmi_init(void)
 {
@@ -24,14 +33,16 @@ void hmi_touch(void) {
 void hmi_start(void)
 {
     car_run = true;
-    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_0,GPIO_PIN_RESET);
+    hmi_lift_state = 0;
+    hmi_stretch_state = 0;
 }
 
 // 触摸串口屏停车事件
 void hmi_stop(void)
 {
     car_run = false;
-    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_0,GPIO_PIN_SET);
+    my_control.step = 99;
+    hmi_rapid_stop = 1;
 }
 
 // 触摸串口屏事件总处理
@@ -52,9 +63,6 @@ void hmi_solve(UART_HandleTypeDef *huart, uint16_t Size)
                     }
                 else if (touch.page_id == 0x01 && touch.obj_id == 0x04) {
                     hmi_start();    // 发车事件触发
-                    if (car_reset) {
-                        car_reset = false;  // 置未复位标志，发车前复位一次
-                    }
                 }
                 else if (touch.page_id == 0x06 && touch.obj_id == 0x0F) {
                     hwt101_yaw_reset();     // 陀螺仪偏航角复位
@@ -133,7 +141,7 @@ void hmi_solve(UART_HandleTypeDef *huart, uint16_t Size)
         }
         else if (hmi_rxbuffer[1] == 0x33) { // 舵机控制  01：云台  02：转盘  03：夹爪
             // 帧格式：DD 33 0x ... FF FF FF
-            if (Size >= 8 && hmi_rxbuffer[Size - 1] == 0xFF &&
+            if (Size >= 7 && hmi_rxbuffer[Size - 1] == 0xFF &&
             hmi_rxbuffer[Size - 2] == 0xFF && hmi_rxbuffer[Size - 3] == 0xFF) {
                 if (hmi_rxbuffer[2] == 0x01) {      // 01云台： DD 33 01 00 FF FF FF（00:放置 01:左 02:中 03:右）
                     if (hmi_rxbuffer[3] == 0x00) {  // 放置
@@ -170,11 +178,6 @@ void hmi_solve(UART_HandleTypeDef *huart, uint16_t Size)
                     else if (hmi_rxbuffer[3] == 0x01) { // 夹取
                         claw_ctrl(CLAW_CATCH);
                     }
-                }
-                else if (hmi_rxbuffer[2] == 0x04) { // DD 33 04 00 FF FF FF舵机复位
-                    holder_rotate(0.0f);    // 云台舵机角度回零
-                    turntable_rotate(0.0f); // 转盘舵机角度回零
-                    claw_ctrl(CLAW_LOOSE);  // 夹爪松开
                 }
                 else if (hmi_rxbuffer[2] == 0x05) { // DD 33 05 00 FF FF FF舵机回零，除了夹爪保持闭合
                     holder_rotate(HOLDER_PUT);       // 云台舵机放置物料位置
@@ -216,25 +219,30 @@ void hmi_control_send_tick(void)
             hmi_stretch_state = 0;
         }
     }
+
+    // 发送状态计时
+    if (hmi_state_send == 0) {
+        hmi_state_wait --;
+        if (hmi_state_wait <= 0) {
+            hmi_state_wait = 200;
+            hmi_state_send = 1;
+        }
+    }
+    // 发送冷却计时
+    if (hmi_send_cold == 1) {
+        hmi_send_cold_wait --;
+        if (hmi_send_cold_wait <= 0) {
+            hmi_send_cold_wait = 5;
+            hmi_send_cold = 0;
+        }
+    }
+
+    // 急停状态
+    if (hmi_rapid_stop == 1) {
+        Emm_V5_Stop_Now(0,false);    // 直接发送急停指令
+    }
 }
 
-// 阻塞式发送小车当前状态至串口屏
-void hmi_get_car_state(void)
-{
-    hmi_SetValue("yaw",(int)(my_yaw * 100.0f));
-    HAL_Delay(5);
 
-    hmi_SetValue("X",(int)(task_state.cur_x));
-    HAL_Delay(1);
-    hmi_SetValue("Y",(int)(task_state.cur_y));
-    HAL_Delay(1);
-    HAL_Delay(5);
-
-    hmi_SetValue("X_",(int)(my_control.head_x));
-    HAL_Delay(1);
-    hmi_SetValue("Y_",(int)(my_control.head_y));
-    HAL_Delay(1);
-    HAL_Delay(5);
-}
 
 // hmi_SetValue("yaw",(int)(my_yaw * 100.0f));
