@@ -8,7 +8,7 @@
 #define MM_PER_CIRCLE     8         // 一圈升降的距离mm
 
 // 电机速度
-#define STEP_MOVE_SPEED     1800     // 丝杆电机位置模式移动速度
+#define STEP_MOVE_SPEED     1900     // 丝杆电机位置模式移动速度
 #define STEP_SPEED          200      // 齿轮齿条电机位置模式移动速度
 
 // 升降非阻塞计时：预计完成时刻 + busy 标志

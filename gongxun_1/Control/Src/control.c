@@ -3,8 +3,8 @@
 #define TARGET_DX   (-8)         // 目标dx
 #define TARGET_DY   (10)          // 目标dy
 
-#define TARGET_CIRCLE_DX (3)     // 圆环目标dx
-#define TARGET_CIRCLE_DY (5)     // 圆环目标dy
+#define TARGET_CIRCLE_DX (2)     // 圆环目标dx
+#define TARGET_CIRCLE_DY (3)     // 圆环目标dy
 
 #define LEAVE_PARK_DX     15.0f       // 离开启停区的横向距离
 #define LEAVE_PARK_DY     16.0f       // 离开启停区的纵向距离
@@ -1041,19 +1041,27 @@ void put_material(void)
             if (task_state.is_find_target) {   // 发现目标 开始跟踪
                 if (task_state.one_finish && task_state.two_finish) {
                     follow_target(temp_yaw, TARGET_DX, TARGET_DY);
+                    if (catch_is_ok() == 1) {  // 达到放置条件
+                        car_stop();
+                        PID_Reset(&yaw_pid);    // 清除误差和积分
+                        PID_Reset(&x_pid);
+                        PID_Reset(&y_pid);
+                        task_state.remindState = GREEN_REMIND;   // 闪灯提示
+                        task_state.index = temp_index;  // 恢复之前索引
+                        put_step = 5;
+                    }
                 }
                 else {
                     follow_target(temp_yaw, TARGET_CIRCLE_DX, TARGET_CIRCLE_DY);
-                }
-
-                if (put_is_ok() == 1) {  // 达到放置条件
-                    car_stop();
-                    PID_Reset(&yaw_pid);    // 清除误差和积分
-                    PID_Reset(&x_pid);
-                    PID_Reset(&y_pid);
-                    task_state.remindState = GREEN_REMIND;   // 闪灯提示
-                    task_state.index = temp_index;  // 恢复之前索引
-                    put_step = 5;
+                    if (put_is_ok() == 1) {  // 达到放置条件
+                        car_stop();
+                        PID_Reset(&yaw_pid);    // 清除误差和积分
+                        PID_Reset(&x_pid);
+                        PID_Reset(&y_pid);
+                        task_state.remindState = GREEN_REMIND;   // 闪灯提示
+                        task_state.index = temp_index;  // 恢复之前索引
+                        put_step = 5;
+                    }
                 }
             }
             else {  // 目标丢失 进入保护 回退步骤继续等待发现目标
@@ -1088,31 +1096,61 @@ void put_material(void)
         case 7:     // 追踪目标
             target_state_get(); // 获取状态
             if (task_state.is_find_target) {   // 发现目标 开始跟踪
-                follow_target(temp_yaw, TARGET_CIRCLE_DX, TARGET_CIRCLE_DY);
-                if (put_is_ok() == 1) {  // 达到放置条件
-                    switch (put_num)
-                    {
-                        case 0:
-                            turntable_rotate(ONE_LOCATION);
-                            break;
-                        case 1:
-                            turntable_rotate(TWO_LOCATION);
-                            break;
-                        case 2:
-                            turntable_rotate(THREE_LOCATION);
-                            break;
-                        case 3:
-                            turntable_rotate(SAFE_LOCATION);
-                            break;
-                        default:
-                            break;
+                if (task_state.one_finish && task_state.two_finish) {
+                    follow_target(temp_yaw, TARGET_DX, TARGET_DY);
+                    if (catch_is_ok() == 1) {  // 达到放置条件
+                        switch (put_num)
+                        {
+                            case 0:
+                                turntable_rotate(ONE_LOCATION);
+                                break;
+                            case 1:
+                                turntable_rotate(TWO_LOCATION);
+                                break;
+                            case 2:
+                                turntable_rotate(THREE_LOCATION);
+                                break;
+                            case 3:
+                                turntable_rotate(SAFE_LOCATION);
+                                break;
+                            default:
+                                break;
+                        }
+                        car_stop();
+                        PID_Reset(&yaw_pid);    // 清除误差和积分
+                        PID_Reset(&x_pid);
+                        PID_Reset(&y_pid);
+                        task_state.remindState = GREEN_REMIND;   // 闪灯提示
+                        put_step = 8;
                     }
-                    car_stop();
-                    PID_Reset(&yaw_pid);    // 清除误差和积分
-                    PID_Reset(&x_pid);
-                    PID_Reset(&y_pid);
-                    task_state.remindState = GREEN_REMIND;   // 闪灯提示
-                    put_step = 8;
+                }
+                else {
+                    follow_target(temp_yaw, TARGET_CIRCLE_DX, TARGET_CIRCLE_DY);
+                    if (put_is_ok() == 1) {  // 达到放置条件
+                        switch (put_num)
+                        {
+                            case 0:
+                                turntable_rotate(ONE_LOCATION);
+                                break;
+                            case 1:
+                                turntable_rotate(TWO_LOCATION);
+                                break;
+                            case 2:
+                                turntable_rotate(THREE_LOCATION);
+                                break;
+                            case 3:
+                                turntable_rotate(SAFE_LOCATION);
+                                break;
+                            default:
+                                break;
+                        }
+                        car_stop();
+                        PID_Reset(&yaw_pid);    // 清除误差和积分
+                        PID_Reset(&x_pid);
+                        PID_Reset(&y_pid);
+                        task_state.remindState = GREEN_REMIND;   // 闪灯提示
+                        put_step = 8;
+                    }
                 }
             }
             else {  // 目标丢失 进入保护 回退步骤继续等待发现目标
