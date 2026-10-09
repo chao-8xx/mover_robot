@@ -143,7 +143,7 @@ void back_parking(void)
                 back_step = 1;
                 break;
             case 1:
-                car_run_distance(my_control.speed, 0.0f, -LEAVE_PARK_DY);
+                car_run_distance(my_control.speed, 0.0f, -(LEAVE_PARK_DY-5.0f));
                 my_control.move_state = 1;
                 back_step = 2;
                 break;

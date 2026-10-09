@@ -8,7 +8,7 @@
 #define MM_PER_CIRCLE     8         // 一圈升降的距离mm
 
 // 电机速度
-#define STEP_MOVE_SPEED     1900     // 丝杆电机位置模式移动速度
+#define STEP_MOVE_SPEED     1400     // 丝杆电机位置模式移动速度
 #define STEP_SPEED          200      // 齿轮齿条电机位置模式移动速度
 
 // 升降非阻塞计时：预计完成时刻 + busy 标志
@@ -45,9 +45,10 @@ void catch_init(void)
     lift_pos_cmd = 0;
     lift_busy = 0;
     lift_deadline = 0;
+    motor_pos_set(Motor_5, 0);      // 补这一行
 
-    // 夹爪初始高度为15cm
-    task_state.cur_lift_height = 15.0f;
+    // 夹爪初始高度
+    task_state.cur_lift_height = LIFT_ZERO_CM;
     // 夹爪初始伸出距离0.0cm
     task_state.cur_stretch_dist = STRETCH_NORMAL;
 
@@ -162,7 +163,7 @@ void catch_stretch_to_pos(float dist)
 // 绝对式换算函数
 static int32_t lift_height_to_pos(float height_cm)
 {
-    float p = (LIFT_NORMAL - height_cm) * 10.0f
+    float p = (LIFT_ZERO_CM - height_cm) * 10.0f
               * (float)PULSE_PER_CIRCLE / (float)MM_PER_CIRCLE;
     return (int32_t)(p + (p >= 0.0f ? 0.5f : -0.5f));
 }
@@ -254,7 +255,13 @@ void catch_lift_to_height(float height)
         t_ms = (uint32_t)((float)pulses / pulses_per_ms + t_ramp_s);
     }
 
-    lift_deadline = HAL_GetTick() + t_ms + 1400;   // 余量
+
+    if (task_state.cur_lift_height < 5) {
+        lift_deadline = HAL_GetTick() + t_ms + 3000;   // 从低到高比较吃力 多留些余量
+    }
+    else {
+        lift_deadline = HAL_GetTick() + t_ms + 1800;   // 余量
+    }
     lift_busy = 1;
 
     task_state.cur_lift_height = height;

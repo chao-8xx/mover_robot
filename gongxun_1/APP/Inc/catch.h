@@ -18,7 +18,8 @@
 #define HOLDER_LEFT     136.0f   // 云台抓取左侧物料角度
 
 // 升降装置目标高度
-#define LIFT_NORMAL     14.5f    // 默认高度
+#define LIFT_ZERO_CM    14.5f    // 编码器清零时对应的物理高度，固定不动
+#define LIFT_NORMAL     14.0f    // 默认高度
 #define LIFT_PUT        12.0f    // 放置高度 放入转盘
 #define LIFT_CATCH      7.0f     // 从原料区抓取高度
 #define LIFT_PUT_ONE    (-0.8f)  // 一次放置 放在圆环

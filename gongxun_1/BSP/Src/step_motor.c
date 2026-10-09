@@ -143,4 +143,10 @@ void motor_set_speed_Pos(Motor_Num motor_num,int16_t speed,int32_t pos)
     Emm_V5_Pos_Control(addr, dir, vel, STEP_MOTOR_CATCH_ACC, clk, true, false);
 
     step_motor_update_speed(motor_num, speed);
+    step_motor_pos[motor_num] = pos;   // 更新绝对位置账本
+}
+
+void motor_pos_set(Motor_Num motor_num, int32_t pos)
+{
+    step_motor_pos[motor_num] = pos;
 }
