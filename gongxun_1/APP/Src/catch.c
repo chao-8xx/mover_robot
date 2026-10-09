@@ -47,7 +47,7 @@ void catch_init(void)
     lift_deadline = 0;
 
     // 夹爪初始高度为15cm
-    task_state.cur_lift_height = LIFT_NORMAL;
+    task_state.cur_lift_height = 15.0f;
     // 夹爪初始伸出距离0.0cm
     task_state.cur_stretch_dist = STRETCH_NORMAL;
 
@@ -219,7 +219,7 @@ void catch_lift(float delta_cm)
 void catch_lift_to_height(float height)
 {
     // 超限保护
-    if (height < -1.0f || height > 15.0f) {
+    if (height < -2.0f || height > 15.0f) {
         return;
     }
 

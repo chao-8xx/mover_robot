@@ -21,8 +21,8 @@
 #define LIFT_NORMAL     14.5f    // 默认高度
 #define LIFT_PUT        12.0f    // 放置高度 放入转盘
 #define LIFT_CATCH      7.0f     // 从原料区抓取高度
-#define LIFT_PUT_ONE    (-0.5f)  // 一次放置 放在圆环
-#define LIFT_PUT_TWO    4.5f     // 二次放置 叠在一次放置处
+#define LIFT_PUT_ONE    (-0.8f)  // 一次放置 放在圆环
+#define LIFT_PUT_TWO    5.0f     // 二次放置 叠在一次放置处
 
 // 伸缩装置目标位置
 #define STRETCH_NORMAL   0.0f   // 默认位置

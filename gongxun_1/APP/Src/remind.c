@@ -1,6 +1,6 @@
 #include "headfile.h"
 
-#define FLASH_TIME   24
+#define FLASH_TIME   23
 
 uint16_t work_time = 0;         // 工作时间
 uint8_t flash_times = 0;        // 闪光次数
