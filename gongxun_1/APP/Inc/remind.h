@@ -6,7 +6,7 @@ typedef enum {
     GREEN_REMIND,   // 闪绿光提醒
     BLUE_REMIND,    // 闪蓝光提醒
     YELLOW_REMIND,  // 闪黄光提醒
-    PINK_REMIND,    // 闪红光提醒
+    PINK_REMIND,    // 闪粉光提醒
     WHITE_REMIND,   // 闪白光提醒
     NO_REMIND       // 无提醒
 } Remind_State;

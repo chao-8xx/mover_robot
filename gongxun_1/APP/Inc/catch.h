@@ -14,7 +14,7 @@
 // 云台舵机角度定义
 #define HOLDER_PUT      248.0f   // 云台放置物料角度
 #define HOLDER_CATCH    96.0f    // 云台抓取中间物料角度
-#define HOLDER_RIGHT    56.0f    // 云台抓取右侧物料角度
+#define HOLDER_RIGHT    60.0f    // 云台抓取右侧物料角度
 #define HOLDER_LEFT     136.0f   // 云台抓取左侧物料角度
 
 // 升降装置目标高度

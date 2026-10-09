@@ -1,6 +1,6 @@
 #include "headfile.h"
 
-#define FLASH_TIME   22
+#define FLASH_TIME   24
 
 uint16_t work_time = 0;         // 工作时间
 uint8_t flash_times = 0;        // 闪光次数
@@ -99,7 +99,7 @@ void remind_control(void)
         }
         else {
             ws2812_off();
-            // buzzer_off();
+            buzzer_off();
             if (flash_times > 2) {
                 flash_times = 0;
                 buzzer_off();
