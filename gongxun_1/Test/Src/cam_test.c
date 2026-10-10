@@ -13,7 +13,7 @@
 #define EXTRA_MS        150
 
 // 等待并处理串口数据
-static void service(void)
+void service(void)
 {
     if (cam_rx_flag) {
         cam_rx_flag = 0;
@@ -23,7 +23,7 @@ static void service(void)
 }
 
 // 持续服务指定时间（毫秒）
-static void service_for(uint32_t ms)
+void service_for(uint32_t ms)
 {
     uint32_t end = HAL_GetTick() + ms;
     while (HAL_GetTick() < end) {
@@ -42,13 +42,14 @@ static void stop_and_clear(void)
 }
 
 // 等待二维码（超时30秒）
-static uint8_t wait_qr(void)
+uint8_t wait_qr(void)
 {
     uint32_t start = HAL_GetTick();
     qr_result_t qr;
     while ((HAL_GetTick() - start) < QR_TIMEOUT_MS) {
         service();
         if (openmv_get_qr_result(&qr)) {
+            task_state.openmv_task_get_ok = 1;
             printf("[二维码] 成功，任务码=%s，长度=%u，延迟 %lu ms\r\n",
                    qr.qr_data,
                    (unsigned int)QR_DATA_LEN,
@@ -57,6 +58,7 @@ static uint8_t wait_qr(void)
         }
         HAL_Delay(POLL_MS);
     }
+    task_state.openmv_task_get_ok = 0;
     printf("[二维码] 超时（%lu ms）\r\n", (unsigned long)QR_TIMEOUT_MS);
     return 0;
 }
@@ -240,6 +242,7 @@ static uint8_t test_timeout(void)
 // OpenMV -> F407 单项测试：只发送B1并等待一帧BB/LEN=15
 void openmv_test(void)
 {
+    openmv_end = 0;
     printf("\r\n========== OpenMV -> F407 单项测试 ==========""\r\n");
 
     // 停止扫码并清空USART1残留
@@ -261,6 +264,7 @@ void openmv_test(void)
 
     printf("[OpenMV] 单项测试：%s\r\n", pass ? "通过" : "失败");
     printf("=============================================\r\n");
+    openmv_end = 1;
 }
 
 // Maix B2绿色物料 -> F407 单项测试

@@ -114,15 +114,11 @@ int main(void)
 
   while (1)
   {
-    // 阻塞式给串口屏发送任务显示 全局只执行一次
-    if (task_state.send_task_hmi_ok == 1) {
-      scan_send_task_hmi();
-    }
-
     cam_task();               // 解析摄像头数据
-    openmv_work_task();       // openmv扫码启动中止任务
+    mv_task();                // OpenMV扫码处理任务
     send_conduct_task();      // 给maix发数据处理任务
     hmi_get_car_state_task(); // 非阻塞式发送小车当前状态至串口屏任务
+
 
     // lidar_process();  // 激光雷达处理
 

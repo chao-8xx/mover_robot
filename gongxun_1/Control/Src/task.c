@@ -8,7 +8,6 @@ Task_State task_state;
 uint8_t analysis_task_data[ANALYSIS_LEN];       // 解析完后的数组
 uint8_t openmv_start = 0;                       // openmv启动标志
 uint8_t openmv_end = 0;                         // openmv结束标志
-uint8_t qr_ready = 0;                           // 0=无 1=解析成功 2=失败/超时
 
 // ==== 声明 ==== //
 extern uint8_t qr_data[QR_DATA_LEN + 1];        // 声明openmv接收数据数组
@@ -49,6 +48,10 @@ void task_init()
     // 给串口屏发送任务标志
     task_state.send_task_hmi_ok = 0;
 
+    // openmv工作状态初始化
+    openmv_start = 0;
+    openmv_end = 0;
+
     // 没码时 手动设置任务 后续可删 默认任务
     task_state.color_buf_one[0] = TASK_RED; // 第一组 红绿蓝
     task_state.color_buf_one[1] = TASK_GREEN;
@@ -74,48 +77,77 @@ void task_init()
 static void task_receive_analysis(void)
 {
     uint8_t analysis_data[ANALYSIS_LEN] = {0};
-    uint8_t pass = 0;
+    uint8_t idx = 0;
 
-    for (int i = 0; i < ANALYSIS_LEN; i++) {
-        if (i == 3 || i == 6 || i == 9) {  // 过滤掉任务数组里的符号 “+”
-            pass += 1;
+    // 先清一遍，避免上一次的残留
+    memset(analysis_task_data, 0, sizeof(analysis_task_data));
+
+    // 1) 把 15 字节里的 '+' 分隔符滤掉，剩下 12 个有效字节
+    for (uint8_t i = 0; i < QR_DATA_LEN && idx < ANALYSIS_LEN; i++) {
+        if (qr_data[i] == '+') {
+            continue;
         }
-        analysis_data[i] = qr_data[i + pass];   // 将过滤掉“+”的数据存入新数组
+        analysis_data[idx++] = qr_data[i];
     }
 
-    for (int j = 0; j < ANALYSIS_LEN; j++) {
-        switch (analysis_data[j])
-        {
-            case MAIX_COLOR_RED:
-                analysis_task_data[j] = TASK_RED;
-                break;
-            case MAIX_COLOR_YELLOW:
-                analysis_task_data[j] = TASK_YELLOW;
-                break;
-            case MAIX_COLOR_BLUE:
-                analysis_task_data[j] = TASK_BLUE;
-                break;
-            case MAIX_COLOR_GREEN:
-                analysis_task_data[j] = TASK_GREEN;
-                break;
-            case MAIX_COLOR_BLACK:
-                analysis_task_data[j] = TASK_BLACK;
-                break;
-            case MAIX_COLOR_LIGHTBLUE:
-                analysis_task_data[j] = TASK_LOW_BLUE;
-                break;
-            case MAIX_RING_1:
-                analysis_task_data[j] = AREA_1;
-                break;
-            case MAIX_RING_2:
-                analysis_task_data[j] = AREA_2;
-                break;
-            case MAIX_RING_3:
-                analysis_task_data[j] = AREA_3;
-                break;
-            default:
-                analysis_task_data[j] = 0;
-                break;
+    // 2) 按位置区分颜色段和位置段
+    //    颜色段：下标 0~2、6~8
+    //    位置段：下标 3~5、9~11
+    for (uint8_t j = 0; j < ANALYSIS_LEN; j++) {
+        uint8_t c = analysis_data[j];
+        uint8_t is_area = (j >= 3 && j < 6) || (j >= 9 && j < 12);
+
+        if (is_area) {
+            // 位置段：ASCII '1'~'3' 或 二进制 0xD1~0xD3
+            switch (c) {
+                case '1':
+                case MAIX_RING_1:
+                    analysis_task_data[j] = AREA_1;
+                    break;
+                case '2':
+                case MAIX_RING_2:
+                    analysis_task_data[j] = AREA_2;
+                    break;
+                case '3':
+                case MAIX_RING_3:
+                    analysis_task_data[j] = AREA_3;
+                    break;
+                default:
+                    analysis_task_data[j] = 0;
+                    break;
+            }
+        }
+        else {
+            // 颜色段：ASCII '1'~'6' 或 二进制 0xC1~0xC6
+            switch (c) {
+                case '1':
+                case MAIX_COLOR_RED:
+                    analysis_task_data[j] = TASK_RED;
+                    break;
+                case '2':
+                case MAIX_COLOR_YELLOW:
+                    analysis_task_data[j] = TASK_YELLOW;
+                    break;
+                case '3':
+                case MAIX_COLOR_BLUE:
+                    analysis_task_data[j] = TASK_BLUE;
+                    break;
+                case '4':
+                case MAIX_COLOR_GREEN:
+                    analysis_task_data[j] = TASK_GREEN;
+                    break;
+                case '5':
+                case MAIX_COLOR_BLACK:
+                    analysis_task_data[j] = TASK_BLACK;
+                    break;
+                case '6':
+                case MAIX_COLOR_LIGHTBLUE:
+                    analysis_task_data[j] = TASK_LOW_BLUE;
+                    break;
+                default:
+                    analysis_task_data[j] = 0;
+                    break;
+            }
         }
     }
 }
@@ -191,53 +223,67 @@ void cam_task(void)
     }
     maix_result_task();  // 维护5帧VALID/STABLE 并处理视觉数据超时
 }
+// // OpenMV扫码处理任务
+// void mv_task(void)
+// {
+//     if (cam_rx_flag || cam_error_flag) {
+//         cam_rx_flag = 0;     // 清除接收通知
+//         printf("123456789");
+//         cam_rx_handle();     // 错误标志由驱动处理
+//         printf("987654321");
+//     }
+//
+//     // 收到完整任务码后  读取并打印一次
+//     openmv_qr_task();
+// }
 
-// openmv扫码启动中止任务 放主循环
-void openmv_work_task(void)
+
+// OpenMV -> F407 单项测试：只发送B1并等待一帧BB/LEN=15
+void mv_task(void)
 {
-    static uint8_t  scan_wait = 0;
-    static uint16_t wait_ms = 0;
-    static uint8_t  retry = 0;
+    if (openmv_start != 1 && openmv_end == 1) return;
 
-    // 请求开始扫码
-    if (openmv_start) {
-        openmv_start = 0;
-        openmv_send_start_scan();     // 内部已清 qr_ok
-        wait_ms = 0; retry = 0;
-        scan_wait = 1;
-    }
-
-    // 等待二维码帧
-    if (scan_wait) {
-        qr_result_t qr;
-        if (openmv_get_qr_result(&qr)) {     // 收到一帧 BB
-            if (task_receive() == 1) {       // 立刻用 qr_data 解析进 task_state
-                qr_ready = 1;
-                scan_wait = 0;
-            }
-            else {
-                qr_ready = 2;
-            }
-            openmv_send_stop_scan();         // 收到就停扫码，省得干扰后面
-        }
-        else if (++wait_ms >= 5000) {         // 超时
-            wait_ms = 0;
-            if (++retry < 3) {
-                openmv_send_start_scan();    // 重发一次
-            } else {
-                openmv_send_stop_scan();
-                qr_ready = 2;                // 失败，交给 control 决定怎么办
-                scan_wait = 0;
-            }
-        }
-    }
-
-    // 主动要求停止
-    if (openmv_end) {
-        openmv_end = 0;                      // ★ 清自己，不是清 openmv_start
+    // 启动扫码并获取任务
+    if (openmv_start == 1) {
+        // 停止扫码并清空USART1残留
         openmv_send_stop_scan();
-        scan_wait = 0;
+        // printf("[OpenMV] 停止扫码并清空USART1残留\r\n");
+        service_for(STOP_GUARD_MS);
+        cam_empty_rx();
+
+        // 开始扫码
+        printf("[OpenMV] 发送B1启动扫码\r\n");
+        openmv_send_start_scan();
+        wait_qr();
+
+        // 立刻解析
+        if (task_state.openmv_task_get_ok == 1) {
+            uint8_t r = task_receive();
+            printf("task_receive=%d\r\n", r);
+            if (r == 1) {
+                task_state.send_task_hmi_ok = 1;
+                scan_send_task_hmi();
+            }
+        }
+
+        openmv_send_stop_scan();
+        service_for(STOP_GUARD_MS);
+        cam_empty_rx();
+        led_off();
+        openmv_start = 0;
+        openmv_end = 1;
     }
+
+    // // 将扫码结果解析并发送至串口屏
+    // if (openmv_end == 0) {
+    //     if (task_state.openmv_task_get_ok == 1) {
+    //         if (task_receive() == 1) {
+    //             task_state.send_task_hmi_ok = 1;
+    //             scan_send_task_hmi();
+    //             openmv_end = 1;
+    //         }
+    //     }
+    // }
 }
 
 // 给maix发数据处理任务

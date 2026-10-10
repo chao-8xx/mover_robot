@@ -1,6 +1,12 @@
 #ifndef GONGXUN_1_TASK_H
 #define GONGXUN_1_TASK_H
 
+
+#define STOP_GUARD_MS   200
+#define QR_TIMEOUT_MS   30000
+#define LOSS_TIMEOUT_MS 10000
+
+
 // ======== 任务状态机、结构体定义 ======== //
 // 颜色任务编码
 typedef enum {
@@ -86,7 +92,6 @@ extern Task_State task_state;
 // ======== 变量声明 ======== //
 extern uint8_t openmv_start;         // openmv启动标志
 extern uint8_t openmv_end;           // openmv结束标志
-extern uint8_t qr_ready;             // 0=无 1=解析成功 2=失败/超时
 
 // ======== 函数声明 ======== //
 // 任务初始化
@@ -96,7 +101,7 @@ uint8_t task_receive(void);
 
 void imu_task(void);
 void cam_task(void);
-void openmv_work_task(void);
+void mv_task(void);
 void send_conduct_task(void);
 uint8_t obstacle_find_task(float car_x, float car_y, float car_yaw);
 void hmi_get_car_state_task(void);

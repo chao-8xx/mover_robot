@@ -37,8 +37,8 @@
 // maix 视觉任务窗口滤波参数
 #define MAIX_WINDOW_SIZE       5
 #define MAIX_VALID_MIN         3
-#define MAIX_STABLE_DX_SPAN    8
-#define MAIX_STABLE_DY_SPAN    8
+#define MAIX_STABLE_DX_SPAN    5
+#define MAIX_STABLE_DY_SPAN    5
 #define MAIX_TIMEOUT_MS        300
 
 // cam 状态机状态枚举
@@ -134,6 +134,7 @@ uint8_t maix_get_filtered_result(maix_result_t *out);
 
 extern maix_vision_t maix_vision;
 extern maix_result_t maix_result;
+extern qr_result_t   qr_result;
 extern volatile uint8_t cam_error_flag;
 extern volatile uint8_t cam_rx_flag;   // 接收完成标志位
 

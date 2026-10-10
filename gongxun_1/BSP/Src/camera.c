@@ -36,6 +36,7 @@ uint8_t maix_now_target = MAIX_COLOR_NONE;   // maix target类枚举
 
 maix_vision_t maix_vision = {0};
 maix_result_t maix_result = {0};
+qr_result_t   qr_result   = {0};
 
 maix_filter_t maix_filter[MAIX_WINDOW_SIZE]; // maix 滤波窗口
 uint8_t maix_filter_count = 0;               // maix 滤波窗口计数
@@ -181,6 +182,7 @@ void cam_rx_handle(void) {
     wr = CAM_LEN - __HAL_DMA_GET_COUNTER(cam_uart->hdmarx);  // DMA写指针
     if (wr >= CAM_LEN)
         wr = 0;
+    // printf("DMA zhengchang");
 
     while (cam_rd != wr) {
         uint8_t byte = cam_rx_buf[cam_rd];

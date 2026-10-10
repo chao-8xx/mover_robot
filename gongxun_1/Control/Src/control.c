@@ -326,7 +326,6 @@ void calibrate_yaw(void)
             task_state.cur_x = 2;
             task_state.cur_y = 0;
             task_state.task_location = SCAN;
-            task_state.remindState = PINK_REMIND;   // 闪灯提示
             break;
         case TARGET_META_STEP:      // 原料区
             task_state.cur_x = 4;
@@ -747,43 +746,35 @@ void follow_target(float target_yaw, int16_t target_x, int16_t target_y)
 void scan_get_task(void)
 {
     static uint8_t scan_step = 0;   // 0=发起 1=等待 2=重试 3=失败
-    static uint8_t retry = 0;
     switch (scan_step)
     {
         case 0:                      // 到达扫码点，发起扫码
-            qr_ready = 0;
             openmv_start = 1;        // 启动openmv 由openmv_work_task在主循环发出
-            retry = 0;
             scan_step = 1;
             break;
-        case 1:                      // 等待解析结果
-            if (qr_ready == 1) {                 // 成功
-                qr_ready  = 0;
-                openmv_end = 1;                  // 停止扫码
+        case 1:                      // 扫码结束
+            if (openmv_start == 0) {
+                scan_step = 2;
+            }
+            break;
+        case 2:                      // openmv结束
+            if (openmv_end == 1) {
                 task_state.remindState = GREEN_REMIND;  // 扫码成功提示
                 scan_finish = 1;                        // 扫码完成
-                task_state.send_task_hmi_ok = 1;        // 将任务发送给串口屏
                 my_control.step = CALIBRATE_YAW_STEP;   // 校准角度
+                openmv_send_stop_scan();                // 结束扫码
                 scan_step = 0;                          // 复位，供下一轮使用
             }
-            else if (qr_ready == 2) {   // 超时/解析失败
-                qr_ready = 0;
-                if (++retry < 3) {
-                    openmv_start = 1;   // 再来一次
-                } else {
-                    openmv_end = 1;
-                    task_state.remindState = RED_REMIND;    // 报警
-                    scan_finish = 1;                        // 扫码完成 直接默认了
-                    task_state.send_task_hmi_ok = 1;        // 将任务发送给串口屏
-                    my_control.step = CALIBRATE_YAW_STEP;
-                    scan_step = 0;
-                }
+            else {
+                task_state.remindState = RED_REMIND;  // 扫码失败报警
+                openmv_send_stop_scan();              // 结束扫码
+                scan_step = 0;                        // 复位，供下一轮使用
+                scan_finish = 0;                      // 扫码失败
             }
             break;
         default:
             break;
     }
-
 }
 
 // 发送任务码置串口屏上 阻塞式 反正只发一遍
@@ -812,6 +803,7 @@ void scan_send_task_hmi(void)
     hmi_SetValue("area2",(int)(area_2));
     HAL_Delay(10);
     task_state.send_task_hmi_ok = 0;
+    printf("已发送至串口屏\r\n");
 }
 
 
@@ -1260,9 +1252,11 @@ void put_material(void)
                 my_control.step = CALIBRATE_YAW_STEP;   // 跳到校准角度步骤 校准完再离开
                 if (!task_state.one_finish) {
                     task_state.one_finish = 1;
+                    task_state.remindState = WHITE_REMIND;   // 闪灯提示
                 }
                 if (task_state.one_finish && !task_state.two_finish) {
                     task_state.index = 3;
+                    task_state.remindState = WHITE_REMIND;   // 闪灯提示
                 }
             }
             put_finish = 1;
