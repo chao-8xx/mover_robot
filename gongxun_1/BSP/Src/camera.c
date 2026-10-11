@@ -168,7 +168,7 @@ void cam_rx_handle(void) {
 
         cam_rd = 0;
 
-        // 接收链断开后，旧结果不能继续参与下一段数据的滤波
+        // 旧结果重置
         qr_ok = 0;
         qr_tick = 0;
         memset(&maix_vision, 0, sizeof(maix_vision));
@@ -181,7 +181,7 @@ void cam_rx_handle(void) {
             __HAL_DMA_DISABLE_IT(cam_uart->hdmarx, DMA_IT_HT);
             printf("[CAM RX] DMA错误后重启成功\r\n");
         } else {
-            cam_error_flag = 1; // 保留恢复请求，下一次cam_task继续重试
+            cam_error_flag = 1; // 保留恢复请求 下一次cam_task继续重试
         }
         return;
     }

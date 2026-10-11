@@ -3,15 +3,20 @@
 //
 
 #include "track_map.h"
+/*
+ *  静态赛道地图数据文件
+ *  将2400mm * 2400mm地图划分为5*5的栅格区域 共9节点 12道路 4禁入区
+ *  栅格编号从左下角开始  第一行对应赛场下方 第一列对应赛场左侧
+ */
 
-// N0~N2 在上方，N6~N8 在下方；坐标单位 mm
+// 9节点枚举    N0~N2 在上方   N6~N8 在下方  坐标单位 mm
 static const map_node_t map_nodes[MAP_NODE_COUNT] = {
     {275.0f, 2125.0f}, {1200.0f, 2125.0f}, {2125.0f, 2125.0f},
     {275.0f, 1200.0f}, {1200.0f, 1200.0f}, {2125.0f, 1200.0f},
     {275.0f, 275.0f},  {1200.0f, 275.0f},  {2125.0f, 275.0f}
 };
 
-// R0~R5 横向，R6~R11 纵向；与下面 5x5 的道路编号一致
+// 12道路枚举     R0~R5 横向   R6~R11 纵向   与下面 5x5 的道路编号一致
 static const map_road_t map_roads_info[12] = {
     {0, 1}, {1, 2}, {3, 4}, {4, 5}, {6, 7}, {7, 8},
     {0, 3}, {3, 6}, {1, 4}, {4, 7}, {2, 5}, {5, 8}
@@ -19,7 +24,7 @@ static const map_road_t map_roads_info[12] = {
 
 
 
-// 静态地图上的禁入区域
+// 4禁入区枚举    无ID
 static const map_rect_t map_notgo_areas[MAP_FORBIDDEN_COUNT] = {
     { 550.0f, 1000.0f, 550.0f, 1000.0f },   // 左下禁入区
     { 1400.0f, 1850.0f, 550.0f, 1000.0f },  // 右下禁入区
@@ -27,7 +32,7 @@ static const map_rect_t map_notgo_areas[MAP_FORBIDDEN_COUNT] = {
     { 1400.0f, 1850.0f, 1400.0f, 1850.0f }, // 右上禁入区
 };
 
-// 第一行对应赛场下方，第一列对应赛场左侧
+// 5 * 5 栅格枚举  以左下角为原点      第一行对应赛场下方 第一列对应赛场左侧
 static const map_cell_t map_cells[MAP_CELL_HEIGHT][MAP_CELL_WIDTH] =
 {
     {
@@ -54,8 +59,7 @@ static const map_cell_t map_cells[MAP_CELL_HEIGHT][MAP_CELL_WIDTH] =
     }
 };
 
-// 单个轴上的毫米坐标转区域编号
-// 调用前已经检查坐标位于场地范围内
+// 单个轴上的毫米坐标转区域编号  调用前需检查坐标是否位于场地范围内
 static uint8_t map_axis_to_cell(float value)
 {
     if (value < 550.0f)  return 0;
@@ -66,6 +70,19 @@ static uint8_t map_axis_to_cell(float value)
     return 4;
 }
 
+// 是否在静态地图内
+static uint8_t map_can_in(float x, float y, const map_rect_t *map) {
+    if (map == 0) return 0;
+
+    return (x >= map->min_x && x <= map->max_x && y >= map->min_y && y <= map->max_y);
+}
+
+
+
+
+
+
+// 将毫米坐标映射到栅格编号  调用前需检查坐标是否位于场地范围内
 uint8_t map_xy_to_cell(float x, float y,
                        uint8_t *cell_x, uint8_t *cell_y)
 {
@@ -82,6 +99,7 @@ uint8_t map_xy_to_cell(float x, float y,
     return 1;
 }
 
+// 读取栅格编号对应的栅格信息
 uint8_t map_cell_get(uint8_t cell_x, uint8_t cell_y,
                      map_cell_t *cell)
 {
@@ -94,13 +112,6 @@ uint8_t map_cell_get(uint8_t cell_x, uint8_t cell_y,
     return 1;
 }
 
-
-// 是否在静态地图内
-static uint8_t map_can_in(float x, float y, const map_rect_t *map) {
-    if (map == 0) return 0;
-
-    return (x >= map->min_x && x <= map->max_x && y >= map->min_y && y <= map->max_y);
-}
 
 // 地图区域判定函数
 map_area_t map_check_area(float x, float y) {
@@ -133,10 +144,11 @@ uint8_t map_road_info_get(uint8_t road_id, map_road_t *road) {
     return 1;
 }
 
-// 根据两个相邻节点查找道路，正反方向相同
+// 根据两个相邻节点查找道路 正反方向相同
 uint8_t map_road_find(uint8_t node_a, uint8_t node_b, uint8_t *road_id) {
     if (road_id == 0 || node_a >= MAP_NODE_COUNT || node_b >= MAP_NODE_COUNT) return 0;
 
+    // 遍历道路信息数组 查找匹配的道路
     for (uint8_t i = 0; i < 12; i++) {
         if ((map_roads_info[i].node_a == node_a && map_roads_info[i].node_b == node_b) ||
             (map_roads_info[i].node_a == node_b && map_roads_info[i].node_b == node_a)) {

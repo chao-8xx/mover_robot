@@ -108,6 +108,7 @@ add_executable(${CMAKE_PROJECT_NAME}
         APP/Inc/map_plan.h
         APP/Src/map_lidar.c
         APP/Inc/map_lidar.h
+        APP/Src/map_plan.c
 
 )
 

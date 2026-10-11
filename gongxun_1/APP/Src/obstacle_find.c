@@ -23,7 +23,8 @@ static uint8_t get_angle_right(uint16_t angle, uint16_t start, uint16_t end) {
 
 // 判断当前角度是否被小车四个轮子占用的角度范围内
 static uint8_t get_wheel_blocked(uint16_t angle) {
-    // 未标定时四组0~0只是占位值，不能把真正的0度回波误删。
+
+    // 未标定时四组0~0只是占位值 不能把真正的0度回波误删
     if (!LIDAR_WHEEL_MASK_ENABLE)
         return 0;
 
@@ -46,7 +47,7 @@ uint8_t point_cloud_update(const lidar_scan_t *scan, float car_x, float car_y, f
     point2d_t p_base;
     point2d_t p_map;
 
-    // 避免重复更新同一帧点云
+    // 避免重复更新同一帧点云    isfinite 表示 拒绝NaN、无穷大等无效坐标
     if (scan == NULL || scan->scan_num == 0 || scan->scan_num == last_cloud_scan_num ||
         !isfinite(car_x) || !isfinite(car_y) || !isfinite(car_yaw) ||
         !isfinite(tf_base.tx) || !isfinite(tf_base.ty) ||

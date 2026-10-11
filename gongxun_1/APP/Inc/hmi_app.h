@@ -18,9 +18,6 @@ void hmi_stop(void);
 // 在hmi.c的hmi_rx_callback回调函数内调用
 void hmi_solve(UART_HandleTypeDef *huart, uint16_t Size);
 void hmi_rx_reset(void); // 串口错误后丢弃尚未拼完的屏幕指令
-#ifndef HMI_FRAME_TIMEOUT_MS
-#define HMI_FRAME_TIMEOUT_MS 100U // 半条指令停更过久就放弃，正常字节间隔应远小于此值
-#endif
 
 // 串口屏控制发送指令 放入1ms中断
 void hmi_control_send_tick(void);

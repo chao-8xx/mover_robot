@@ -63,7 +63,7 @@ DEFAULT_CONFIG = {
         "custom": False,
     },
     # 面积范围同样按 320x240 等效面积保存，RUN 内部会自动按像素比例换算。
-    "blob": {"min_area": 1800, "max_area": 12000},
+    "blob": {"min_area": 1000, "max_area": 10000},
     # 任务三复用颜色阈值和ColorTracker，但保留独立ROI、对准中心和面积范围。
     "stack": {
         "roi": {"x": 110, "y": 25, "w": 135, "h": 135},
@@ -72,7 +72,7 @@ DEFAULT_CONFIG = {
             "y": IMAGE_HEIGHT // 2,
             "custom": False,
         },
-        "blob": {"min_area": 1800, "max_area": 12000},
+        "blob": {"min_area": 1000, "max_area": 10000},
     },
     "thresholds": {
         # 未调 
@@ -83,24 +83,24 @@ DEFAULT_CONFIG = {
             "blue": {"lower": [100, 70, 40], "upper": [130, 255, 255]},
             "green": {"lower": [35, 50, 40], "upper": [85, 255, 255]},
             "black": {"lower": [0, 0, 0], "upper": [179, 255, 60]},
-            "light_blue": {"lower": [85, 40, 60], "upper": [105, 255, 255]},
+            "light_blue": {"lower": [100, 40, 60], "upper": [105, 255, 255]},
         },
 
         # 已粗调过一版
         "LAB": {
-            "red": {"lower": [35, 160, 150], "upper": [110, 185, 170]},
-            "yellow": {"lower": [140, 110, 160], "upper": [165, 130, 185]},
-            "blue": {"lower": [30, 135, 70], "upper": [55, 155, 105]},
-            "green": {"lower": [83, 75, 140], "upper": [135, 95, 180]},
-            "black": {"lower": [0, 105, 105], "upper": [40, 135, 135]},
-            "light_blue": {"lower": [90, 110, 90], "upper": [130, 135, 100]},
+            "red": {"lower": [35, 160, 135], "upper": [128, 185, 170]},
+            "yellow": {"lower": [140, 105, 160], "upper": [195, 140, 190]},
+            "blue": {"lower": [25, 128, 70], "upper": [75, 160, 105]},
+            "green": {"lower": [80, 75, 140], "upper": [180, 110, 180]},
+            "black": {"lower": [0, 105, 105], "upper": [65, 135, 135]},
+            "light_blue": {"lower": [110, 100, 85], "upper": [155, 135, 130]},
         },
     },
     # 任务二只定位2号圆环；ROI和对准中心均可独立标定。
     "ring": {
         # 保留字段只为兼容旧JSON；正式算法始终确认数字2。
         "target_number": 2,
-        "roi": {"x": 0, "y": 0, "w": IMAGE_WIDTH, "h": IMAGE_HEIGHT},
+        "roi": {"x": 50, "y": 30, "w": 220, "h": 150},
         "center": {
             "x": IMAGE_WIDTH // 2,
             "y": IMAGE_HEIGHT // 2,
@@ -112,8 +112,8 @@ DEFAULT_CONFIG = {
         "min_diameter": 45,
         "max_diameter": 120,
         # 以下为同心候选内部默认值，后续有真机样本后再决定是否开放高级页面。
-        "min_contour_area": 2000,
-        "max_contour_area": 12000,
+        "min_contour_area": 1200,
+        "max_contour_area": 10000,
         "min_circularity": 0.20,
         "min_layers": 3,
         "center_tolerance": 8,

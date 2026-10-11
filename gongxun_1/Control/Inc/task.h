@@ -79,6 +79,7 @@ void task_process(void);
 
 void imu_task(void);
 void cam_task(void);
+void mv_task(void);
 uint8_t obstacle_find_task(float car_x, float car_y, float car_yaw);
 // 已有可信的地图位姿并配置车体宽度时，调用这一层完成雷达到道路地图更新
 uint8_t map_obstacle_task(float car_x, float car_y, float car_yaw, uint8_t pose_valid);

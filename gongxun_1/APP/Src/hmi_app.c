@@ -39,144 +39,88 @@ void hmi_stop(void)
     }
 }
 
-// 完整指令分发，接收批次不再当成协议帧
-// 由下方流式拼帧入口调用
-static void hmi_frame_handle(const uint8_t *frame, uint16_t Size)
+// 完整帧在下面统一检查，这里只处理指令内容
+static void hmi_frame_handle(const uint8_t *frame)
 {
-    hmi_touch_t touch;
-    if (Size < 5) return;
-    // 循环调用 hmi_GetTouch
-    if (frame[0] == 0x65) {
-        for (uint16_t i = 0; i < Size; i++) {
-            touch = hmi_GetTouch(frame[i]);
-
-            if (touch.is_valid && touch.event_type == 0x00) {   // 事件有效且按键弹起
-                if ((touch.page_id == 0x01 && touch.obj_id == 0x06) ||
-                    (touch.page_id == 0x03 && touch.obj_id == 0x02) ||
-                    (touch.page_id == 0x04 && touch.obj_id == 0x02)) {
-                    hmi_stop();     // 停车事件触发
-                    }
-                else if (touch.page_id == 0x01 && touch.obj_id == 0x04) {
-                    hmi_start();    // 发车事件触发
-                    if (car_reset) {
-                        car_reset = false;  // 置未复位标志，发车前复位一次
-                    }
-                }
-                else if (touch.page_id == 0x06 && touch.obj_id == 0x0F) {
-                    hwt101_yaw_reset();     // 陀螺仪偏航角复位
-                    my_yaw = 0.0f;
-                }
-            }
+    if (frame[0] == 0x65) {         // 触摸事件：65 页码 控件 事件 FF FF FF
+        if (frame[3] != 0x00) return; // 只处理按键弹起
+        if ((frame[1] == 0x01 && frame[2] == 0x06) ||
+            (frame[1] == 0x03 && frame[2] == 0x02) ||
+            (frame[1] == 0x04 && frame[2] == 0x02)) {
+            hmi_stop();
+        }
+        else if (frame[1] == 0x01 && frame[2] == 0x04) {
+            hmi_start();
+            car_reset = false;     // 置未复位标志，发车前复位一次
+        }
+        else if (frame[1] == 0x06 && frame[2] == 0x0F) {
+            hwt101_yaw_reset();
+            my_yaw = 0.0f;
         }
     }
-    else if (frame[0] == 0xBB) {     // 设置障碍坐标事件
-        // 帧格式：BB x y FF FF FF = 设置 (x,y) 为障碍；BB EE EE FF FF FF = 清除所有障碍坐标
-        if (Size >= 6 && frame[Size - 1] == 0xFF &&
-            frame[Size - 2] == 0xFF && frame[Size - 3] == 0xFF) {
-            uint8_t x = frame[1];
-            uint8_t y = frame[2];
-            if (x == 0xEE && y == 0xEE) {
-                bfs_obstacle_clear();       // 清除所有障碍
-            }
-            else if (x < BFS_MAP_SIZE && y < BFS_MAP_SIZE) {
-                bfs_set_obstacle(x, y, 1);  // 标记为障碍
-            }
+    else if (frame[0] == 0xBB) {    // BB x y FF FF FF；EE EE 清除所有障碍
+        uint8_t x = frame[1];
+        uint8_t y = frame[2];
+        if (x == 0xEE && y == 0xEE) {
+            bfs_obstacle_clear();
+        }
+        else if (x < BFS_MAP_SIZE && y < BFS_MAP_SIZE) {
+            bfs_set_obstacle(x, y, 1);
         }
     }
-    else if (frame[0] == 0xCC) {     // 设置发车坐标事件
-        // 帧格式：CC 00 FF FF FF = 发车点 (0,0)；CC 01 FF FF FF = 发车点 (4,0)
-        if (Size >= 5 && frame[1] <= 0x01 && frame[Size - 1] == 0xFF &&
-            frame[Size - 2] == 0xFF && frame[Size - 3] == 0xFF) {
-            if (frame[1] == 0x00) {  // 启停区2
-                hmi_start_x = 0;
-                hmi_start_y = 0;
-                task_state.task_location = PARKING_2;
-                start_location = 0; // 0:启停区2发车
-            }
-            else if (frame[1] == 0x01) { // 启停区1
-                hmi_start_x = 4;
-                hmi_start_y = 0;
-                task_state.task_location = PARKING_1;
-                start_location = 1; // 1:启停区1发车
-            }
-            // 设置起始坐标状态
-            task_state.cur_x = hmi_start_x;
-            task_state.cur_y = hmi_start_y;
-        }
+    else if (frame[0] == 0xCC) {    // CC 00/01 FF FF FF：选择发车点
+        if (frame[1] > 0x01) return;
+        hmi_start_x = frame[1] ? 4 : 0;
+        hmi_start_y = 0;
+        task_state.task_location = frame[1] ? PARKING_1 : PARKING_2;
+        start_location = frame[1];
+        task_state.cur_x = hmi_start_x;
+        task_state.cur_y = hmi_start_y;
     }
-    else if (frame[0] == 0xDD) {     // 串口屏控制抓取装置伸缩升降 低字节在前，高字节在后
-        if (frame[1] == 0x11) {      // 升降
-            // 帧格式：DD 11 01(1正0负) mm mm FF FF FF    （mm低8位在前，高8位在后）
-            if (Size >= 8 && frame[Size - 1] == 0xFF &&
-            frame[Size - 2] == 0xFF && frame[Size - 3] == 0xFF) {
-                uint16_t mm;
-                mm = (uint16_t)(frame[3] | ((uint16_t)frame[4] << 8));
-                if (mm > 32767U) return; // 超出有符号距离范围，不让正负号溢出
-                if (frame[2] == 0x01) { // 为正
-                    hmi_lift_mm = (int16_t)mm;
-                    hmi_lift_state = 1;
-                }
-                else if (frame[2] == 0x00) { // 为负
-                    hmi_lift_mm = (int16_t)-mm;
-                    hmi_lift_state = 1;
-                }
-            }
+    else if (frame[0] == 0xDD) {    // DD 11/22 正负 距离低字节 高字节 FF FF FF
+        uint16_t mm = (uint16_t)(frame[3] | ((uint16_t)frame[4] << 8));
+        if (frame[2] > 0x01 || mm > 32767U) return;
+        int16_t distance = frame[2] ? (int16_t)mm : -(int16_t)mm;
+        if (frame[1] == 0x11) {     // 升降
+            hmi_lift_mm = distance;
+            hmi_lift_state = 1;
         }
-        else if (frame[1] == 0x22) {  // 伸缩
-            // 帧格式：DD 22 01(1正0负) mm mm FF FF FF
-            if (Size >= 8 && frame[Size - 1] == 0xFF &&
-            frame[Size - 2] == 0xFF && frame[Size - 3] == 0xFF) {
-                uint16_t mm;
-                mm = (uint16_t)(frame[3] | ((uint16_t)frame[4] << 8));
-                if (mm > 32767U) return; // 超出有符号距离范围，不让正负号溢出
-                if (frame[2] == 0x01) { // 为正
-                    hmi_stretch_mm = (int16_t)mm;
-                    hmi_stretch_state = 1;
-                }
-                else if (frame[2] == 0x00) { // 为负
-                    hmi_stretch_mm = (int16_t)-mm;
-                    hmi_stretch_state  = 1;
-                }
-            }
+        else if (frame[1] == 0x22) { // 伸缩
+            hmi_stretch_mm = distance;
+            hmi_stretch_state = 1;
         }
     }
 }
 
-// 按协议长度跨DMA批次拼帧，同时支持一批数据里的多条指令
+// 只用一个缓存和下标拼帧，支持半条指令和一次收到多条指令
 static uint8_t hmi_frame[8];
 static uint8_t hmi_frame_idx = 0;
-static uint8_t hmi_frame_len = 0;
-static uint32_t hmi_frame_tick = 0;
 
 void hmi_rx_reset(void) {
     hmi_frame_idx = 0;
-    hmi_frame_len = 0;
 }
 
 void hmi_solve(UART_HandleTypeDef *huart, uint16_t Size) {
-    uint32_t tick = HAL_GetTick();
     (void)huart;
     if (Size > HMI_RX_SIZE) return;
-    if (hmi_frame_idx && tick - hmi_frame_tick > HMI_FRAME_TIMEOUT_MS) hmi_rx_reset();
-    if (Size) hmi_frame_tick = tick;
 
     for (uint16_t i = 0; i < Size; i++) {
         uint8_t byte = hmi_rxbuffer[i];
-        if (hmi_frame_idx == 0) {
-            switch (byte) {
-                case 0x65: hmi_frame_len = 7; break;
-                case 0xBB: hmi_frame_len = 6; break;
-                case 0xCC: hmi_frame_len = 5; break;
-                case 0xDD: hmi_frame_len = 8; break;
-                default: continue;
-            }
+        uint8_t frame_len;
+        // 长度由帧头确定，不另外保存长度和时间标志
+        switch (hmi_frame_idx ? hmi_frame[0] : byte) {
+            case 0x65: frame_len = 7; break;
+            case 0xBB: frame_len = 6; break;
+            case 0xCC: frame_len = 5; break;
+            case 0xDD: frame_len = 8; break;
+            default: continue;
         }
         hmi_frame[hmi_frame_idx++] = byte;
-        if (hmi_frame_idx == hmi_frame_len) {
-            if (hmi_frame[hmi_frame_len - 1] == 0xFF &&
-                hmi_frame[hmi_frame_len - 2] == 0xFF &&
-                hmi_frame[hmi_frame_len - 3] == 0xFF) {
-                hmi_frame_handle(hmi_frame, hmi_frame_len);
+        if (hmi_frame_idx == frame_len) {
+            if (hmi_frame[frame_len - 1] == 0xFF &&
+                hmi_frame[frame_len - 2] == 0xFF &&
+                hmi_frame[frame_len - 3] == 0xFF) {
+                hmi_frame_handle(hmi_frame);
             }
             hmi_rx_reset();
         }

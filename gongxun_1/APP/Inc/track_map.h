@@ -21,7 +21,7 @@ typedef enum {
     map_forbidden,
 } map_area_t;
 
-// 地图边界矩形结构体
+// 地图边界矩形结构体  禁入区
 typedef struct {
     float min_x;
     float max_x;
@@ -39,19 +39,20 @@ typedef enum {
 
 // 栅格地图单元结构体
 typedef struct {
-    map_cell_type_t cell_type;
-    uint8_t cell_id;
+    map_cell_type_t cell_type;   // 栅格类型
+    uint8_t cell_id;             // 栅格ID  对于节点类型为节点ID 对于道路类型为道路ID 对于禁行区类型为禁行区ID
 } map_cell_t;
 
-// 节点和道路使用同一套毫米坐标；道路两端都是节点中心
+// 节点和道路使用同一套毫米坐标 道路两端都是节点中心
 typedef struct {
     float x;
     float y;
 } map_node_t;
 
+// 道路结构体  记录道路两端的节点ID
 typedef struct {
-    uint8_t node_a;
-    uint8_t node_b;
+    uint8_t node_a; // 道路起点节点ID
+    uint8_t node_b; // 道路终点节点ID
 } map_road_t;
 
 map_area_t map_check_area(float x, float y);

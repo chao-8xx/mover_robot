@@ -119,7 +119,8 @@ void imu_task(void) {
     if(hwt101_rx_flag || hwt101_error_flag) {
 
         // 先清除标志位
-        // 错误标志由驱动清除；提前清零会跳过DMA恢复分支
+        // 错误标志由驱动清除  提前清零会跳过DMA恢复分支
+        // hwt101_error_flag = 0;
         hwt101_rx_flag = 0;
 
         hwt101_rx_handle();
@@ -129,11 +130,23 @@ void imu_task(void) {
 // 摄像头处理任务
 void cam_task(void) {
     if (cam_rx_flag || cam_error_flag) {
-        // 保留错误标志给cam_rx_handle处理，接收通知仍先清除
+        // 保留错误标志给cam_rx_handle处理  接收通知仍先清除
+        // cam_error_flag = 0;
         cam_rx_flag = 0;  // 先清除标志位
         cam_rx_handle();
     }
     maix_result_task();  // 维护5帧VALID/STABLE 并处理视觉数据超时
+}
+
+// OpenMV扫码处理任务
+void mv_task(void) {
+    if (cam_rx_flag || cam_error_flag) {
+        cam_rx_flag = 0;     // 清除接收通知
+        cam_rx_handle();     // 错误标志由驱动处理
+    }
+
+    // 收到完整任务码后  读取并打印一次
+    openmv_qr_task();
 }
 
 

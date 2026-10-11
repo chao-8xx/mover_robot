@@ -30,8 +30,7 @@ void timer_disable(void)
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
     if (htim ->Instance == TIM6) {    // 1ms中断
-        debug_printf_task();    // DMA启动失败时重试已有日志，缓冲区仍由调试模块统一管理
-        hmi_rx_task();          // 串口屏正常模式DMA接收失败后重试，不等待
+
         // servo_rotate_tick();    // 舵机转动计时/停止（中断里更稳，不受主循环阻塞影响，用于360°连续舵机）
         hwt101_tick();          // HWT101 非阻塞复位状态机
         car_run_tick();         // 底盘移动非阻塞计时
@@ -42,6 +41,8 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
         remind_control();
     }
     else if (htim ->Instance == TIM2) {    // 10ms中断
+        debug_printf_task();    // DMA启动失败时重试已存在的数据   缓冲区仍由 debug_printf 模块统一管理
+        hmi_rx_task();          // 串口屏常规模式DMA接收失败后重试 不等待
         task_process();
     }
 }

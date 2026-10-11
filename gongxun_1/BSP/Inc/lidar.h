@@ -32,15 +32,12 @@ void lidar_stop(void);
 void lidar_change(void);
 const lidar_scan_t* lidar_get_scan(void);   // 获取最新发布扫描；尚未发布时返回NULL
 void lidar_process(void);
-void lidar_rx_callback(UART_HandleTypeDef *huart); // DMA整环完成，只记录接收进度
 void lidar_error_callback(UART_HandleTypeDef *huart); // 中断标记错误，主循环恢复
 
 uint8_t lidar_scan_ok(void);
 uint32_t lidar_get_xor_ok_cnt(void);
 uint32_t lidar_get_xor_err_cnt(void);
-uint32_t lidar_get_rx_error_cnt(void);
-uint32_t lidar_get_dma_overrun_cnt(void); // 已观测满环或覆盖，未观测整环不能据此排除
-uint32_t lidar_get_scan_drop_cnt(void);   // 因坏包/接收中断放弃的工作扫描
+uint32_t lidar_get_scan_drop_cnt(void);   // 地图入口判断扫描中断，只保留这一项计数
 
 
 #endif

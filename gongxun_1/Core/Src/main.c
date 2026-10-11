@@ -127,8 +127,9 @@ int main(void)
   // remind_init();
   // task_init();
 
-  lidar_start();
+  // lidar_start();
 
+  openmv_test();
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -138,7 +139,7 @@ int main(void)
   {
 
     // 雷达安装标定测试：按串口提示放置挡板，短按KEY1采集下一组
-    lidar_install_test();
+    // lidar_install_test();
     // wheel_mask_test();  // 四车轮遮挡测试，需要时切换回来
 
     // lidar_test();

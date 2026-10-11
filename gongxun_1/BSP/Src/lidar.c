@@ -21,12 +21,8 @@ static uint16_t rx_target_len = 0;      // 当前数据包应接收的总长度
 
 static uint8_t dma_rx_buf[DMA_BUF_LEN]; // DMA接收环形缓冲区
 static uint16_t dma_rd_ptr = 0;         // DMA读指针   从DMA缓冲区取数据的位置
-static uint32_t dma_read_count = 0;     // CPU已经读出的累计字节数，不能只比较环形下标
-static volatile uint32_t dma_wrap_count = 0; // DMA整环完成回调计数
 static volatile uint8_t rx_restart_flag = 0; // 错误中断只通知，主循环重新开启接收
-static volatile uint32_t lidar_rx_error_cnt = 0;
-static uint32_t lidar_dma_overrun_cnt = 0;
-static uint32_t lidar_scan_drop_cnt = 0;
+static uint32_t lidar_scan_drop_cnt = 0; // 地图入口用它判断扫描是否中断
 
 // 协议层 双缓冲变量
 static lidar_scan_t scan_buffer[2];     // 扫描双缓冲区
@@ -62,37 +58,11 @@ static void lidar_scan_discard(void) {
     lidar_scan_clear(scan_work);
 }
 
-// 主循环读取DMA生产进度。TC未进入回调时也计入这一环，避免NDTR回绕竞争。
-// 前提：DMA TC中断每一环都能被服务；长时间屏蔽中断会合并硬件标志，不能恢复准确环数。
-static uint32_t lidar_dma_produced(uint16_t *write_ptr) {
-    uint32_t primask = __get_PRIMASK();
-    uint32_t wraps;
-    uint8_t tc_before, tc_after;
-    uint16_t remaining;
-
-    __disable_irq();
-    do {
-        tc_before = __HAL_DMA_GET_FLAG(lidar_uart->hdmarx,
-                    __HAL_DMA_GET_TC_FLAG_INDEX(lidar_uart->hdmarx)) != 0;
-        remaining = (uint16_t)__HAL_DMA_GET_COUNTER(lidar_uart->hdmarx);
-        tc_after = __HAL_DMA_GET_FLAG(lidar_uart->hdmarx,
-                   __HAL_DMA_GET_TC_FLAG_INDEX(lidar_uart->hdmarx)) != 0;
-    } while (tc_before != tc_after);
-    wraps = dma_wrap_count + (uint32_t)tc_after;
-    __set_PRIMASK(primask);
-
-    *write_ptr = DMA_BUF_LEN - remaining;
-    if (*write_ptr >= DMA_BUF_LEN) *write_ptr = 0;
-    return wraps * DMA_BUF_LEN + *write_ptr;
-}
-
 // DMA已由HAL错误路径停止，重启失败时保留标志，下次主循环继续尝试。
 static void lidar_rx_restart(void) {
     rx_idx = 0;
     rx_target_len = 0;
     dma_rd_ptr = 0;
-    dma_read_count = 0;
-    dma_wrap_count = 0;
     lidar_scan_discard();
     rx_restart_flag = 0;
     if (HAL_UART_Receive_DMA(lidar_uart, dma_rx_buf, DMA_BUF_LEN) != HAL_OK)
@@ -317,8 +287,6 @@ void lidar_init(UART_HandleTypeDef *huart) {
     rx_idx = 0;
     rx_target_len = 0;
     dma_rd_ptr = 0;
-    dma_read_count = 0;
-    dma_wrap_count = 0;
     rx_restart_flag = 0;
     memset(lidar_data, 0, sizeof(lidar_data));
 
@@ -331,8 +299,6 @@ void lidar_init(UART_HandleTypeDef *huart) {
 
     lidar_xor_ok_cnt = 0;
     lidar_xor_err_cnt = 0;
-    lidar_rx_error_cnt = 0;
-    lidar_dma_overrun_cnt = 0;
     lidar_scan_drop_cnt = 0;
 
     scan_ok_flag = 0;
@@ -345,15 +311,9 @@ void lidar_init(UART_HandleTypeDef *huart) {
         rx_restart_flag = 1;
 }
 
-// DMA每完成512字节进入一次回调，只记录生产环数，不在中断中解析雷达。
-void lidar_rx_callback(UART_HandleTypeDef *huart) {
-    if (huart == lidar_uart) dma_wrap_count++;
-}
-
 // HAL在DMA接收错误时会停止接收，不能只清标志而不重启。
 void lidar_error_callback(UART_HandleTypeDef *huart) {
     if (huart != lidar_uart) return;
-    lidar_rx_error_cnt++;
     rx_restart_flag = 1;
 }
 
@@ -404,8 +364,6 @@ uint32_t lidar_get_xor_err_cnt(void) {
     return lidar_xor_err_cnt;
 }
 
-uint32_t lidar_get_rx_error_cnt(void) { return lidar_rx_error_cnt; }
-uint32_t lidar_get_dma_overrun_cnt(void) { return lidar_dma_overrun_cnt; }
 uint32_t lidar_get_scan_drop_cnt(void) { return lidar_scan_drop_cnt; }
 
 // 获取当前扫描数据  const表示只读 不可被上层修改
@@ -423,7 +381,6 @@ void lidar_process(void) {
     uint16_t dma_wr_ptr; // DMA写指针
     uint8_t res;         // 暂存从 DMA 环形缓冲区中读出的一个字节
     uint8_t lsn;         // 当前数据包中的采样点数
-    uint32_t produced;   // 已完成回调计数和NDTR共同得到的生产进度
 
     if (lidar_uart == NULL || lidar_uart->hdmarx == NULL) return;
 
@@ -433,23 +390,14 @@ void lidar_process(void) {
     }
 
     // 获取当前DMA写指针   __HAL_DMA_GET_COUNTER返回DMA当前剩余未传输的数量
-    produced = lidar_dma_produced(&dma_wr_ptr);
-    if (produced - dma_read_count >= DMA_BUF_LEN) {
-        // 满环时下一字节即可覆盖未读区，保守丢弃并等待下一起始包。
-        lidar_dma_overrun_cnt++;
-        dma_read_count = produced;
-        dma_rd_ptr = dma_wr_ptr;
-        rx_idx = rx_target_len = 0;
-        lidar_scan_discard();
-        return;
-    }
+    dma_wr_ptr = DMA_BUF_LEN - (uint16_t)__HAL_DMA_GET_COUNTER(lidar_uart->hdmarx);
+    if (dma_wr_ptr >= DMA_BUF_LEN) dma_wr_ptr = 0;
 
-    // 从DMA缓冲区循环读取数据
-    while (dma_read_count != produced) {
+    // 按读写指针读取  主循环处理
+    while (dma_rd_ptr != dma_wr_ptr) {
         if (rx_restart_flag) return; // 解析期间出现硬件错误，下一次主循环负责恢复
         res = dma_rx_buf[dma_rd_ptr];    // 暂存从 DMA 环形缓冲区中读出的一个字节
         dma_rd_ptr = (dma_rd_ptr + 1) % DMA_BUF_LEN;// 更新读指针 循环回绕
-        dma_read_count++;
 
         // 数据帧解析状态机
         if (rx_idx == 0) {      // 帧头字节0xAA

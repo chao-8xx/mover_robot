@@ -2,10 +2,11 @@
 // Created by mechreuo on 2026/9/27.
 //
 
-#include "map_data.h"
-
-#include <math.h>
-#include <string.h>
+#include "headfile.h"
+/*
+ * 赛道地图数据文件
+ * 记录赛道道路状态和障碍物状态
+ */
 
 // 赛道地图数据
 static road_state_t map_roads[MAP_ROAD_COUNT];

@@ -5,7 +5,6 @@
 #ifndef GONGXUN_1_MAP_DATA_H
 #define GONGXUN_1_MAP_DATA_H
 
-#include <stdint.h>
 
 #define MAP_ROAD_COUNT      12              // 12 条道路
 #define MAP_OBS_MAX         20              // 与一圈雷达最多保存的聚类数相同

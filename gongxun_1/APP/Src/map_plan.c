@@ -1,7 +1,4 @@
-#include "map_plan.h"
-#include "map_data.h"
-
-#include <string.h>
+#include "headfile.h"
 
 #define MAP_COST_INF      0xFFFF
 #define MAP_COST_FREE     1

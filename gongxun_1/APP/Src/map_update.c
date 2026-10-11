@@ -1,9 +1,6 @@
-#include "map_update.h"
-#include "map_data.h"
-#include "track_map.h"
+#include "headfile.h"
 
-#include <math.h>
-#include <string.h>
+
 
 static uint8_t map_ready = 0;
 static uint8_t map_has_scan = 0;

@@ -14,9 +14,7 @@ void uart_init(void)
 // 普通中断接收完成
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
-    if (huart->Instance == UART4) {
-        lidar_rx_callback(huart);
-    }
+    (void)huart;
     // if (huart->Instance == USART1) {
     //     openmv_uart_rx_callback(huart);
     // }
@@ -71,7 +69,7 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
     }
     else if (huart->Instance == UART4)
     {
-        lidar_error_callback(huart); // HAL已经停止RX DMA，交给主循环重新开启
+        lidar_error_callback(huart);    // HAL 已经停止RX DMA  交给主循环重新开启
     }
     else if (huart->Instance == UART5)
     {
