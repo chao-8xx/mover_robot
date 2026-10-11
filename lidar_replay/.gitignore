@@ -1,0 +1,6 @@
+__pycache__/
+.cache/
+exports/
+*.dll
+*.exe
+*.o

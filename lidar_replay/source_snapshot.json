@@ -1,0 +1,23 @@
+{
+  "branch": "vision",
+  "commit": "8298535de066951e9498af56bb2c71e75c7f3b1b",
+  "dirty": false,
+  "files": {
+    "gongxun_1/BSP/Src/lidar.c": "a378a37d2f3e7d625c75827cbc5ef37ae18c7f11b71c70efab537f95693e38b3",
+    "gongxun_1/BSP/Inc/lidar.h": "ffc7e403e068a716c099447dbf00964eb60d88522eadd4624c4ca6a29ec49c8d",
+    "gongxun_1/APP/Src/obstacle_find.c": "1bc3694f2400d453cec796f4035eeb77057b0314fb49c38253313086a0c29ee1",
+    "gongxun_1/APP/Inc/obstacle_find.h": "4b6eff3407315437510ef1f579f7ef132b9c7de01c22ad297f087925955a31ad",
+    "gongxun_1/APP/Src/tf2d.c": "042a6f43be39fe3feff3757f7f046ebb8332b02c4d382247ed20ea0902c951bc",
+    "gongxun_1/APP/Inc/tf2d.h": "d52fce3f2ee39b4e187c0c127921d3bde5c5725de46c87cf947c9107879ad3ff",
+    "gongxun_1/APP/Src/track_map.c": "77fef97baa4e03840fd464a3213e3cdcf75d2527bd1ce8ab99fc360337ca843d",
+    "gongxun_1/APP/Inc/track_map.h": "ec2d341fbac241dc5e6fee042b06fb2a8cec6359d1d541df126758dfaca7ca3d",
+    "gongxun_1/APP/Src/map_data.c": "46171b303ec7c8fe9e9f2d31e580449c008d902341138d227d8514a3a2857556",
+    "gongxun_1/APP/Inc/map_data.h": "d9712d2cb6f4fbf1f5e9efbb32950f3c76dec4e367d4ecf7d187ad00a86ac445",
+    "gongxun_1/APP/Src/map_update.c": "b6a781f9e804ee4e0fff53b678e2190912e288f17e34153fd79c3e5bb679d626",
+    "gongxun_1/APP/Inc/map_update.h": "b880c567073afe312b3d2c4a2e98e66bd7ca4fa779db5add6c3ab0cade8e3621",
+    "gongxun_1/APP/Src/map_lidar.c": "ca7642992849556c51dee91e458d4d28bfb1a4f7df4a469c32a6952ab10d93b0",
+    "gongxun_1/Control/Src/task.c": "7594b7a1e6947140b8f34384e589b5a0fe938ecc5bea463a15b38d6ad8e985f0"
+  },
+  "coordinate_rule": "x=-d*sin(angle), y=d*cos(angle); standard CCW rotation for TF",
+  "note": "来源是当前工作区（包含未提交内容）；Python 回放副本的源码对照验证见 VALIDATION.md。"
+}
