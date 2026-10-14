@@ -298,6 +298,18 @@ void car_run_distance(int16_t speed, float x_cm, float y_cm)
     car_move_xy(speed, x_cm, y_cm);
 }
 
+// 底盘四个电机回到编码器零点位置
+void car_back_zero(void)
+{
+    if (chassis_mode != CHASSIS_IDLE) {
+        return;   // 底盘忙时不接受新移动指令
+    }
+
+    chassis_send_mode = 2;     // 回零模式
+    chassis_send_index = 0;
+    chassis_sending = 1;
+}
+
 // 1ms 周期调用：每个周期只发一条电机命令，保证串口上有足够帧间隔
 void car_move_send_tick(void)
 {
@@ -325,13 +337,23 @@ void car_move_send_tick(void)
             }
 
         }
-        else {
+        else if (chassis_send_mode == 0) {
             // 速度模式下每条指令隔3ms
             move_time_gap ++;
             if (move_time_gap >= 3) {
                 move_time_gap = 0;
                 motor_set_speed((Motor_Num)chassis_send_index,
                             (int16_t)chassis_wheel_cmd[chassis_send_index]);
+                chassis_send_index++;
+            }
+        }
+        else if (chassis_send_mode == 2) {
+            // 回零模式下每条指令隔4ms
+            move_time_gap ++;
+            if (move_time_gap >= 4) {
+                move_time_gap = 0;
+                motor_set_speed_Pos((Motor_Num)chassis_send_index,
+                            (int16_t)70,(int32_t)0);
                 chassis_send_index++;
             }
         }

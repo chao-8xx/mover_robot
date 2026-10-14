@@ -46,6 +46,9 @@ void car_rotate_yaw(float target_yaw);
 // x_cm > 0 向右，x_cm < 0 向左；y_cm > 0 向前，y_cm < 0 向后
 void car_run_distance(int16_t speed, float x_cm, float y_cm);
 
+// 底盘四个电机回到编码器零点位置
+void car_back_zero(void);
+
 // 1ms 周期调用（可放 1ms 定时器）：仅做移动非阻塞计时
 void car_run_tick(void);
 

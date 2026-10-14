@@ -18,12 +18,12 @@
 #define HOLDER_LEFT     136.0f   // 云台抓取左侧物料角度
 
 // 升降装置目标高度
-#define LIFT_ZERO_CM    14.5f    // 编码器清零时对应的物理高度，固定不动
-#define LIFT_NORMAL     14.0f    // 默认高度
-#define LIFT_PUT        12.0f    // 放置高度 放入转盘
-#define LIFT_CATCH      7.0f     // 从原料区抓取高度
-#define LIFT_PUT_ONE    (-0.8f)  // 一次放置 放在圆环
-#define LIFT_PUT_TWO    5.0f     // 二次放置 叠在一次放置处
+#define LIFT_ZERO_CM    15.0f   // 编码器清零时对应的物理高度，固定不动
+#define LIFT_NORMAL     14.98f  // 默认高度
+#define LIFT_PUT        12.5f   // 放置高度 放入转盘
+#define LIFT_CATCH      7.5f    // 从原料区抓取高度
+#define LIFT_PUT_ONE    (0.0f)  // 一次放置 放在圆环
+#define LIFT_PUT_TWO    5.0f    // 二次放置 叠在一次放置处
 
 // 伸缩装置目标位置
 #define STRETCH_NORMAL   0.0f   // 默认位置
@@ -51,14 +51,13 @@ void catch_init(void);
 // 抓取装置夹爪伸缩 正：伸出 负：缩回
 void catch_stretch(int16_t speed);
 
-// 抓取装置夹爪伸缩一定距离 齿轮齿条
-// 控制编码器绝对位置
-void catch_stretch_ang(float angle);
 // 抓取装置夹爪伸缩一定距离 单位：cm
 // 正：伸出 负：缩回  电机顺时针伸出（pulse为负）
 void catch_stretch_dist(float delta_cm);
-// 抓取装置到达固定距离
+// 抓取装置到达固定距离 相对 丝杆
 void catch_stretch_to_pos(float dist);
+// 抓取装置到达固定距离 绝对 齿轮齿条
+void catch_stretch_distance(float distance);
 
 // 抓取装置夹爪升降 单位：cm
 void catch_lift(float delta_cm);

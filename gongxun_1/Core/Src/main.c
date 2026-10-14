@@ -119,7 +119,6 @@ int main(void)
     send_conduct_task();      // 给maix发数据处理任务
     hmi_get_car_state_task(); // 非阻塞式发送小车当前状态至串口屏任务
 
-
     // lidar_process();  // 激光雷达处理
 
     // openmv_qr_task();

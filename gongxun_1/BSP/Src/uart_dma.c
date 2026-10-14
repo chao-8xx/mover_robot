@@ -58,27 +58,19 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
     {
         cam_error_callback(huart);
     }
-    else if (huart->Instance == USART2)
-    {
-        Emm_V5_Tx_Reset();
-    }
     else if (huart->Instance == USART3)
     {
         hwt101_error_callback(huart);
     }
-    else if (huart->Instance == USART2)
+    else if (huart->Instance == USART6)
     {
-        Emm_V5_Tx_Reset();
+        debug_error_callback(huart);
     }
     // // LiDAR的错误处理
     // if (huart->Instance == UART4)
     // {
     //     // openmv_uart_error_callback(huart);
     // }
-    else if (huart->Instance == USART6)
-    {
-        debug_error_callback(huart);
-    }
 }
 
 // 串口打印十进制数字（定宽，末尾自动补回车换行）

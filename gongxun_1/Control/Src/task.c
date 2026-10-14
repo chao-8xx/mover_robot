@@ -273,17 +273,6 @@ void mv_task(void)
         openmv_start = 0;
         openmv_end = 1;
     }
-
-    // // 将扫码结果解析并发送至串口屏
-    // if (openmv_end == 0) {
-    //     if (task_state.openmv_task_get_ok == 1) {
-    //         if (task_receive() == 1) {
-    //             task_state.send_task_hmi_ok = 1;
-    //             scan_send_task_hmi();
-    //             openmv_end = 1;
-    //         }
-    //     }
-    // }
 }
 
 // 给maix发数据处理任务

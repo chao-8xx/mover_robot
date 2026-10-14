@@ -59,12 +59,12 @@ typedef struct {
     float cur_stretch_dist;         // 伸缩装置当前伸缩的距离
     float cur_lift_height;          // 升降装置当前的高度
     uint8_t cur_x, cur_y;           // 车辆当前坐标
-    float catch_cur_angle;          // 齿轮齿条电机当前旋转角度
     int16_t follow_x, follow_y;     // 当前所追踪的目标的坐标
     uint8_t is_find_target;         // 车辆是否发现目标 0:未发现 1:已发现
     uint8_t is_stable_target;       // 目标是否稳定 0:不稳定 1:稳定
     uint8_t is_catch_target;        // 是否可以抓取目标 0:不可抓取 1:可抓取
     uint8_t send_task_hmi_ok;       // 是否把任务发送给串口屏显示 1:发送
+    uint8_t chassis_clear;          // 底盘清零标志
 
     // ==== 任务编码状态 ==== //
     uint8_t openmv_task_get_ok;     // openmv扫码获取数据成功标志

@@ -140,6 +140,11 @@ void motor_set_speed_Pos(Motor_Num motor_num,int16_t speed,int32_t pos)
     dir = (pos < cur) ? 1 : 0;             // 位置值减小 = 上升 = dir 1
     clk = (pos < 0) ? (uint32_t)(-(int32_t)pos) : (uint32_t)pos;
 
+    // ★ 加在这里 ★
+    if (motor_num == Motor_5) {
+        printf("M5 pos=%ld cur=%ld dir=%d\r\n", (long)pos, (long)cur, dir);
+    }
+
     Emm_V5_Pos_Control(addr, dir, vel, STEP_MOTOR_CATCH_ACC, clk, true, false);
 
     step_motor_update_speed(motor_num, speed);

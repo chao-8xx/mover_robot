@@ -8,7 +8,7 @@
 #define MM_PER_CIRCLE     8         // 一圈升降的距离mm
 
 // 电机速度
-#define STEP_MOVE_SPEED     1400     // 丝杆电机位置模式移动速度
+#define STEP_MOVE_SPEED     1500     // 丝杆电机位置模式移动速度
 #define STEP_SPEED          200      // 齿轮齿条电机位置模式移动速度
 
 // 升降非阻塞计时：预计完成时刻 + busy 标志
@@ -89,20 +89,9 @@ void catch_stretch(int16_t speed)
 
 // 抓取装置夹爪伸缩一定距离 齿轮齿条 pos:编码器绝对位置
 // 控制编码器绝对位置
-void catch_stretch_ang(float angle)
+void catch_stretch_distance(float distance)
 {
-    int32_t pos = 0;
 
-    // 伸缩装置处于忙状态，不执行
-    if (stretch_busy) {
-        return;
-    }
-
-    pos = (int32_t)(angle / 1.8f * STEP_ANGLE_DIV);
-
-    motor_set_speed_Pos(Motor_6,STEP_SPEED,pos);
-
-    task_state.catch_cur_angle = angle;
 }
 
 // 抓取装置夹爪伸缩一定距离 直线模组 单位：cm
@@ -260,7 +249,7 @@ void catch_lift_to_height(float height)
         lift_deadline = HAL_GetTick() + t_ms + 3000;   // 从低到高比较吃力 多留些余量
     }
     else {
-        lift_deadline = HAL_GetTick() + t_ms + 1800;   // 余量
+        lift_deadline = HAL_GetTick() + t_ms + 1500;   // 余量
     }
     lift_busy = 1;
 
