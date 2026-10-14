@@ -19,9 +19,20 @@ from vision_config import (
 # 物料是大色块，3x3 开/闭各一次足够做第一轮去噪，比原来的 5x5 + 闭运算两次轻。
 MORPH_KERNEL = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
 
-# 运行时只使用当前模式和当前颜色的一组阈值。缓存对应的 uint8 数组，
+# 运行时只使用当前颜色的一组LAB阈值。缓存对应的 uint8 数组，
 # 避免每帧重复把 Python list 转换成多个 NumPy 小数组。
 _THRESHOLD_CACHE = {}
+B2_PIPELINE_BUILD = "B2_BUFFERS_V1"
+
+
+class ColorBuffers:
+    """仅B2复用处理输出内存；不改变采样尺寸、阈值或形态学运算。"""
+
+    def __init__(self, width, height):
+        self.bgr = np.empty((height, width, 3), dtype=np.uint8)
+        self.lab = np.empty_like(self.bgr)
+        self.mask = np.empty((height, width), dtype=np.uint8)
+        self.cleaned = np.empty_like(self.mask)
 
 
 def _find_contours(mask):
@@ -40,45 +51,19 @@ def _normalize_contour(contour):
     return np.ascontiguousarray(points.reshape((-1, 1, 2)), dtype=np.int32)
 
 
-def _threshold_arrays(mode, threshold):
-    """缓存多颜色阈值，避免红/黄/蓝轮换时每帧重建数组。"""
+def _threshold_arrays(threshold):
+    """缓存阈值数组；触屏修改数值后自动使用新缓存项。"""
     lower = tuple(int(v) for v in threshold["lower"])
     upper = tuple(int(v) for v in threshold["upper"])
-    cache_key = (mode, lower, upper)
+    cache_key = (lower, upper)
     if cache_key in _THRESHOLD_CACHE:
         return _THRESHOLD_CACHE[cache_key]
 
-    if mode == "HSV" and lower[0] > upper[0]:
-        arrays = (
-            np.array((lower[0], lower[1], lower[2]), dtype=np.uint8),
-            np.array((179, upper[1], upper[2]), dtype=np.uint8),
-            np.array((0, lower[1], lower[2]), dtype=np.uint8),
-            np.array((upper[0], upper[1], upper[2]), dtype=np.uint8),
-        )
-    else:
-        arrays = (
-            np.array(lower, dtype=np.uint8),
-            np.array(upper, dtype=np.uint8),
-        )
+    arrays = (np.array(lower, dtype=np.uint8), np.array(upper, dtype=np.uint8))
     if len(_THRESHOLD_CACHE) >= 24:
         _THRESHOLD_CACHE.clear()
     _THRESHOLD_CACHE[cache_key] = arrays
     return arrays
-
-
-def _hsv_mask(color_img, threshold):
-    lower = threshold["lower"]
-    upper = threshold["upper"]
-    if lower[0] <= upper[0]:
-        lower_array, upper_array = _threshold_arrays("HSV", threshold)
-        return cv2.inRange(color_img, lower_array, upper_array)
-
-    # H 起点大于终点表示跨越 179 -> 0，适合红色的两段色相。
-    lower_high, upper_high, lower_low, upper_low = _threshold_arrays("HSV", threshold)
-    return cv2.bitwise_or(
-        cv2.inRange(color_img, lower_high, upper_high),
-        cv2.inRange(color_img, lower_low, upper_low),
-    )
 
 
 def extract_roi(cv_bgr, config):
@@ -121,7 +106,6 @@ def make_run_geometry(config, source_width, source_height,
 
     # 阈值表只读共享；ROI、中心点和面积阈值使用 RUN 专用的小图副本。
     process_config = {
-        "mode": config["mode"],
         "target_color": config["target_color"],
         "morph_mode": config["morph_mode"],
         "thresholds": config["thresholds"],
@@ -143,7 +127,7 @@ def make_run_geometry(config, source_width, source_height,
     }
 
 
-def resize_run_roi(cv_bgr, geometry):
+def resize_run_roi(cv_bgr, geometry, dst=None):
     """裁出 320x240 基准 ROI，再按 RUN 比例缩小；小 ROI 不必缩放整幅图。"""
     x, y, w, h = geometry["source_roi"]
     scaled_w = geometry["process_roi"][2]
@@ -152,6 +136,9 @@ def resize_run_roi(cv_bgr, geometry):
     if scaled_w == w and scaled_h == h:
         return source_roi
     # 大色块使用最近邻可避免边缘混色，通常也比高质量插值更省时。
+    if dst is not None:
+        return cv2.resize(source_roi, (scaled_w, scaled_h), dst=dst,
+                          interpolation=cv2.INTER_NEAREST)
     return cv2.resize(
         source_roi, (scaled_w, scaled_h), interpolation=cv2.INTER_NEAREST
     )
@@ -200,74 +187,75 @@ def map_run_result_to_source(result, source_config, geometry):
     }
 
 
-def convert_color_space(roi_bgr, mode):
-    """将 ROI 从相机 BGR 转换到当前识别颜色空间。"""
-    conversion = cv2.COLOR_BGR2HSV if mode == "HSV" else cv2.COLOR_BGR2LAB
-    return cv2.cvtColor(roi_bgr, conversion)
+def convert_color_space(roi_bgr, dst=None):
+    """B2/B4固定使用LAB，每个处理帧只转换一次。"""
+    if dst is not None:
+        return cv2.cvtColor(roi_bgr, cv2.COLOR_BGR2LAB, dst=dst)
+    return cv2.cvtColor(roi_bgr, cv2.COLOR_BGR2LAB)
 
 
-def apply_color_threshold(converted, config):
+def apply_color_threshold(converted, config, dst=None):
     """在已经转换的 ROI 上执行当前颜色阈值。"""
-    mode = config["mode"]
     color_key = config["target_color"]
-    threshold = config["thresholds"][mode][color_key]
-    if mode == "HSV":
-        return _hsv_mask(converted, threshold)
-    lower_array, upper_array = _threshold_arrays("LAB", threshold)
+    threshold = config["thresholds"]["LAB"][color_key]
+    lower_array, upper_array = _threshold_arrays(threshold)
+    if dst is not None:
+        return cv2.inRange(converted, lower_array, upper_array, dst=dst)
     return cv2.inRange(converted, lower_array, upper_array)
 
 
-def open_mask(mask):
+def open_mask(mask, dst=None):
     """去除孤立噪点；独立函数便于评估这一遍处理是否值得保留。"""
+    if dst is not None:
+        return cv2.morphologyEx(mask, cv2.MORPH_OPEN, MORPH_KERNEL, dst=dst, iterations=1)
     return cv2.morphologyEx(mask, cv2.MORPH_OPEN, MORPH_KERNEL, iterations=1)
 
 
-def close_mask(mask):
+def close_mask(mask, dst=None):
     """连接物料内部的小空洞；独立函数便于在真机上单独计时。"""
+    if dst is not None:
+        return cv2.morphologyEx(mask, cv2.MORPH_CLOSE, MORPH_KERNEL, dst=dst, iterations=1)
     return cv2.morphologyEx(mask, cv2.MORPH_CLOSE, MORPH_KERNEL, iterations=1)
 
 
-def clean_mask(mask, morph_mode=MORPH_OPEN_CLOSE):
+def clean_mask(mask, morph_mode=MORPH_OPEN_CLOSE, dst=None):
     """按照配置档位处理 mask；默认保持原有开运算加闭运算。"""
     if morph_mode not in VALID_MORPH_MODES:
         raise ValueError("unknown morphology mode: " + str(morph_mode))
     if morph_mode in (MORPH_OPEN_ONLY, MORPH_OPEN_CLOSE):
-        mask = open_mask(mask)
+        mask = open_mask(mask) if dst is None else open_mask(mask, dst=dst)
     if morph_mode in (MORPH_CLOSE_ONLY, MORPH_OPEN_CLOSE):
-        mask = close_mask(mask)
+        mask = close_mask(mask) if dst is None else close_mask(mask, dst=dst)
     return mask
 
 
 def build_mask(roi_bgr, config):
     """兼容入口：颜色转换、阈值和配置中选定的形态学档位。"""
-    converted = convert_color_space(roi_bgr, config["mode"])
+    converted = convert_color_space(roi_bgr)
     mask = apply_color_threshold(converted, config)
     return clean_mask(mask, config.get("morph_mode", MORPH_OPEN_CLOSE))
 
 
-def detect_color_set(roi_bgr, config, roi_rect, color_keys, need_mask=True):
-    """同帧只转换一次颜色空间，每种颜色各自找最大合格色块。"""
+def detect_color(roi_bgr, config, roi_rect, need_mask=True, buffers=None, fast_filter=False):
+    """只检测指定颜色；RUN不保留预览MASK，不创建三色结果集合。"""
     tick = perf_counter()
-    converted = convert_color_space(roi_bgr, config["mode"])
+    converted = (convert_color_space(roi_bgr) if buffers is None else
+                 convert_color_space(roi_bgr, dst=buffers.lab))
     conversion_ms = (perf_counter() - tick) * 1000.0
-    threshold_ms = morph_ms = blob_ms = 0.0
-    by_color = {}
-    selected_mask = None
-    color_config = dict(config)
-    for color_key in color_keys:
-        color_config["target_color"] = color_key
-        tick = perf_counter()
-        mask = apply_color_threshold(converted, color_config)
-        threshold_ms += (perf_counter() - tick) * 1000.0
-        tick = perf_counter()
-        mask = clean_mask(mask, config.get("morph_mode", MORPH_OPEN_CLOSE))
-        morph_ms += (perf_counter() - tick) * 1000.0
-        tick = perf_counter()
-        by_color[color_key] = find_largest_blob(mask, color_config, roi_rect)
-        blob_ms += (perf_counter() - tick) * 1000.0
-        if need_mask and color_key == config["target_color"]:
-            selected_mask = mask
-    return by_color, selected_mask, {
+    tick = perf_counter()
+    mask = (apply_color_threshold(converted, config) if buffers is None else
+            apply_color_threshold(converted, config, dst=buffers.mask))
+    threshold_ms = (perf_counter() - tick) * 1000.0
+    tick = perf_counter()
+    mode = config.get("morph_mode", MORPH_OPEN_CLOSE)
+    mask = (clean_mask(mask, mode) if buffers is None else
+            clean_mask(mask, mode, dst=buffers.cleaned))
+    morph_ms = (perf_counter() - tick) * 1000.0
+    tick = perf_counter()
+    result = (find_largest_blob(mask, config, roi_rect, fast_filter=True) if fast_filter else
+              find_largest_blob(mask, config, roi_rect))
+    blob_ms = (perf_counter() - tick) * 1000.0
+    return result, mask if need_mask else None, {
         "conversion_ms": conversion_ms,
         "threshold_ms": threshold_ms,
         "morph_ms": morph_ms,
@@ -295,7 +283,7 @@ def build_roi_mask(cv_bgr, config):
     return build_mask(roi_bgr, config), roi_rect
 
 
-def find_largest_blob(mask_roi, config, roi_rect):
+def find_largest_blob(mask_roi, config, roi_rect, fast_filter=False):
     """在已有 ROI 掩膜中只选择面积最大的合格色块并计算中心偏差。"""
     x, y, w, h = roi_rect
     min_area = config["blob"]["min_area"]
@@ -303,6 +291,17 @@ def find_largest_blob(mask_roi, config, roi_rect):
     best_contour = None
     best_area = 0.0
     for contour in _find_contours(mask_roi):
+        if fast_filter:
+            # 某些设备绑定返回tuple/list；直接规范化，避免每个轮廓先抛一次异常。
+            if isinstance(contour, (tuple, list)):
+                contour = _normalize_contour(contour)
+                if contour is None:
+                    continue
+            _, _, rect_w, rect_h = cv2.boundingRect(contour)
+            # contourArea不可能大于外接矩形面积。只跳过必然低于原min_area的噪点，
+            # 合格轮廓仍以原轮廓面积/矩求结果，不改成像素面积、不改任何门槛。
+            if (rect_w - 1) * (rect_h - 1) < min_area:
+                continue
         try:
             area = float(cv2.contourArea(contour))
         except Exception:
@@ -393,34 +392,14 @@ def make_preview(cv_bgr, mask_full, result, config, view_mode="OVERLAY"):
             preview, (grab_x, grab_y), (result["cx"], result["cy"]),
             (255, 100, 0), 1
         )
-    palette = {"red": (40, 40, 255), "yellow": (0, 220, 255),
-               "blue": (255, 160, 30)}
-    for color_key, detected in result.get("by_color", {}).items():
-        if not detected["found"]:
-            continue
-        color = palette.get(color_key, (0, 255, 0))
-        bx, by, bw, bh = detected["rect"]
-        cv2.rectangle(preview, (bx, by), (bx + bw - 1, by + bh - 1), color, 1)
-        cv2.circle(preview, (detected["cx"], detected["cy"]), 3, color, -1)
-        cv2.putText(preview, color_key.upper(), (bx, max(12, by - 4)),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.35, color, 1)
     return preview
 
 
-def threshold_swatch_bgr(config, mode, color_key):
+def threshold_swatch_bgr(config, color_key):
     """根据阈值中心值生成菜单色块，只用于视觉提示。"""
-    threshold = config["thresholds"][mode][color_key]
+    threshold = config["thresholds"]["LAB"][color_key]
     lower = threshold["lower"]
     upper = threshold["upper"]
-    if mode == "HSV":
-        if lower[0] <= upper[0]:
-            hue = (lower[0] + upper[0]) // 2
-        else:
-            hue = int((lower[0] + ((upper[0] - lower[0]) % 180) / 2) % 180)
-        pixel = np.uint8([[[hue, (lower[1] + upper[1]) // 2,
-                            (lower[2] + upper[2]) // 2]]])
-        return tuple(int(v) for v in cv2.cvtColor(pixel, cv2.COLOR_HSV2BGR)[0, 0])
-
     pixel = np.uint8([[[(lower[0] + upper[0]) // 2,
                         (lower[1] + upper[1]) // 2,
                         (lower[2] + upper[2]) // 2]]])

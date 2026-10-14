@@ -1,10 +1,16 @@
 """纯Python发送调度和性能统计，可在电脑上测试，无Maix硬件依赖。"""
 
-from vision_tasks import safe_xy_result
+from vision_tasks import TASK_MATERIAL, safe_xy_result
 
 
 SEND_TIME_MS = 25
+B2_SEND_TIME_MS = 28
 MAX_RESULT_AGE_MS = 50
+
+
+def send_interval_ms(task_id):
+    """仅任务一改为28ms；圆环和码垛继续使用25ms。"""
+    return B2_SEND_TIME_MS if task_id == TASK_MATERIAL else SEND_TIME_MS
 
 
 class ResultSender:
@@ -67,7 +73,7 @@ class PerfStats:
         if display_ms > 0:
             self.display_count += 1
         for key in ("conversion_ms", "threshold_ms", "morph_ms", "blob_ms",
-                    "mask_ms", "group_ms", "contour_ms", "filter_ms"):
+                    "mask_ms", "group_ms", "contour_ms", "filter_ms", "resize_ms"):
             self.totals[key] = self.totals.get(key, 0.0) + result.get(key, 0.0)
         if tx is not None:
             self.tx_count += 1
@@ -102,8 +108,9 @@ class PerfStats:
             text += " CVT:{:.1f} THR:{:.1f} MORPH:{:.1f} BLOB:{:.1f} COLORS:{}".format(
                 avg("conversion_ms"), avg("threshold_ms"), avg("morph_ms"), avg("blob_ms"),
                 result.get("color_count", 0))
-            if "by_color" in result:
-                text += " FOUND:" + "/".join(
-                    str(int(result["by_color"][key]["found"]))
-                    for key in ("red", "yellow", "blue"))
+            text += " TARGET:{} FOUND:{}".format(
+                result.get("target_color", "-"), int(result.get("found", False)))
+            if task_id == 1:
+                text += " RESIZE:{:.1f} BUF:{}".format(
+                    avg("resize_ms"), int(result.get("buffer_reuse", False)))
         return text

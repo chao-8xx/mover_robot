@@ -4,13 +4,13 @@ files:
   - main.py
   - vision_blob.py
   - vision_config.py
-  - vision_runtime.py
   - vision_ring.py
+  - vision_runtime.py
   - vision_tasks.py
   - vision_ui.py
 id: gongxun_now
 name: 工训视觉_NOW
-version: 2.0.0
+version: 2.1.5
 author: chao
 icon: app.png
-desc: 全图三色物料、纯圆心定位、目标40Hz发送
+desc: 六色可调、每帧指定单色LAB、纯圆心定位、单色码垛

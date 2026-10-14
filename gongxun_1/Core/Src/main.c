@@ -111,6 +111,8 @@ int main(void)
   // my_hwt101_init();   // 陀螺仪
   uart_init();
   tf_init();
+
+  HAL_GPIO_WritePin(GPIOE, GPIO_PIN_4, GPIO_PIN_SET);  // 开启补光板
   // obstacle_map_init();
 
   HAL_Delay(5000);
@@ -127,9 +129,9 @@ int main(void)
   // remind_init();
   // task_init();
 
-  // lidar_start();
+  lidar_start();
 
-  openmv_test();
+  // openmv_test();
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -142,7 +144,7 @@ int main(void)
     // lidar_install_test();
     // wheel_mask_test();  // 四车轮遮挡测试，需要时切换回来
 
-    // lidar_test();
+    lidar_test();
 
     // printf("111\r\n");
 

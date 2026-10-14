@@ -1,9 +1,13 @@
-# 校赛后独立入口：B2全图三色 / B3纯圆心 / B4单色码垛。
+# 校赛后独立入口：B2全图单色LAB / B3纯圆心 / B4单色码垛。
 # 参数只在vision_config.py或触屏菜单修改；没有第二套旧阈值。
 # 协议不变：AA 55 CMD 06 FRAME_ID RAW_OK dxL dxH dyL dyH SUM。
 
 from time import perf_counter
 from maix import camera, display, app, time, image, touchscreen, uart, pinmap, gpio, err
+import vision_config as config_module
+import vision_blob as blob_module
+import vision_tasks as tasks_module
+import vision_ui as ui_module
 
 from vision_config import COLOR_NUMBERS, IMAGE_WIDTH, IMAGE_HEIGHT, VisionConfigStore
 from vision_blob import make_preview, expand_roi_mask
@@ -12,9 +16,9 @@ from vision_tasks import (
     TASK_NONE, TASK_MATERIAL, TASK_RING, TASK_STACK, TASK_LABELS, TaskManager,
 )
 from vision_ui import TouchInput, VisionUI
-from vision_runtime import SEND_TIME_MS, ResultSender, PerfStats, pack_xy_frame
+from vision_runtime import B2_SEND_TIME_MS, SEND_TIME_MS, ResultSender, PerfStats, pack_xy_frame, send_interval_ms
 
-BUILD = "NOW_RGB3_RING_NOOCR_TX40_V1"
+BUILD = "NOW_UI_TOP_LAB6_B2_TX28_V7"
 CMD_NONE, CMD_BLOB, CMD_RING, CMD_ONUP = 0xB0, 0xB2, 0xB3, 0xB4
 COLOR_NONE, SUM_2 = 0xC0, 0xD2
 COLOR_CODE_TO_KEY = {0xC0 + number: key for key, number in COLOR_NUMBERS.items()}
@@ -34,6 +38,27 @@ control_revision = 0
 
 def now_ms():
     return perf_counter() * 1000.0
+
+
+def check_b2_modules():
+    """直接上传main.py时检查实际导入的依赖，确保六色菜单与单色LAB检测一致。"""
+    modules = (("vision_blob", blob_module, "B2_PIPELINE_BUILD", "B2_BUFFERS_V1"),
+               ("vision_tasks", tasks_module, "B2_TASK_BUILD", "B2_BUFFERS_V1"),
+               ("vision_ui", ui_module, "B2_UI_BUILD", "B2_LAB6_UI_TOP_V5"))
+    mismatch = []
+    for name, module, attr, expected in modules:
+        actual = getattr(module, attr, "OLD")
+        print("[VISION B2 MODULE]", name, getattr(module, "__file__", "?"), actual)
+        if actual != expected:
+            mismatch.append(name)
+    colors = tuple(getattr(config_module, "COLOR_ORDER", ()))
+    schema = getattr(config_module, "SCHEMA_VERSION", 0)
+    print("[VISION B2 MODULE] vision_config", getattr(config_module, "__file__", "?"), colors, "schema=", schema)
+    if colors != ("red", "yellow", "blue", "green", "black", "light_blue") or schema != 9:
+        mismatch.append("vision_config")
+    if mismatch:
+        raise RuntimeError("B2 module mismatch: " + ",".join(mismatch) +
+                           "; upload ALL app.yaml Python files together and restart")
 
 
 def uart_tx_release():
@@ -215,8 +240,8 @@ def run():
     print("[VISION CONFIG]", status, store.path)
     print("[VISION UART]", SERIAL_DEVICE, SERIAL_BAUD, serial_status)
     print("[VISION UI] display: {}x{}".format(screen_w, screen_h))
-    print("[VISION RATE] period={}ms; target 40Hz; verify FPS/TXHZ separately".format(
-        SEND_TIME_MS))
+    print("[VISION RATE] B2={}ms ({:.1f}Hz); B3/B4={}ms ({:.1f}Hz); verify FPS/TXHZ separately".format(
+        B2_SEND_TIME_MS, 1000.0 / B2_SEND_TIME_MS, SEND_TIME_MS, 1000.0 / SEND_TIME_MS))
     print("[VISION RING] geometric center only; F407 must approach slot 2 first")
 
     previous_signature = None
@@ -255,9 +280,13 @@ def run():
             run_mode = task_id != TASK_NONE and ui.is_run_mode()
             signature = (task_id, active_target, run_mode, control_revision)
             changed = signature != previous_signature
+            if changed and task_id == TASK_MATERIAL:
+                check_b2_modules()
             tasks.switch(task_id, active_target)
             if changed:
                 tasks.reset_current()
+                # 切任务先选择本任务周期，再清空旧调度，不让B2的28ms带到B3/B4。
+                sender.interval_ms = send_interval_ms(task_id)
                 sender.reset(now_ms())
                 stats.reset(now_ms())
                 previous_signature = signature

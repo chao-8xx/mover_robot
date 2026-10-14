@@ -1,25 +1,27 @@
-"""校赛后视觉：B2全图三色、B3纯圆心、B4复用颜色识别。"""
+"""校赛后视觉：B2全图单色、B3纯圆心、B4复用单色LAB识别。"""
 
 import cv2
+from time import perf_counter
 
 from vision_blob import (
-    detect_color_set, empty_result, extract_roi, make_run_geometry,
+    ColorBuffers, detect_color, empty_result, extract_roi, make_run_geometry,
     map_run_result_to_source, resize_run_roi,
 )
 from vision_config import (
-    IMAGE_HEIGHT, IMAGE_WIDTH, MATERIAL_COLORS,
+    IMAGE_HEIGHT, IMAGE_WIDTH,
     RUN_PROCESS_HEIGHT, RUN_PROCESS_WIDTH,
 )
 from vision_ring import detect_ring_candidates
 
 
 TASK_NONE = 0
+B2_TASK_BUILD = "B2_BUFFERS_V1"
 TASK_MATERIAL = 1
 TASK_RING = 2
 TASK_STACK = 3
 TASK_LABELS = {
     TASK_NONE: "待机",
-    TASK_MATERIAL: "任务一 全图三色物料",
+    TASK_MATERIAL: "任务一 全图单色物料",
     TASK_RING: "任务二 圆环中心定位",
     TASK_STACK: "任务三 码垛堆放",
 }
@@ -36,9 +38,10 @@ def safe_xy_result(result, require_track=False):
 
 
 class ColorTracker:
-    """一次颜色转换供多个MASK共用；B4只处理指定颜色。"""
+    """B2/B4共享单色LAB处理，标定参数由各任务独立提供。"""
 
     def __init__(self):
+        self.b2_buffers_supported = True
         self.reset()
 
     def enter(self, target):
@@ -54,15 +57,16 @@ class ColorTracker:
     def invalidate_geometry(self):
         self.run_geometry = None
         self.run_geometry_key = None
+        self.b2_buffers = None
 
-    def process(self, cv_bgr, config, run_mode=False,
-                multi_color=False, need_mask=True):
+    def process(self, cv_bgr, config, run_mode=False, need_mask=True, reuse_buffers=False):
+        resize_tick = perf_counter()
         if run_mode:
             roi, center, blob = config["roi"], config["center"], config["blob"]
             key = (tuple(roi[k] for k in ("x", "y", "w", "h")),
                    center["x"], center["y"], center["custom"],
                    blob["min_area"], blob["max_area"],
-                   config["mode"], config["morph_mode"], config["target_color"])
+                   config["morph_mode"], config["target_color"])
             if self.run_geometry is None or key != self.run_geometry_key:
                 self.run_geometry = make_run_geometry(
                     config, IMAGE_WIDTH, IMAGE_HEIGHT,
@@ -71,39 +75,58 @@ class ColorTracker:
                 self.run_geometry_key = key
             process_config = self.run_geometry["config"]
             process_config["thresholds"] = config["thresholds"]
-            roi_bgr = resize_run_roi(cv_bgr, self.run_geometry)
             process_roi = self.run_geometry["process_roi"]
+            if reuse_buffers and self.b2_buffers_supported and self.b2_buffers is None:
+                self.b2_buffers = ColorBuffers(process_roi[2], process_roi[3])
+            try:
+                dst = self.b2_buffers.bgr if reuse_buffers and self.b2_buffers is not None else None
+                roi_bgr = resize_run_roi(cv_bgr, self.run_geometry, dst=dst)
+            except (TypeError, cv2.error) as error:
+                if dst is None:
+                    raise
+                self._disable_b2_buffers(error)
+                roi_bgr = resize_run_roi(cv_bgr, self.run_geometry)
         else:
             process_config = config
             roi_bgr, process_roi = extract_roi(cv_bgr, config)
 
         target_key = config["target_color"]
-        color_keys = MATERIAL_COLORS if multi_color else (target_key,)
-        # 保持旧B2对绿/黑/浅蓝调参和指令的兼容性。
-        if target_key not in color_keys:
-            color_keys = color_keys + (target_key,)
-        detected, mask_roi, perf = detect_color_set(
-            roi_bgr, process_config, process_roi, color_keys, need_mask,
-        )
+        resize_ms = (perf_counter() - resize_tick) * 1000.0
+        # 本轮优化只用于B2 RUN；B4和调参继续使用原检测路径。
+        buffers = self.b2_buffers if reuse_buffers and run_mode else None
+        try:
+            result, mask_roi, perf = detect_color(
+                roi_bgr, process_config, process_roi, need_mask, buffers=buffers,
+                fast_filter=reuse_buffers and run_mode,
+            )
+        except (TypeError, cv2.error) as error:
+            if buffers is None:
+                raise
+            self._disable_b2_buffers(error)
+            result, mask_roi, perf = detect_color(
+                roi_bgr, process_config, process_roi, need_mask, fast_filter=run_mode)
+        if reuse_buffers:
+            perf["resize_ms"] = resize_ms
+            perf["buffer_reuse"] = buffers is not None and self.b2_buffers_supported
         if run_mode:
-            detected = {
-                color: map_run_result_to_source(value, config, self.run_geometry)
-                for color, value in detected.items()
-            }
+            result = map_run_result_to_source(result, config, self.run_geometry)
             if mask_roi is not None:
                 roi = config["roi"]
                 mask_roi = cv2.resize(mask_roi, (roi["w"], roi["h"]),
                                       interpolation=cv2.INTER_NEAREST)
-        result = dict(detected[target_key])
         result.update(perf)
         result["target_color"] = target_key
-        result["color_count"] = len(color_keys)
-        if multi_color:
-            result["by_color"] = detected
+        result["color_count"] = 1
         roi = config["roi"]
         return {"result": result, "mask_roi": mask_roi,
                 "roi_rect": tuple(roi[k] for k in ("x", "y", "w", "h")),
                 "config": config}
+
+    def _disable_b2_buffers(self, error):
+        # 旧固件不支持dst时只提示一次，以原路径处理当前新图，不反复试错。
+        self.b2_buffers_supported = False
+        self.b2_buffers = None
+        print("[VISION B2] dst unsupported, using original path:", error)
 
 
 MaterialTask = ColorTracker
@@ -235,10 +258,8 @@ class RingTask:
             })
         for candidate in candidates:
             candidate["selected"] = candidate is selected
-            candidate["digit"] = 0
         result.update({
             "state": self.state, "stage": self.state, "target_number": 2,
-            "recognized_digit": 0, "ocr_ms": 0.0, "ocr_calls": 0,
             "target_confirmed": self.target_confirmed,
             "stable_frames": self.stable_frames, "lost_frames": self.lost_frames,
             "selected_present": selected is not None, "process_roi": roi_rect,
@@ -293,6 +314,6 @@ class TaskManager:
         else:
             task_config["roi"] = {"x": 0, "y": 0, "w": IMAGE_WIDTH, "h": IMAGE_HEIGHT}
         return self.current.process(
-            cv_bgr, task_config, run_mode,
-            multi_color=self.task_id == TASK_MATERIAL, need_mask=need_mask,
+            cv_bgr, task_config, run_mode, need_mask=need_mask,
+            reuse_buffers=self.task_id == TASK_MATERIAL,
         )

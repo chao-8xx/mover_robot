@@ -16,9 +16,18 @@ class MainLoopTests(unittest.TestCase):
         tree = ast.parse((MODULE_DIR / "main.py").read_text(encoding="utf-8"))
         tree.body = [node for node in tree.body
                      if not (isinstance(node, ast.ImportFrom) and node.module == "maix")]
+        run_node = next(node for node in tree.body
+                        if isinstance(node, ast.FunctionDef) and node.name == "run")
+        if not local:
+            # 用户可保留源码的本地调试注释；正式通信检查只在测试副本恢复接收。
+            loop = next(node for node in ast.walk(run_node) if isinstance(node, ast.While))
+            if not any(isinstance(line, ast.Expr) and isinstance(line.value, ast.Call)
+                       and isinstance(line.value.func, ast.Name)
+                       and line.value.func.id == "rx_handle" for line in loop.body):
+                loop.body.insert(1, ast.Expr(value=ast.Call(
+                    func=ast.Name(id="rx_handle", ctx=ast.Load()), args=[], keywords=[])))
+                ast.fix_missing_locations(tree)
         if local:
-            run_node = next(node for node in tree.body
-                            if isinstance(node, ast.FunctionDef) and node.name == "run")
             for node in ast.walk(run_node):
                 if isinstance(node, ast.While):
                     node.body = [line for line in node.body
@@ -90,6 +99,30 @@ class MainLoopTests(unittest.TestCase):
         self.assertEqual(env["mode"], 0xB0)
         self.assertFalse(env["uart_tx_owned"])
 
+    def test_task_or_color_switch_during_detection_discards_pending_result(self):
+        for cmd, target in ((0xB4, 0xC2), (0xB3, 0xD2), (0xB2, 0xC3)):
+            env = self.load_entry()
+            chunks = [self.command(0xB2, [0xC1]), self.command(cmd, [target])]
+            with tempfile.TemporaryDirectory() as path:
+                _, _, serial, _ = self.hardware(env, path, chunks, loops=1)
+            serial.write.assert_not_called()
+            self.assertEqual((env["mode"], env["target"]), (cmd, target))
+
+    def test_main_selects_28ms_for_b2_and_restores_25ms_after_task_switch(self):
+        for cmd, target, period in ((0xB2, 0xC1, 28), (0xB4, 0xC2, 25), (0xB3, 0xD2, 25)):
+            env = self.load_entry()
+            real_sender = env["ResultSender"]
+            senders = []
+            def create_sender():
+                sender = real_sender()
+                senders.append(sender)
+                return sender
+            env["ResultSender"] = create_sender
+            chunks = [self.command(0xB2, [0xC1]), b"", self.command(cmd, [target])]
+            with tempfile.TemporaryDirectory() as path:
+                self.hardware(env, path, chunks, loops=2)
+            self.assertEqual(senders[0].interval_ms, period)
+
     def test_commenting_first_rx_call_enables_local_run_without_transmitting(self):
         env = self.load_entry(local=True)
         with tempfile.TemporaryDirectory() as path:
@@ -118,6 +151,21 @@ class MainLoopTests(unittest.TestCase):
         calls = env["camera"].Camera.call_args_list
         self.assertEqual(calls[0].kwargs, {"fps": 60})
         self.assertEqual(calls[1].kwargs, {})
+
+    def test_b2_reports_and_rejects_mixed_old_ui_module(self):
+        env = self.load_entry()
+        env["ui_module"] = types.SimpleNamespace(__file__="/old/vision_ui.py")
+        with self.assertRaisesRegex(RuntimeError, "vision_ui.*upload ALL"):
+            env["check_b2_modules"]()
+        self.assertTrue(any("/old/vision_ui.py" in str(c) for c in env["print"].call_args_list))
+
+    def test_b2_detects_old_calibration_module_even_when_it_has_six_colors(self):
+        env = self.load_entry()
+        env["config_module"] = types.SimpleNamespace(
+            __file__="/old/vision_config.py", SCHEMA_VERSION=8,
+            COLOR_ORDER=("red", "yellow", "blue", "green", "black", "light_blue"))
+        with self.assertRaisesRegex(RuntimeError, "vision_config.*upload ALL"):
+            env["check_b2_modules"]()
 
 
 if __name__ == "__main__":

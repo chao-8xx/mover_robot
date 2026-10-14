@@ -7,6 +7,7 @@ import numpy as np
 from maix import image
 
 from vision_blob import threshold_swatch_bgr
+from vision_runtime import send_interval_ms
 from vision_config import (
     COLOR_LABELS,
     COLOR_NUMBERS,
@@ -27,6 +28,7 @@ from vision_tasks import (
 )
 
 
+B2_UI_BUILD = "B2_LAB6_UI_TOP_V5"
 PAGE_TASKS = "TASKS"
 PAGE_HOME = "HOME"
 PAGE_RUN = "RUN"
@@ -34,7 +36,6 @@ PAGE_CALIBRATE = "CALIBRATE"
 PAGE_ROI = "ROI"
 PAGE_CENTER = "CENTER"
 PAGE_MORPH = "MORPH"
-PAGE_COLOR_MODE = "COLOR_MODE"
 PAGE_COLOR_LIST = "COLOR_LIST"
 PAGE_THRESHOLD = "THRESHOLD"
 PAGE_RING_HOME = "RING_HOME"
@@ -113,7 +114,6 @@ class VisionUI:
         self.buttons = []
         self.text_ops = []
         self.preview_rect = None
-        self.mode_popup = False
         self.color_popup = False
         self.message = "视觉系统已就绪"
         self.view_mode = VIEW_OVERLAY
@@ -135,7 +135,6 @@ class VisionUI:
         self.roi_selection = None
         self.roi_drag = None
         self.center_selected = False
-        self.color_edit_mode = self.saved_config["mode"]
         self.color_edit_key = self.saved_config["target_color"]
         self.threshold_param = 0
         self.threshold_step_index = 0
@@ -239,7 +238,6 @@ class VisionUI:
             return
         self.page = target_page
         self.page_stack = []
-        self.mode_popup = False
         self.color_popup = False
         if task_id == TASK_NONE:
             self.message = "等待 F407 视觉命令"
@@ -299,7 +297,6 @@ class VisionUI:
     def _open(self, page):
         self.page_stack.append(self.page)
         self.page = page
-        self.mode_popup = False
         self.color_popup = False
         self._invalidate()
 
@@ -307,7 +304,6 @@ class VisionUI:
         self.page = self.page_stack.pop() if self.page_stack else PAGE_HOME
         if self.page == PAGE_TASKS:
             self.selected_task = TASK_NONE
-        self.mode_popup = False
         self.color_popup = False
         self._invalidate()
 
@@ -323,7 +319,6 @@ class VisionUI:
         else:
             self.page = PAGE_HOME
         self.message = TASK_LABELS[task_id]
-        self.mode_popup = False
         self.color_popup = False
         self._invalidate()
 
@@ -337,7 +332,6 @@ class VisionUI:
         self.draft_config = copy.deepcopy(self.saved_config)
         self.color_edit_key = color_key
         self.draft_config["target_color"] = color_key
-        self.draft_config["mode"] = self.color_edit_mode
         self.threshold_param = 0
         self.threshold_step_index = 0
         self.view_mode = VIEW_OVERLAY
@@ -417,7 +411,8 @@ class VisionUI:
             target_w = int(target_h * 4 / 3)
         return (
             int(ax + (aw - target_w) / 2),
-            int(ay + (ah - target_h) / 2),
+            # 调试画面顶对齐，不把多余高度分到上方造成机械遮挡。
+            int(ay),
             max(1, int(target_w)),
             max(1, int(target_h)),
         )
@@ -473,7 +468,7 @@ class VisionUI:
                 rect = (16 + index * (button_w + gap), 128, button_w, self.screen_h - 190)
                 self._button(canvas, item[0], rect, item[1], active=item[2], font="small")
 
-        self._text("B2全图三色 · B3纯圆心 · RUN目标40Hz", 0, 0, ACCENT, "small",
+        self._text("B2发送35.7Hz · B3/B4发送目标40Hz", 0, 0, ACCENT, "small",
                    (10, self.screen_h - 54, self.screen_w - 20, 36))
         self.preview_rect = None
 
@@ -628,11 +623,7 @@ class VisionUI:
             chip_y = rect[1] + rect[3] + 10
             chip_gap = 6
             chip_w = (self.screen_w - 20 - chip_gap * 2) // 3
-            mode_rect = (7, chip_y, chip_w, 42)
-            self._button(
-                canvas, "HOME_MODE", mode_rect,
-                "模式 " + self.saved_config["mode"], active=True, font="small"
-            )
+            self._chip(canvas, (7, chip_y, chip_w, 42), "LAB", active=True)
             color_key = self.saved_config["target_color"]
             self._button(
                 canvas, "HOME_COLOR",
@@ -654,43 +645,18 @@ class VisionUI:
             rect = self._preview(canvas, preview_bgr, (8, 55, int(self.screen_w * 0.64), self.screen_h - 63))
             panel_x = rect[0] + rect[2] + 10
             panel_w = self.screen_w - panel_x - 8
-            self._button(canvas, "HOME_MODE", (panel_x, 65, panel_w, 44),
-                         "模式 " + self.saved_config["mode"], active=True, font="small")
+            self._chip(canvas, (panel_x, 65, panel_w, 44), "LAB", active=True)
             self._button(canvas, "HOME_COLOR", (panel_x, 117, panel_w, 42),
                          "颜色 " + COLOR_LABELS[self.saved_config["target_color"]],
                          active=True, font="small")
             self._chip(canvas, (panel_x, 167, panel_w, 42), self.config_status)
             self._button(canvas, "START_RUN", (panel_x, 228, panel_w, 66), "运行", active=True)
             self._button(canvas, "OPEN_CALIBRATE", (panel_x, 306, panel_w, 66), "调参")
-        if self.mode_popup:
-            self._draw_mode_popup(canvas)
-        elif self.color_popup:
+        if self.color_popup:
             self._draw_color_popup(canvas)
 
-    def _draw_mode_popup(self, canvas):
-        # 弹窗打开时禁止底层的运行、调参和状态按钮响应。
-        self.buttons = []
-        self.text_ops = []
-        overlay = canvas.copy()
-        cv2.rectangle(overlay, (0, 48), (self.screen_w, self.screen_h), (8, 10, 14), -1)
-        cv2.addWeighted(overlay, 0.64, canvas, 0.36, 0, canvas)
-        card_w = min(380, self.screen_w - 40)
-        card_h = 220
-        x = (self.screen_w - card_w) // 2
-        y = (self.screen_h - card_h) // 2
-        self._round_rect(canvas, (x, y, card_w, card_h), PANEL, 14)
-        self._round_rect(canvas, (x, y, card_w, card_h), ACCENT, 14, 2)
-        self._text("选择当前识别模式", 0, 0, WHITE, "title", (x, y + 12, card_w, 42))
-        self._button(canvas, "QUICK_HSV", (x + 24, y + 72, card_w - 48, 48), "HSV",
-                     active=self.saved_config["mode"] == "HSV")
-        self._button(canvas, "QUICK_LAB", (x + 24, y + 128, card_w - 48, 48), "LAB",
-                     active=self.saved_config["mode"] == "LAB")
-        self._button(canvas, "CLOSE_MODE", (x + card_w - 82, y + 8, 70, 32), "取消", font="small")
-        # 弹窗覆盖预览区时暂停画面粘贴，否则实时预览会盖住弹窗。
-        self.preview_rect = None
-
     def _draw_color_popup(self, canvas):
-        """首页快速选择赛题六色；阈值仍在调参菜单内修改。"""
+        """B2/B4保留原六色选择；检测仍仅处理指定的一色。"""
         self.buttons = []
         self.text_ops = []
         overlay = canvas.copy()
@@ -699,7 +665,8 @@ class VisionUI:
         card_w = min(430, self.screen_w - 24)
         card_h = min(468, self.screen_h - 90)
         x = (self.screen_w - card_w) // 2
-        y = (self.screen_h - card_h) // 2
+        # 弹窗也从内容区顶部开始，避免跨过待移到底部的48px标题栏。
+        y = 55
         self._round_rect(canvas, (x, y, card_w, card_h), PANEL, 14)
         self._round_rect(canvas, (x, y, card_w, card_h), ACCENT, 14, 2)
         self._text("选择当前颜色", 0, 0, WHITE, "title", (x, y + 10, card_w, 42))
@@ -720,7 +687,7 @@ class VisionUI:
                 cell_h,
             )
             bgr = threshold_swatch_bgr(
-                self.saved_config, self.saved_config["mode"], color_key
+                self.saved_config, color_key
             )
             label = "{}{}".format(COLOR_LABELS[color_key], COLOR_NUMBERS[color_key])
             self._button(
@@ -737,7 +704,9 @@ class VisionUI:
         """高速RUN只绘制一次状态页，触摸返回继续有效。"""
         self._header(canvas, TASK_LABELS.get(self.selected_task, "运行中"),
                      back=ring and not self.external_control, exit_run=not ring)
-        lines = ["高速识别运行中", "识别与发送目标：40Hz",
+        interval = send_interval_ms(self.selected_task)
+        rate_text = "结果发送目标：{:.1f}Hz（{}ms）".format(1000.0 / interval, interval)
+        lines = ["高速识别运行中", rate_text,
                  "画面暂停刷新，实际FPS与发送Hz查看日志"]
         if ring:
             lines.append("只定位圆环中心，不识别数字")
@@ -935,24 +904,12 @@ class VisionUI:
             text = "已显示上次中心点，点击中心点后微调"
         self._draw_editor_controls(canvas, text, "CENTER")
 
-    def _draw_color_mode(self, canvas):
-        self._header(canvas, "颜色空间", back=True)
-        self._text("选择要调节的阈值类型", 0, 0, MUTED, "normal",
-                   (20, 82, self.screen_w - 40, 40))
-        card_w = self.screen_w - 40
-        self._button(canvas, "COLOR_SPACE_HSV", (20, 145, card_w, 150), "HSV",
-                     active=self.saved_config["mode"] == "HSV", font="title")
-        self._button(canvas, "COLOR_SPACE_LAB", (20, 315, card_w, 150), "LAB",
-                     active=self.saved_config["mode"] == "LAB", font="title")
-        self._text("进入颜色并保存后，该颜色和模式会成为当前运行参数", 20,
-                   self.screen_h - 66, MUTED, "small")
-
     def _swatch_text_color(self, bgr):
         luminance = 0.114 * bgr[0] + 0.587 * bgr[1] + 0.299 * bgr[2]
         return BLACK if luminance > 155 else WHITE
 
     def _draw_color_list(self, canvas):
-        self._header(canvas, self.color_edit_mode + " 六种赛题颜色", back=True)
+        self._header(canvas, "LAB 六种赛题颜色", back=True)
         gap = 10
         margin = 12
         card_w = (self.screen_w - margin * 2 - gap) // 2
@@ -962,12 +919,9 @@ class VisionUI:
             col = index % 2
             row = index // 2
             rect = (margin + col * (card_w + gap), start_y + row * (card_h + gap), card_w, card_h)
-            bgr = threshold_swatch_bgr(self.saved_config, self.color_edit_mode, color_key)
+            bgr = threshold_swatch_bgr(self.saved_config, color_key)
             label = "{}{}".format(COLOR_LABELS[color_key], COLOR_NUMBERS[color_key])
-            active = (
-                self.saved_config["mode"] == self.color_edit_mode and
-                self.saved_config["target_color"] == color_key
-            )
+            active = self.saved_config["target_color"] == color_key
             self._button(canvas, "EDIT_COLOR_" + color_key, rect, label, active=active,
                          fill=bgr, text_color=self._swatch_text_color(bgr), font="title")
         self._text("按钮颜色由当前阈值的中心值生成", 14, self.screen_h - 34, MUTED, "small")
@@ -976,7 +930,7 @@ class VisionUI:
                        ACCENT if self.message == "保存成功" else RED, "small")
 
     def _threshold_values(self):
-        threshold = self.draft_config["thresholds"][self.color_edit_mode][self.color_edit_key]
+        threshold = self.draft_config["thresholds"]["LAB"][self.color_edit_key]
         return [
             threshold["lower"][0], threshold["upper"][0],
             threshold["lower"][1], threshold["upper"][1],
@@ -984,20 +938,13 @@ class VisionUI:
         ]
 
     def _threshold_labels(self):
-        if self.color_edit_mode == "HSV":
-            if self.color_edit_key == "red":
-                # 红色跨过 HSV 色相首尾：高端接近 179，低端接近 0。
-                return ("H高端", "H低端", "S最小", "S最大", "V最小", "V最大")
-            return ("H起点", "H终点", "S最小", "S最大", "V最小", "V最大")
         return ("L最小", "L最大", "A最小", "A最大", "B最小", "B最大")
 
     def _threshold_steps(self):
-        if self.color_edit_mode == "HSV" and self.threshold_param < 2:
-            return (1, 2, 5)
         return (1, 5, 10)
 
     def _draw_threshold(self, canvas, preview_bgr):
-        title = "{} · {}".format(self.color_edit_mode, COLOR_LABELS[self.color_edit_key])
+        title = "LAB · " + COLOR_LABELS[self.color_edit_key]
         self._header(canvas, title, back=True)
         if self.portrait:
             self._preview(canvas, preview_bgr, (8, 55, int(self.screen_w * 0.64), 225))
@@ -1007,14 +954,6 @@ class VisionUI:
                                           (VIEW_OVERLAY, "叠加"))):
                 self._button(canvas, "VIEW_" + item[0], (tab_x, 62 + index * 54, tab_w, 46),
                              item[1], active=self.view_mode == item[0], font="small")
-            if (self.color_edit_mode == "HSV" and self.color_edit_key == "red" and
-                    self.draft_config["thresholds"]["HSV"]["red"]["lower"][0] >
-                    self.draft_config["thresholds"]["HSV"]["red"]["upper"][0]):
-                red_value = self.draft_config["thresholds"]["HSV"]["red"]
-                self._chip(canvas, (tab_x, 222, tab_w, 29),
-                           "高端 {}~179".format(red_value["lower"][0]))
-                self._chip(canvas, (tab_x, 255, tab_w, 29),
-                           "低端 0~{}".format(red_value["upper"][0]))
             grid_y = 290
         else:
             self._preview(canvas, preview_bgr, (8, 55, int(self.screen_w * 0.46), 225))
@@ -1091,8 +1030,6 @@ class VisionUI:
             self._draw_center(canvas, preview_bgr)
         elif self.page == PAGE_MORPH:
             self._draw_morph(canvas, preview_bgr)
-        elif self.page == PAGE_COLOR_MODE:
-            self._draw_color_mode(canvas)
         elif self.page == PAGE_COLOR_LIST:
             self._draw_color_list(canvas)
         elif self.page == PAGE_THRESHOLD:
@@ -1134,6 +1071,8 @@ class VisionUI:
         self.building_static = True
         self._draw_page(canvas, placeholder, result)
         self.building_static = False
+        if self.page not in (PAGE_RUN, PAGE_RING_RUN):
+            self._move_debug_content_up(canvas)
 
         static_image = image.cv2image(canvas)
         self._draw_text_ops(static_image)
@@ -1143,6 +1082,28 @@ class VisionUI:
         self.static_cache_page = self.page
         self.static_cache_buttons = list(self.buttons)
         self.static_cache_preview_rect = self.preview_rect
+
+    def _move_debug_content_up(self, canvas):
+        """只在调试页缓存重建时移动布局；RUN仍沿用原静态页。
+
+        原顶部48px标题/返回栏移到底部，内容整体上移48px。
+        同时迁移文字、按钮命中区与预览矩形，图像标定坐标仍是320×240。
+        """
+        shift = 48
+        header = canvas[:shift].copy()
+        canvas[:-shift] = canvas[shift:]
+        canvas[-shift:] = header
+
+        def screen_y(y):
+            return y - shift if y >= shift else y + self.screen_h - shift
+
+        self.text_ops = [(x, screen_y(y), text, color, font)
+                         for x, y, text, color, font in self.text_ops]
+        self.buttons = [(name, x, screen_y(y), w, h)
+                        for name, x, y, w, h in self.buttons]
+        if self.preview_rect is not None:
+            x, y, w, h = self.preview_rect
+            self.preview_rect = (x, screen_y(y), w, h)
 
     def _paste_live_preview(self, canvas, preview_bgr):
         if self.preview_rect is None:
@@ -1372,21 +1333,18 @@ class VisionUI:
         center["custom"] = True
 
     def _adjust_threshold(self, sign):
-        threshold = self.draft_config["thresholds"][self.color_edit_mode][self.color_edit_key]
+        threshold = self.draft_config["thresholds"]["LAB"][self.color_edit_key]
         mapping = (("lower", 0), ("upper", 0), ("lower", 1),
                    ("upper", 1), ("lower", 2), ("upper", 2))
         side, channel = mapping[self.threshold_param]
         steps = self._threshold_steps()
         self.threshold_step_index = min(self.threshold_step_index, len(steps) - 1)
-        limit = 179 if self.color_edit_mode == "HSV" and channel == 0 else 255
-        value = _clamp(threshold[side][channel] + sign * steps[self.threshold_step_index], 0, limit)
+        value = _clamp(threshold[side][channel] + sign * steps[self.threshold_step_index], 0, 255)
         other = "upper" if side == "lower" else "lower"
-        allow_hue_wrap = self.color_edit_mode == "HSV" and channel == 0
-        if not allow_hue_wrap:
-            if side == "lower":
-                value = min(value, threshold[other][channel])
-            else:
-                value = max(value, threshold[other][channel])
+        if side == "lower":
+            value = min(value, threshold[other][channel])
+        else:
+            value = max(value, threshold[other][channel])
         threshold[side][channel] = value
 
     def _adjust_ring_value(self, key, delta):
@@ -1409,22 +1367,10 @@ class VisionUI:
             self._open_task(TASK_RING)
         elif button_id == "SELECT_TASK_3":
             self._open_task(TASK_STACK)
-        elif button_id == "HOME_MODE":
-            self.mode_popup = True
-            self.color_popup = False
         elif button_id == "HOME_COLOR":
             self.color_popup = True
-            self.mode_popup = False
-        elif button_id == "CLOSE_MODE":
-            self.mode_popup = False
         elif button_id == "CLOSE_COLOR":
             self.color_popup = False
-        elif button_id in ("QUICK_HSV", "QUICK_LAB"):
-            mode = "HSV" if button_id == "QUICK_HSV" else "LAB"
-            value = copy.deepcopy(self.saved_config)
-            value["mode"] = mode
-            self.mode_popup = False
-            return {"type": "save", "config": value, "stay": True}
         elif button_id.startswith("QUICK_COLOR_"):
             color_key = button_id[len("QUICK_COLOR_"):]
             value = copy.deepcopy(self.saved_config)
@@ -1484,7 +1430,7 @@ class VisionUI:
         elif button_id == "EDIT_CENTER":
             self._begin_editor(PAGE_CENTER)
         elif button_id == "EDIT_COLOR":
-            self._open(PAGE_COLOR_MODE)
+            self._open(PAGE_COLOR_LIST)
         elif button_id == "EDIT_MORPH":
             self._begin_editor(PAGE_MORPH)
             self.view_mode = VIEW_MASK
@@ -1493,9 +1439,6 @@ class VisionUI:
             if morph_mode in MORPH_LABELS:
                 self.draft_config["morph_mode"] = morph_mode
                 self.message = "当前形态学：" + MORPH_LABELS[morph_mode]
-        elif button_id in ("COLOR_SPACE_HSV", "COLOR_SPACE_LAB"):
-            self.color_edit_mode = "HSV" if button_id.endswith("HSV") else "LAB"
-            self._open(PAGE_COLOR_LIST)
         elif button_id.startswith("EDIT_COLOR_"):
             self._begin_threshold(button_id[len("EDIT_COLOR_"):])
         elif button_id.startswith("PIXEL_STEP_"):
@@ -1536,16 +1479,15 @@ class VisionUI:
         elif button_id == "THRESH_PLUS":
             self._adjust_threshold(1)
         elif button_id == "RESTORE_THRESHOLD":
-            saved_value = self.saved_config["thresholds"][self.color_edit_mode][self.color_edit_key]
-            self.draft_config["thresholds"][self.color_edit_mode][self.color_edit_key] = copy.deepcopy(saved_value)
+            saved_value = self.saved_config["thresholds"]["LAB"][self.color_edit_key]
+            self.draft_config["thresholds"]["LAB"][self.color_edit_key] = copy.deepcopy(saved_value)
             self.message = "已恢复上次阈值"
         elif button_id == "DEFAULT_THRESHOLD":
-            self.draft_config["thresholds"][self.color_edit_mode][self.color_edit_key] = default_threshold(
-                self.color_edit_mode, self.color_edit_key
+            self.draft_config["thresholds"]["LAB"][self.color_edit_key] = default_threshold(
+                self.color_edit_key
             )
             self.message = "已恢复默认阈值"
         elif button_id == "SAVE_THRESHOLD":
-            self.draft_config["mode"] = self.color_edit_mode
             self.draft_config["target_color"] = self.color_edit_key
             return {"type": "save", "config": validate_config(self.draft_config)}
         return None

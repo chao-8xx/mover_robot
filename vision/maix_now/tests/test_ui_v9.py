@@ -51,10 +51,11 @@ fake_maix.image = _FakeImageModule
 sys.modules.setdefault("maix", fake_maix)
 
 from vision_blob import empty_result  # noqa: E402
-from vision_config import DEFAULT_CONFIG  # noqa: E402
+from vision_config import COLOR_ORDER, DEFAULT_CONFIG  # noqa: E402
 from vision_tasks import TASK_MATERIAL, TASK_RING, TASK_STACK  # noqa: E402
 from vision_ui import (  # noqa: E402
     PAGE_CENTER,
+    PAGE_COLOR_LIST,
     PAGE_HOME,
     PAGE_RING_CALIBRATE,
     PAGE_RING_HOME,
@@ -133,19 +134,133 @@ class VisionUiTests(unittest.TestCase):
             ids = {button[0] for button in self.ui.buttons}
             self.assertEqual("EDIT_ROI" in ids, task == TASK_STACK)
 
-    def test_threshold_preview_uses_edited_color_and_space(self):
+    def test_threshold_preview_uses_only_edited_lab_color(self):
         self.ui._open_task(TASK_MATERIAL)
-        self.ui.color_edit_mode = "HSV"
         self.ui._begin_threshold("blue")
         cfg = self.ui.detection_config()
-        self.assertEqual((cfg["mode"], cfg["target_color"]), ("HSV", "blue"))
-        self.assertEqual(self.ui.saved_config["mode"], "LAB")
+        self.assertEqual(cfg["target_color"], "blue")
+        self.assertNotIn("mode", cfg)
+        self.assertEqual(self.ui.saved_config["target_color"], "red")
+
+    def test_b2_and_b4_home_and_editor_offer_all_six_colors_without_mode_buttons(self):
+        for size in ((640, 480), (480, 640)):
+            ui = VisionUI(*size, copy.deepcopy(DEFAULT_CONFIG), "使用默认参数")
+            for task in (TASK_MATERIAL, TASK_STACK):
+                ui._open_task(task)
+                ui.render(self.frame, empty_result())
+                self.assertNotIn("HOME_MODE", {b[0] for b in ui.buttons})
+                ui._activate("HOME_COLOR")
+                ui.render(self.frame, empty_result())
+                ids = {b[0] for b in ui.buttons if b[0].startswith("QUICK_COLOR_")}
+                self.assertEqual(ids, {"QUICK_COLOR_" + k for k in COLOR_ORDER})
+                ui._activate("CLOSE_COLOR")
+                ui._activate("OPEN_CALIBRATE")
+                ui._activate("EDIT_COLOR")
+                self.assertEqual(ui.page, PAGE_COLOR_LIST)
+                ui.render(self.frame, empty_result())
+                ids = {b[0] for b in ui.buttons if b[0].startswith("EDIT_COLOR_")}
+                self.assertEqual(ids, {"EDIT_COLOR_" + k for k in COLOR_ORDER})
+
+    def test_edit_and_save_each_color_preserves_other_thresholds(self):
+        self.ui._open_task(TASK_MATERIAL)
+        for key in COLOR_ORDER:
+            original = copy.deepcopy(self.ui.saved_config["thresholds"]["LAB"])
+            self.ui._begin_threshold(key)
+            self.ui.threshold_param = 0
+            self.ui._activate("THRESH_PLUS")
+            action = self.ui._activate("SAVE_THRESHOLD")
+            thresholds = action["config"]["thresholds"]["LAB"]
+            self.assertEqual(thresholds[key]["lower"][0], original[key]["lower"][0] + 1)
+            for other in set(original) - {key}:
+                self.assertEqual(thresholds[other], original[other])
+            self.ui.save_succeeded(action["config"])
+
+    def test_all_six_quick_color_buttons_select_and_save_without_changing_thresholds(self):
+        self.ui._open_task(TASK_MATERIAL)
+        original = copy.deepcopy(self.ui.saved_config["thresholds"])
+        for key in COLOR_ORDER:
+            action = self.ui._activate("QUICK_COLOR_" + key)
+            self.assertEqual(action["config"]["target_color"], key)
+            self.assertEqual(action["config"]["thresholds"], original)
+            self.ui.set_saved_config(action["config"])
 
     def test_ring_static_run_render_accepts_no_camera_preview(self):
         self.ui._open_task(TASK_RING)
         self.ui._activate("START_RING_RUN")
         self.ui.render(None, {})
         self.assertTrue(self.ui.is_run_mode())
+        self.assertIsNone(self.ui.preview_rect)
+
+    def test_debug_preview_top_buttons_and_footer_have_matching_hit_regions(self):
+        for size in ((640, 480), (480, 640)):
+            for task in (TASK_MATERIAL, TASK_STACK, TASK_RING):
+                ui = VisionUI(*size, copy.deepcopy(DEFAULT_CONFIG), "使用默认参数")
+                ui._open_task(task)
+                ui.render(self.frame, empty_result())
+                self.assertEqual(ui.preview_rect[1], 7)
+                title = next(t for t in ui.text_ops if t[4] == "title")
+                self.assertGreaterEqual(title[1], size[1] - 48)
+                for name, x, y, w, h in ui.buttons:
+                    self.assertGreaterEqual(y, 0, name)
+                    self.assertLessEqual(y + h, size[1], name)
+                    self.assertEqual(ui._button_at(x + w // 2, y + h // 2), name)
+
+    def test_shifted_threshold_touch_changes_only_current_draft(self):
+        self.ui._open_task(TASK_MATERIAL)
+        self.ui._begin_threshold("red")
+        self.ui.render(self.frame, empty_result())
+        before = copy.deepcopy(self.ui.saved_config)
+        old_value = self.ui.draft_config["thresholds"]["LAB"]["red"]["lower"][0]
+        _, x, y, w, h = next(b for b in self.ui.buttons if b[0] == "THRESH_PLUS")
+        self.assertEqual(y, 184)
+        self.ui.handle_touch(x + w // 2, y + h // 2, True)
+        self.ui.handle_touch(x + w // 2, y + h // 2, False)
+        self.assertEqual(self.ui.draft_config["thresholds"]["LAB"]["red"]["lower"][0], old_value + 1)
+        self.assertEqual(self.ui.saved_config, before)
+
+    def test_shifted_center_preview_maps_to_same_image_coordinates(self):
+        self.ui._open_task(TASK_STACK)
+        self.ui._begin_editor(PAGE_CENTER)
+        self.ui.render(self.frame, empty_result())
+        point = (177, 92)
+        sx, sy = self.ui._img_to_screen(*point)
+        ix, iy = self.ui._screen_to_img(sx, sy)
+        self.assertAlmostEqual(ix, point[0], delta=1)
+        self.assertAlmostEqual(iy, point[1], delta=1)
+        self.ui._handle_center_tap(sx, sy)
+        self.assertTrue(self.ui.center_selected)
+        sx, sy = self.ui._img_to_screen(180, 95)
+        self.ui._handle_center_tap(sx, sy)
+        center = self.ui.draft_config["stack"]["center"]
+        self.assertAlmostEqual(center["x"], 180 - 110, delta=1)
+        self.assertAlmostEqual(center["y"], 95 - 25, delta=1)
+
+    def test_shifted_roi_drag_moves_roi_in_image_units_without_moving_center(self):
+        self.ui._open_task(TASK_STACK)
+        self.ui._begin_editor(PAGE_ROI)
+        self.ui.render(self.frame, empty_result())
+        original = copy.deepcopy(self.ui.draft_config["stack"])
+        sx, sy = self.ui._img_to_screen(170, 85)
+        self.assertTrue(self.ui._begin_roi_drag(sx, sy))
+        tx, ty = self.ui._img_to_screen(180, 95)
+        self.ui._update_roi_drag(tx, ty)
+        roi = self.ui.draft_config["stack"]["roi"]
+        self.assertAlmostEqual(roi["x"], original["roi"]["x"] + 10, delta=1)
+        self.assertAlmostEqual(roi["y"], original["roi"]["y"] + 10, delta=1)
+        self.assertEqual((roi["w"], roi["h"]), (original["roi"]["w"], original["roi"]["h"]))
+        self.assertEqual(self.ui.draft_config["stack"]["center"], original["center"])
+
+    def test_layout_move_preserves_cached_hit_regions_and_static_run_header(self):
+        self.ui._open_task(TASK_MATERIAL)
+        self.ui.render(self.frame, empty_result())
+        buttons, rect = list(self.ui.buttons), self.ui.preview_rect
+        self.ui.render(self.frame, empty_result())
+        self.assertEqual(self.ui.buttons, buttons)
+        self.assertEqual(self.ui.preview_rect, rect)
+        self.ui._activate("START_RUN")
+        self.ui.render(None, {})
+        exit_button = next(b for b in self.ui.buttons if b[0] == "EXIT_RUN")
+        self.assertEqual(exit_button[2], 7)
         self.assertIsNone(self.ui.preview_rect)
 
 
