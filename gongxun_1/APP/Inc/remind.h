@@ -6,15 +6,15 @@ typedef enum {
     GREEN_REMIND,   // 闪绿光提醒
     BLUE_REMIND,    // 闪蓝光提醒
     YELLOW_REMIND,  // 闪黄光提醒
-    PINK_REMIND,    // 闪红光提醒
+    PINK_REMIND,    // 闪粉光提醒
     WHITE_REMIND,   // 闪白光提醒
     NO_REMIND       // 无提醒
 } Remind_State;
 
-extern Remind_State remindState;   // 提示装置状态
-
 // 提示装置初始化  包含ws2812、板载LED、板载蜂鸣器
 void remind_init(void);
+// 初始化完成提醒 阻塞 蜂鸣器
+void init_ok_remind(void);
 // 提示装置控制（非阻塞）
 void remind_control(void);
 

@@ -5,6 +5,10 @@
 #ifndef GONGXUN_1_CAM_TEST_H
 #define GONGXUN_1_CAM_TEST_H
 
+void service(void);
+void service_for(uint32_t ms);
+uint8_t wait_qr(void);
+
 
 void openmv_qr_test(void);
 void openmv_test(void);

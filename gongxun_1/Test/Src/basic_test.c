@@ -41,19 +41,19 @@ void remind_test(void)
     switch (step)
     {
         case 0:
-            remindState = NO_REMIND;
+            task_state.remindState = NO_REMIND;
             step = 1;
             break;
         case 1:
             work_time --;
             if (work_time <= 0) {
                 work_time = 600;
-                remindState = RED_REMIND;
+                task_state.remindState = RED_REMIND;
                 step = 2;
             }
             break;
         case 2:
-            if (remindState == NO_REMIND) {
+            if (task_state.remindState == NO_REMIND) {
                 step = 3;
             }
             break;
@@ -61,12 +61,12 @@ void remind_test(void)
             work_time --;
             if (work_time <= 0) {
                 work_time = 600;
-                remindState = GREEN_REMIND;
+                task_state.remindState = GREEN_REMIND;
                 step = 4;
             }
             break;
         case 4:
-            if (remindState == NO_REMIND) {
+            if (task_state.remindState == NO_REMIND) {
                 step = 5;
             }
             break;
@@ -74,12 +74,12 @@ void remind_test(void)
             work_time --;
             if (work_time <= 0) {
                 work_time = 600;
-                remindState = BLUE_REMIND;
+                task_state.remindState = BLUE_REMIND;
                 step = 6;
             }
             break;
         case 6:
-            if (remindState == NO_REMIND) {
+            if (task_state.remindState == NO_REMIND) {
                 step = 7;
             }
             break;
@@ -87,12 +87,12 @@ void remind_test(void)
             work_time --;
             if (work_time <= 0) {
                 work_time = 600;
-                remindState = YELLOW_REMIND;
+                task_state.remindState = YELLOW_REMIND;
                 step = 8;
             }
             break;
         case 8:
-            if (remindState == NO_REMIND) {
+            if (task_state.remindState == NO_REMIND) {
                 step = 9;
             }
             break;
@@ -100,12 +100,12 @@ void remind_test(void)
             work_time --;
             if (work_time <= 0) {
                 work_time = 600;
-                remindState = PINK_REMIND;
+                task_state.remindState = PINK_REMIND;
                 step = 10;
             }
             break;
         case 10:
-            if (remindState == NO_REMIND) {
+            if (task_state.remindState == NO_REMIND) {
                 step = 11;
             }
             break;
@@ -113,7 +113,7 @@ void remind_test(void)
             work_time --;
             if (work_time <= 0) {
                 work_time = 600;
-                remindState = WHITE_REMIND;
+                task_state.remindState = WHITE_REMIND;
                 step = 12;
             }
             break;

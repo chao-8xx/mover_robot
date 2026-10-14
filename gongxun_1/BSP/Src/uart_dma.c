@@ -73,7 +73,7 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
     }
     else if (huart->Instance == UART5)
     {
-        hmi_error_callback(huart);
+        // hmi_error_callback(huart);
     }
     else if (huart->Instance == USART6)
     {

@@ -1,6 +1,12 @@
 #ifndef GONGXUN_1_TASK_H
 #define GONGXUN_1_TASK_H
 
+
+#define STOP_GUARD_MS   200
+#define QR_TIMEOUT_MS   30000
+#define LOSS_TIMEOUT_MS 10000
+
+
 // ======== 任务状态机、结构体定义 ======== //
 // 颜色任务编码
 typedef enum {
@@ -24,14 +30,16 @@ typedef enum {
     STOP,       // 车辆停止
     RUNNING,    // 底盘运动中 在去目标点位的路上
     CATCHING,   // 正在抓取 把物料从赛道上抓至车上
-    PUTTING     // 正在放置 把物料从车上放至赛道上
+    PUTTING,    // 正在放置 把物料从车上放至赛道上
+    PICKING,    // 正在拿起 把物料从赛道上放至车上
+    WAITING     // 正在等待 等待物料到来
 } Car_Work;
 
 // 目标点任务状态
 // 正在执行任务的位置
 typedef enum {
-    PARKING_1,  // 启停区1
     PARKING_2,  // 启停区2
+    PARKING_1,  // 启停区1
     SCAN,       // 扫码区
     MATERIAL,   // 原料区
     TEMPORARY,  // 暂存区
@@ -45,14 +53,21 @@ typedef struct {
     // ==== 车辆当前运行状态 ==== //
     Claw_State claw_state;          // 夹爪状态
     Turntable_Pos turntable_pos;    // 转盘当前位置
-    Lift_Height lift_height;        // 升降装置当前高度
-    Stretch_Dist stretch_dist;      // 伸缩装置当前伸出距离
     Car_Work car_work;              // 车辆工作状态
     Task_Location task_location;    // 正在执行任务的位置
+    Remind_State remindState;       // 提示装置状态
     float cur_stretch_dist;         // 伸缩装置当前伸缩的距离
+    float cur_lift_height;          // 升降装置当前的高度
     uint8_t cur_x, cur_y;           // 车辆当前坐标
+    float catch_cur_angle;          // 齿轮齿条电机当前旋转角度
+    int16_t follow_x, follow_y;     // 当前所追踪的目标的坐标
+    uint8_t is_find_target;         // 车辆是否发现目标 0:未发现 1:已发现
+    uint8_t is_stable_target;       // 目标是否稳定 0:不稳定 1:稳定
+    uint8_t is_catch_target;        // 是否可以抓取目标 0:不可抓取 1:可抓取
+    uint8_t send_task_hmi_ok;       // 是否把任务发送给串口屏显示 1:发送
 
     // ==== 任务编码状态 ==== //
+    uint8_t openmv_task_get_ok;     // openmv扫码获取数据成功标志
     // 物料颜色、位置对应索引
     uint8_t index_1;    // 第一组
     uint8_t index_2;    // 第二组
@@ -61,6 +76,12 @@ typedef struct {
     Area_Code  area_buf_one[3];
     Color_Code color_buf_two[3];    // 第二组
     Area_Code  area_buf_two[3];
+    // 将放置的物料颜色按照任务顺序排列成数组
+    Color_Code color_buf[6];        // 总顺序
+    uint8_t index;      // 总顺序索引
+    // 第一二组完成情况
+    uint8_t one_finish;     // 第一组物料搬运是否完成(放到暂存区) 0:未完成 1:完成
+    uint8_t two_finish;     // 第二组物料搬运是否完成(从粗加工区拿起) 0:未完成 1:完成
 
 } Task_State;
 
@@ -68,19 +89,22 @@ typedef struct {
 #define MAX_STRETCH_DIST    6.0f      // 最远伸出距离，防止超限导致电机堵转
 // ======== 结构体、枚举、结构体声明 ======== //
 extern Task_State task_state;
+// ======== 变量声明 ======== //
+extern uint8_t openmv_start;         // openmv启动标志
+extern uint8_t openmv_end;           // openmv结束标志
 
 // ======== 函数声明 ======== //
 // 任务初始化
 void task_init();
 // 任务接收
-void task_receive(void);
-// 任务执行总函数
-void task_process(void);
+uint8_t task_receive(void);
 
 void imu_task(void);
 void cam_task(void);
 void mv_task(void);
+void send_conduct_task(void);
 uint8_t obstacle_find_task(float car_x, float car_y, float car_yaw);
+void hmi_get_car_state_task(void);
 // 已有可信的地图位姿并配置车体宽度时，调用这一层完成雷达到道路地图更新
 uint8_t map_obstacle_task(float car_x, float car_y, float car_yaw, uint8_t pose_valid);
 

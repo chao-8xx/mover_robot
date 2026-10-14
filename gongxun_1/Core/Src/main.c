@@ -105,6 +105,8 @@ int main(void)
   MX_TIM2_Init();
   MX_TIM4_Init();
   /* USER CODE BEGIN 2 */
+  system_init();
+
 
   timer_init();       // 定时器初始化
 
@@ -132,6 +134,7 @@ int main(void)
   lidar_start();
 
   // openmv_test();
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -139,6 +142,17 @@ int main(void)
 
   while (1)
   {
+    cam_task();               // 解析摄像头数据
+    mv_task();                // OpenMV扫码处理任务
+    send_conduct_task();      // 给maix发数据处理任务
+    hmi_get_car_state_task(); // 非阻塞式发送小车当前状态至串口屏任务
+
+
+    // lidar_process();  // 激光雷达处理
+
+    // openmv_qr_task();
+
+
 
     // 雷达安装标定测试：按串口提示放置挡板，短按KEY1采集下一组
     // lidar_install_test();
@@ -181,8 +195,6 @@ int main(void)
     //   point_cloud_test();
     //   obstacle_cluster_test();
     // }
-
-
 
 
     /* USER CODE END WHILE */

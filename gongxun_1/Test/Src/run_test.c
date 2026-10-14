@@ -468,10 +468,10 @@ void bfs_multi_track_test(void)
             leg_idx++;
             if (leg_idx < 4) {
                 step = 2;
-                remindState = GREEN_REMIND;
+                task_state.remindState = GREEN_REMIND;
             } else {
                 step = 6;
-                remindState = BLUE_REMIND;
+                task_state.remindState = BLUE_REMIND;
             }
             break;
 
@@ -490,7 +490,7 @@ void bfs_multi_track_test(void)
                 }
             }
             else {
-                remindState = RED_REMIND;
+                task_state.remindState = RED_REMIND;
                 car_stop();
                 car_run = false;
                 step = 98;
@@ -502,6 +502,465 @@ void bfs_multi_track_test(void)
             car_stop();
             car_run = false;
             step = 99;
+            break;
+    }
+}
+
+// 小车麦轮跟踪锁定物料测试
+void car_follow_material_test(void)
+{
+    // 用于主循环和中断外 即初始化部分
+    // cam_init(&huart1);          // OpenMV maixcam 摄像头
+    // HAL_Delay(1000);
+    // holder_rotate(HOLDER_CATCH);
+    // HAL_Delay(1000);
+    // maix_start_blob(MAIX_COLOR_RED);
+
+    // 放入主循环
+    // cam_task();                     // 解析摄像头数据
+
+    // static uint8_t time = 0;
+    // 更新物料发现状态
+    // if (maix_vision.ok == 1) {
+    //     time ++;
+    //     task_state.is_find_target = 1;
+    //     task_state.follow_x = maix_vision.dx;
+    //     task_state.follow_y = maix_vision.dy;
+    //     if (time >= 200) {
+    //         task_state.remindState = GREEN_REMIND;
+    //     }
+    // }
+    // else {
+    //     time ++;
+    //     task_state.is_find_target = 0;
+    //     task_state.follow_x = 0;
+    //     task_state.follow_y = 0;
+    //     if (time >= 200) {
+    //         task_state.remindState = RED_REMIND;
+    //     }
+    //
+    // }
+    // 更新物料发现状态
+    target_state_get();
+    // 追踪物料
+    if (task_state.is_find_target == 1 && task_state.is_stable_target == 1) {
+        follow_target(0.0f,(int16_t)0,(int16_t)0);
+        buzzer_off();
+    }
+    else {
+        car_stop();
+        buzzer_off();
+    }
+}
+
+// 抓取颜色指令 主循环调用
+uint8_t color_send = 0;
+uint8_t color_num = 0;
+void catch_color_send(void)
+{
+    if (!color_send) {
+        return;
+    }
+    switch (color_num) {
+        case 1:
+            maix_start_blob(MAIX_COLOR_RED);
+            HAL_Delay(10);
+            break;
+        case 2:
+            maix_start_blob(MAIX_COLOR_GREEN);
+            HAL_Delay(10);
+            break;
+        case 3:
+            maix_start_blob(MAIX_COLOR_BLUE);
+            HAL_Delay(10);
+            break;
+        default:
+            break;
+    }
+    color_send = 0;
+}
+
+// 物料识别跟踪并抓取测试   if (car_run)
+void car_follow_catch_material_test(void)
+{
+    // 用于主循环和中断外 即初始化部分
+    // system_init();
+    // HAL_Delay(1000);
+
+    // 放入主循环
+    // cam_task();                     // 解析摄像头数据
+    // catch_color_send();
+
+    static uint8_t test_step = 0;       // 步骤
+    static uint8_t catch_num = 0;       // 已经抓取的个数
+    static uint8_t serve_wait_time = 0;     // 舵机复位等待时间
+    static uint8_t servo_reset_step = 0;    // 舵机复位步骤
+
+    // 位移进行中：等结束
+    if (my_control.move_state == 1) {
+        if (!car_is_busy()) my_control.move_state = 0;
+        else return;
+    }
+    // 旋转进行中：car_rotate_yaw 必须每拍持续调用
+    if (my_control.rotate_state == 1) {
+        car_rotate_yaw(my_control.target_yaw);
+        if (!car_is_busy()) my_control.rotate_state = 0;   // 内部到位稳定后已置 IDLE
+        return;
+    }
+    // 升降装置进行中：等结束
+    if (my_control.lift_state == 1) {
+        if (!lift_is_busy()) {
+            my_control.lift_state = 0;
+        }
+        return;
+    }
+    // 伸缩装置进行中：等结束
+    if (my_control.stretch_state == 1) {
+        if (!stretch_is_busy()) {
+            my_control.stretch_state = 0;
+        }
+        return;
+    }
+
+    switch (test_step)
+    {
+        case 0:     // 复位升降高度
+            catch_lift_to_height(LIFT_NORMAL);
+            test_step = 1;
+            break;
+        case 1:     // 伸缩到抓取位置
+            catch_stretch_to_pos(STRETCH_CATCH);
+            test_step = 2;
+            break;
+        case 2:     // 复位转盘、云台、夹爪三个舵机
+            serve_wait_time++;
+            if (serve_wait_time >= 10 && servo_reset_step == 0) {
+                holder_rotate(HOLDER_CATCH);
+                servo_reset_step = 1;
+            }
+            else if (serve_wait_time >= 20 && servo_reset_step == 1) {
+                turntable_rotate(ONE_LOCATION);
+                servo_reset_step = 2;
+            }
+            else if (serve_wait_time >= 30 && servo_reset_step == 2) {
+                claw_ctrl(CLAW_LOOSE);
+                servo_reset_step = 0;
+                serve_wait_time = 0;
+                test_step = 3;
+            }
+            break;
+        case 3:     // 给maix发送识别指令
+            color_num += 1;
+            color_send = 1;
+            test_step = 4;
+            break;
+        case 4:     // 追踪物料
+            car_follow_material_test();
+            if (catch_is_ok() == 1) {
+                car_stop();
+                PID_Reset(&yaw_pid);    // 清除误差和积分
+                PID_Reset(&x_pid);
+                PID_Reset(&y_pid);
+                test_step = 5;
+            }
+            break;
+        case 5:     // 下放夹爪抓取
+            if (!lift_is_busy()) {
+                catch_lift_to_height(LIFT_CATCH);
+                if (task_state.cur_lift_height == LIFT_CATCH) {
+                    test_step = 6;         // 确认已下发才往下走
+                }
+            }
+            break;
+        case 6:     // 夹爪夹住
+            claw_ctrl(CLAW_CATCH);
+            servo_wait_ms(700);  // 等待700ms 使其夹爪闭合完全
+            catch_num += 1;
+            test_step = 7;
+            break;
+        case 7:
+            if (!servo_is_busy()) {
+                catch_lift_to_height(LIFT_NORMAL);
+                switch (catch_num) {    // 根据当前已经抓取的个数，决定转盘位置
+                    case 1:
+                        turntable_rotate(ONE_LOCATION);
+                        break;
+                    case 2:
+                        turntable_rotate(TWO_LOCATION);
+                        break;
+                    case 3:
+                        turntable_rotate(THREE_LOCATION);
+                        break;
+                    default:
+                        turntable_rotate(ONE_LOCATION);
+                        break;
+                }
+                test_step = 8;
+            }
+            break;
+        case 8:     // 伸缩到合适放置位置
+            catch_stretch_to_pos(STRETCH_PUT);
+            test_step = 9;
+            break;
+        case 9:    // 让云台转到合适放置位置
+            holder_rotate(HOLDER_PUT);
+            servo_wait_ms(1000);  // 等待1000ms 使其云台转到合适放置位置
+            test_step = 10;
+            break;
+        case 10:    // 上升
+            if (!servo_is_busy()) {
+                catch_lift_to_height(LIFT_PUT);
+                test_step = 11;
+            }
+            break;
+        case 11:    // 夹爪松开
+            claw_ctrl(CLAW_LOOSE);
+            servo_wait_ms(700);  // 等待700ms 使其夹爪开张完全
+            test_step = 12;
+            break;
+        case 12:    // 夹爪松开后 上升高度
+            if (!servo_is_busy()) {
+                catch_lift_to_height(LIFT_NORMAL);   // 上升指令
+                test_step = 13;
+            }
+            break;
+        case 13:    // 夹爪松开后 上升高度
+            holder_rotate(HOLDER_CATCH);    // 云台转回抓取位置
+            servo_wait_ms(1000);  // 等待1000ms 使其云台转到合适放置位置
+            test_step = 14;
+            break;
+        case 14:    // 等待云台归位
+            if (!servo_is_busy()) {
+                if (catch_num < 3) {    // 未抓完
+                    test_step = 3; // 回到给maix发指令，开始抓取下一个
+                }
+                else if (catch_num >= 3) {  // 已抓完
+                    test_step = 15;
+                }
+            }
+            break;
+        case 15:
+            catch_num = 0;
+            color_num = 0;
+            serve_wait_time = 0;
+            servo_reset_step = 0;
+            test_step = 0;
+            car_run = false;
+            break;
+        default:
+            break;
+    }
+}
+
+// 放置圆环指令 主循环调用
+uint8_t material_put_send = 0;
+uint8_t circle_num = 0;
+void put_circle_send(void)
+{
+    if (!material_put_send) {
+        return;
+    }
+    switch (circle_num) {
+        case 1:
+            maix_start_ring(MAIX_RING_1);
+            HAL_Delay(10);
+            break;
+        case 2:
+            maix_start_ring(MAIX_RING_2);
+            HAL_Delay(10);
+            break;
+        case 3:
+            maix_start_ring(MAIX_RING_3);
+            HAL_Delay(10);
+            break;
+        default:
+            break;
+    }
+    material_put_send = 0;
+}
+
+// 物料放置测试
+void car_follow_put_material_test(void)
+{
+    // 用于主循环和中断外 即初始化部分
+    // system_init();
+    // HAL_Delay(1000);
+
+    // 放入主循环
+    // cam_task();                     // 解析摄像头数据
+    // put_circle_send();
+
+    static uint8_t test_step = 0;           // 步骤
+    static uint8_t put_num = 0;             // 已经放置的个数
+    static uint8_t serve_wait_time = 0;     // 舵机复位等待时间
+    static uint8_t servo_reset_step = 0;    // 舵机复位步骤
+
+    // 位移进行中：等结束
+    if (my_control.move_state == 1) {
+        if (!car_is_busy()) my_control.move_state = 0;
+        else return;
+    }
+    // 旋转进行中：car_rotate_yaw 必须每拍持续调用
+    if (my_control.rotate_state == 1) {
+        car_rotate_yaw(my_control.target_yaw);
+        if (!car_is_busy()) my_control.rotate_state = 0;   // 内部到位稳定后已置 IDLE
+        return;
+    }
+    // 升降装置进行中：等结束
+    if (my_control.lift_state == 1) {
+        if (!lift_is_busy()) {
+            my_control.lift_state = 0;
+        }
+        return;
+    }
+    // 伸缩装置进行中：等结束
+    if (my_control.stretch_state == 1) {
+        if (!stretch_is_busy()) {
+            my_control.stretch_state = 0;
+        }
+        return;
+    }
+
+    switch (test_step)
+    {
+        case 0:     // 复位升降高度
+            catch_lift_to_height(LIFT_NORMAL);
+            test_step = 1;
+            break;
+        case 1:     // 伸缩到抓取位置
+            catch_stretch_to_pos(STRETCH_PUT_MID);
+            test_step = 2;
+            break;
+        case 2:     // 复位转盘、云台、夹爪三个舵机
+            serve_wait_time++;
+            if (serve_wait_time >= 10 && servo_reset_step == 0) {
+                holder_rotate(HOLDER_CATCH);
+                servo_reset_step = 1;
+            }
+            else if (serve_wait_time >= 20 && servo_reset_step == 1) {
+                turntable_rotate(ONE_LOCATION);
+                servo_reset_step = 2;
+            }
+            else if (serve_wait_time >= 30 && servo_reset_step == 2) {
+                claw_ctrl(CLAW_LOOSE);
+                servo_reset_step = 0;
+                serve_wait_time = 0;
+                test_step = 3;
+            }
+            break;
+        case 3:     // 给maix发送识别指令
+            circle_num += 1;
+            material_put_send = 1;
+            switch (put_num)    // 转盘转到对应位置
+            {
+                case 0:
+                    turntable_rotate(ONE_LOCATION);
+                    break;
+                case 1:
+                    turntable_rotate(TWO_LOCATION);
+                    break;
+                case 2:
+                    turntable_rotate(THREE_LOCATION);
+                    break;
+                case 3:
+                    turntable_rotate(SAFE_LOCATION);
+                    break;
+                default:
+                    break;
+            }
+            test_step = 4;
+            break;
+        case 4:     // 追踪圆环
+            car_follow_material_test();
+            if (catch_is_ok() == 1) {
+                car_stop();
+                PID_Reset(&yaw_pid);    // 清除误差和积分
+                PID_Reset(&x_pid);
+                PID_Reset(&y_pid);
+                test_step = 5;
+            }
+            break;
+        case 5:     // 云台转回转盘处 开始放置物料
+            holder_rotate(HOLDER_PUT);
+            servo_wait_ms(1000);  // 等待1000ms 待云台完成转向
+            test_step = 6;
+            break;
+        case 6:     // 等云台转完后
+            if  (!servo_is_busy()) {
+                // claw_ctrl(CLAW_LOOSE);  // 夹爪松开
+                catch_stretch_to_pos(STRETCH_PUT);  // 伸缩到放置位置
+                test_step = 7;
+            }
+            break;
+        case 7:     // 下降高度
+            catch_lift_to_height(LIFT_PUT);
+            test_step = 8;
+            break;
+        case 8:     // 夹爪夹紧 抓物料
+            claw_ctrl(CLAW_CATCH);  // 夹爪夹紧
+            servo_wait_ms(600); // 等待600ms 夹爪完全夹住
+            test_step = 9;
+            break;
+        case 9:     // 等待夹爪夹紧 升起
+            if (!servo_is_busy()) {
+                catch_lift_to_height(LIFT_NORMAL);
+                test_step = 10;
+            }
+            break;
+        case 10:    // 云台转到放置处
+            holder_rotate(HOLDER_CATCH);
+            servo_wait_ms(1000); // 等待1000ms 待云台转到目标位置
+            catch_stretch_to_pos(STRETCH_PUT_MID);  // 伸缩到置放置中心圆环位置
+            test_step = 11;
+            break;
+        case 11:    // 等云台到达目标位置 开始放置
+            if (!servo_is_busy()) {
+                if (task_state.one_finish && task_state.two_finish) {
+                    catch_lift_to_height(LIFT_PUT_TWO); // 放置第二组
+                }
+                else {
+                    catch_lift_to_height(LIFT_PUT_ONE); // 放置第一组
+                }
+                test_step = 12;
+            }
+            break;
+        case 12:    // 夹爪松开
+            claw_ctrl(CLAW_LOOSE);  // 夹爪松开
+            servo_wait_ms(600); // 等待600ms 待夹爪完全松开
+            test_step = 13;
+            break;
+        case 13:    // 夹爪松开完全后
+            if (!servo_is_busy()) {
+                catch_lift_to_height(LIFT_NORMAL);
+                put_num += 1;
+                test_step = 14;
+            }
+            break;
+        case 14:
+            if (put_num < 3) {
+                if (!car_is_busy()) {                       // 确认上一动作结束
+                    car_run_distance(200, 0.0f, 12.0f);
+                    my_control.move_state = 1;              // 让顶部守卫等它走完
+                    test_step = 3;
+                }
+            }
+            else if (put_num >= 3) {
+                if (!car_is_busy()) {
+                    car_run_distance(200, 0.0f, -12.0f);
+                    my_control.move_state = 1;
+                    test_step = 15;
+                }
+            }
+            break;
+        case 15:
+            test_step = 0;
+            circle_num = 0;
+            put_num = 0;
+            serve_wait_time = 0;
+            servo_reset_step = 0;
+            car_run = false;
+            break;
+        default:
             break;
     }
 }

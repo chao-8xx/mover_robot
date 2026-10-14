@@ -24,6 +24,7 @@ void servo_init(void)
     {
         __HAL_TIM_SET_COMPARE(&htim1, servo_channel[i], SERVO_MID_PULSE_US);
         HAL_TIM_PWM_Start(&htim1, servo_channel[i]);
+        HAL_Delay(5);
     }
 }
 

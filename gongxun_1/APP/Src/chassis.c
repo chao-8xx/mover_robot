@@ -7,11 +7,11 @@
 #define CHASSIS_CM_PER_PULSE         ((3.14159265f * CHASSIS_WHEEL_DIAM_CM) / CHASSIS_MOTOR_PULSE_PER_REV)  // cm/脉冲
 
 // 偏航 PID：输出是电机速度(RPM)，正负方向按实际转向调整
-#define CHASSIS_YAW_KP       3.8f
-#define CHASSIS_YAW_KD       0.2f
-#define CHASSIS_YAW_MAX_I    50.0f
-#define CHASSIS_YAW_MAX_OUT  120
-#define CHASSIS_YAW_SETTLE   50        // 50 个 10ms = 稳定 500ms 后才算转到位
+#define CHASSIS_YAW_KP         3.8f
+#define CHASSIS_YAW_KD         0.2f
+#define CHASSIS_YAW_MAX_I      50.0f
+#define CHASSIS_YAW_MAX_OUT    120
+#define CHASSIS_YAW_SETTLE     50        // 50 个 10ms = 稳定 500ms 后才算转到位
 #define CHASSIS_MOVE_MARGIN_MS 500     // 位置移动结束的额外余量ms
 
 // 转向电机死区速度
@@ -115,7 +115,7 @@ void car_speed_move (int16_t x_speed, int16_t y_speed, int16_t omega_speed)
     my_chassis.omega = omega_speed;
     chassis_solve();
 
-    chassis_mode = CHASSIS_MOVE;
+    // chassis_mode = CHASSIS_MOVE;
 }
 
 // 小车旋转 只旋转不位移
@@ -230,7 +230,7 @@ static void car_move_xy(int16_t speed, float x_cm, float y_cm)
     int32_t px, py;
     int32_t w[4];
     float max_cm, speed_cm_s;
-    static float acc = (float)STEP_MOTOR_DEFAULT_ACC;
+    static float acc = (float)STEP_MOTOR_CHASSIS_ACC;
     uint32_t t_ms = 0;
 
     if (chassis_mode != CHASSIS_IDLE) {
@@ -279,7 +279,7 @@ static void car_move_xy(int16_t speed, float x_cm, float y_cm)
     }
     else {
         float t_ramp_s = my_absf((float)speed)
-                     * (256.0f - (float)STEP_MOTOR_DEFAULT_ACC) * 50e-6f; // ZDT官方资料，曲线加减速时间计算公式
+                     * (256.0f - (float)STEP_MOTOR_CHASSIS_ACC) * 50e-6f; // ZDT官方资料，曲线加减速时间计算公式
         t_ms = (uint32_t)(((max_cm / speed_cm_s) + t_ramp_s) * 1000.0f);  // 梯形公式
     }
 

@@ -1,41 +1,20 @@
 #include "headfile.h"
 
 uint8_t hmi_rxbuffer[HMI_RX_SIZE];   // hmi 接收缓冲区
-char hmi_txbuffer[HMI_TX_SIZE];      // hmi 发送缓冲区
+char hmi_txbuffer[HMI_TX_SIZE];   // hmi 发送缓冲区
 
-static const uint8_t hmi_end_cmd[HMI_END_CMD_LEN] = {0xFF,0xFF,0xFF};  // 串口屏结束符序列
+uint8_t tx_len;     // 发送字节数
+
+static uint8_t hmi_end_cmd[HMI_TX_SIZE] = {0xFF,0xFF,0xFF};  // 串口屏结束符序列
 
 static UART_HandleTypeDef *hmi_uart = NULL;
-static volatile uint8_t hmi_error_flag = 0;     // hmi 接收恢复标志位
-
-
-// UART5 为常规模式DMA   每次收完或启动失败都要再次开启
-static void hmi_receive_start(void) {
-    uint32_t primask;
-    if (hmi_uart == NULL || hmi_uart->hdmarx == NULL) return;
-
-    primask = __get_PRIMASK();
-    __disable_irq();
-    if (HAL_UARTEx_ReceiveToIdle_DMA(hmi_uart, hmi_rxbuffer, sizeof(hmi_rxbuffer)) == HAL_OK) {
-        __HAL_DMA_DISABLE_IT(hmi_uart->hdmarx,DMA_IT_HT);  // 禁止半传输中断
-        hmi_error_flag = 0;
-    } else {
-        hmi_rx_reset();     // 重启失败期间可能漏字节 之前的半条指令也放弃
-        hmi_error_flag = 1; // 不等待  下一次 10ms 周期入口继续重试
-    }
-    __set_PRIMASK(primask);
-}
 
 
 // hmi 串口初始化
 void hmi_init(UART_HandleTypeDef *huart) {
     hmi_uart = huart;
-    hmi_error_flag = 0;
-    hmi_rx_reset();
-    if (hmi_uart == NULL || hmi_uart->hdmarx == NULL) return;
 
-    hmi_receive_start();
-    if (hmi_error_flag)
+    if (HAL_UARTEx_ReceiveToIdle_DMA(hmi_uart, hmi_rxbuffer, sizeof(hmi_rxbuffer)) != HAL_OK)
     {
         HAL_GPIO_WritePin(GPIOC, GPIO_PIN_0, GPIO_PIN_RESET);   // 常亮 = 启动失败
     }
@@ -43,11 +22,12 @@ void hmi_init(UART_HandleTypeDef *huart) {
     {
         HAL_GPIO_WritePin(GPIOC, GPIO_PIN_0, GPIO_PIN_SET);     // 灭 = 启动成功
     }
+    __HAL_DMA_DISABLE_IT(hmi_uart->hdmarx,DMA_IT_HT);      // 禁止半传输中断
 }
 
 // hmi 串口接收
 void hmi_rx_callback(UART_HandleTypeDef *huart, uint16_t Size) {
-    if (hmi_uart == NULL || huart != hmi_uart || Size > HMI_RX_SIZE) {
+    if (huart != hmi_uart) {
         return;
     }
 
@@ -55,18 +35,8 @@ void hmi_rx_callback(UART_HandleTypeDef *huart, uint16_t Size) {
     hmi_solve(huart, Size);
 
     // 重新开启 DMA 空闲中断接收
-    hmi_receive_start();
-}
-
-// hmi 串口屏错误回调
-void hmi_error_callback(UART_HandleTypeDef *huart) {
-    if (hmi_uart == NULL || huart != hmi_uart) return;
-    hmi_rx_reset(); // HAL接收错误中止DMA后 不能拼接错误前后的两半命令
-    hmi_error_flag = 1;
-}
-
-void hmi_rx_task(void) {
-    if (hmi_error_flag) hmi_receive_start();
+    HAL_UARTEx_ReceiveToIdle_DMA(hmi_uart,hmi_rxbuffer,sizeof(hmi_rxbuffer));
+    __HAL_DMA_DISABLE_IT(hmi_uart->hdmarx,DMA_IT_HT);      // 禁止半传输中断
 }
 
 /**
@@ -80,21 +50,30 @@ void hmi_rx_task(void) {
  */
 void hmi_SendCmd(const char *format, ...) {
     va_list args;       // 可变参数列表
-    int cmd_len;
 
-    // 显示命令只在主循环调用；先判断忙，避免覆盖上次DMA还在读取的缓冲
-    if (hmi_uart == NULL || format == NULL || hmi_uart->gState != HAL_UART_STATE_READY)
-        return;
-
-    // 留出三个结束符的位置   过长指令直接放弃 不发送被截断的屏幕语法
+    // 将上层传入的格式化字符串 解析到 hmi_txbuffer 中
     va_start(args,format);  // args:参数列表    format:最后一个具名参数
-    cmd_len = vsnprintf(hmi_txbuffer, HMI_TX_SIZE - HMI_END_CMD_LEN + 1, format, args);
+    vsnprintf(hmi_txbuffer, HMI_TX_SIZE, format, args); //format:格式串   args:参数列表
     va_end(args);
-    if (cmd_len < 0 || cmd_len > HMI_TX_SIZE - HMI_END_CMD_LEN)
-        return;
 
-    memcpy(&hmi_txbuffer[cmd_len], hmi_end_cmd, HMI_END_CMD_LEN);
-    HAL_UART_Transmit_DMA(hmi_uart,(uint8_t *)hmi_txbuffer, (uint16_t)cmd_len + HMI_END_CMD_LEN);
+    // 获取需要发送的有效字符串长度
+    tx_len = strlen(hmi_txbuffer);
+
+    // 发送数据太多 则截断
+    if (tx_len > HMI_TX_SIZE - HMI_END_CMD_LEN) {
+        tx_len = HMI_TX_SIZE - HMI_END_CMD_LEN;
+    }
+
+    // 在发送的字符串后面添加三个 0xFF 作为结束符
+    hmi_txbuffer[tx_len]     = hmi_end_cmd[0];
+    hmi_txbuffer[tx_len + 1] = hmi_end_cmd[1];
+    hmi_txbuffer[tx_len + 2] = hmi_end_cmd[2];
+
+    // 发送封装好的字符串数据   总长度 = 字符长度 + 3个结束符
+    // 上一次 DMA 没发完就不发，避免 BUSY 和缓冲被覆盖
+    if (hmi_uart->gState == HAL_UART_STATE_READY) {
+        HAL_UART_Transmit_DMA(hmi_uart,(uint8_t *)hmi_txbuffer, tx_len + 3);
+    }
 }
 
 /**
@@ -128,3 +107,65 @@ void hmi_ChangePage(const char *pageName) {
     // 切页格式: page 页面名
     hmi_SendCmd("page %s", pageName);
 }
+
+/**
+ * @brief  非阻塞状态机解析屏幕回传的触摸事件
+ * @note   状态机逐字节匹配接收   当前在本函数中没有循环逐字节调用 需要在串口接收回调中循环调用
+ * @note   通信协议: 0x65 + page_id + obj_id + event_type + 0xFF + 0xFF + 0xFF
+ */
+hmi_touch_t hmi_GetTouch(uint8_t byte) {
+    static uint8_t state = 0;       // 状态机的状态
+    static uint8_t rx_cache[4];     // 缓存: 页码、控件ID、事件类型
+    static uint8_t end_count = 0;   // 统计连续收到几个 0xFF 结束符
+
+    hmi_touch_t touch = {0, 0, 0, false};
+
+    switch (state)
+    {
+        case 0:     // 等待帧头 0x65
+            if (byte == 0x65)
+                state = 1;
+            break;
+
+        case 1:     // 接收页码 page_id
+            rx_cache[0] = byte;
+            state = 2;
+            break;
+
+        case 2:     // 接收控件ID obj_id
+            rx_cache[1] = byte;
+            state = 3;
+            break;
+
+        case 3:     // 接收事件类型 event_type
+            rx_cache[2] = byte;
+            end_count = 0;
+            state = 4;
+            break;
+
+        case 4:     // 等待3个连续的 0xFF 作为帧尾结束符
+            if (byte == 0xFF) {
+                end_count++;
+                if (end_count >= HMI_END_CMD_LEN) { // 完整的一帧解析完成
+                    touch.page_id      = rx_cache[0];
+                    touch.obj_id       = rx_cache[1];
+                    touch.event_type   = rx_cache[2];
+                    touch.is_valid = true;
+
+                    state = 0;
+                    end_count = 0;
+
+                    return touch;
+                }
+            }
+            else {      // 帧尾错误 放弃这一数据帧
+                state = 0;
+                end_count = 0;
+            }
+            break;
+        default:
+            break;
+    }
+    return touch;       // 无完整事件
+}
+

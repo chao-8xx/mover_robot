@@ -1,6 +1,9 @@
 #ifndef GONGXUN_1_HMI_APP_H
 #define GONGXUN_1_HMI_APP_H
 
+// 发送状态标志位 1:发送
+extern uint8_t hmi_state_send;       // 发送状态标志位 1:发送
+extern uint8_t hmi_send_cold;        // 是否进入冷却 1:是
 
 // 串口屏初始化
 void my_hmi_init(void);
@@ -17,10 +20,11 @@ void hmi_stop(void);
 // 触摸串口屏事件总处理
 // 在hmi.c的hmi_rx_callback回调函数内调用
 void hmi_solve(UART_HandleTypeDef *huart, uint16_t Size);
-void hmi_rx_reset(void); // 串口错误后丢弃尚未拼完的屏幕指令
 
 // 串口屏控制发送指令 放入1ms中断
 void hmi_control_send_tick(void);
+
+
 
 #endif //GONGXUN_1_HMI_APP_H
 

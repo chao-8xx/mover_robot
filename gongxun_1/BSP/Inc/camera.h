@@ -1,8 +1,4 @@
-﻿//
-// Created by mechreuo on 2026/6/3.
-//
-
-#ifndef GONGXUN_1_CAMERA_H
+﻿#ifndef GONGXUN_1_CAMERA_H
 #define GONGXUN_1_CAMERA_H
 
 // cam 通信协议
@@ -41,8 +37,8 @@
 // maix 视觉任务窗口滤波参数
 #define MAIX_WINDOW_SIZE       5
 #define MAIX_VALID_MIN         3
-#define MAIX_STABLE_DX_SPAN    8
-#define MAIX_STABLE_DY_SPAN    8
+#define MAIX_STABLE_DX_SPAN    5
+#define MAIX_STABLE_DY_SPAN    5
 #define MAIX_TIMEOUT_MS        300
 
 // cam 状态机状态枚举
@@ -83,8 +79,8 @@ typedef struct
     uint8_t cmd;
     uint8_t target;
     uint8_t frame_id;    // 最近参与窗口计算的单帧ID
-    uint8_t valid;
-    uint8_t stable;
+    uint8_t valid;       // 有效时 可抓取
+    uint8_t stable;      // 转盘稳定时
     uint8_t valid_count;
     uint8_t sample_count;
     int16_t dx;          // stable时取最佳三帧中值，否则取全部有效帧中值
@@ -138,6 +134,7 @@ uint8_t maix_get_filtered_result(maix_result_t *out);
 
 extern maix_vision_t maix_vision;
 extern maix_result_t maix_result;
+extern qr_result_t   qr_result;
 extern volatile uint8_t cam_error_flag;
 extern volatile uint8_t cam_rx_flag;   // 接收完成标志位
 
