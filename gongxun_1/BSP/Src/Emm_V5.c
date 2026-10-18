@@ -23,6 +23,11 @@ static Emm_V5_TxFrame_t emm_v5_tx_queue[EMM_V5_TX_QUEUE_SIZE];
 static volatile uint8_t emm_v5_tx_head = 0;
 static volatile uint8_t emm_v5_tx_tail = 0;
 static volatile uint8_t emm_v5_tx_count = 0;
+// 串口DMA接收数据
+#define EMM_V5_RX_BUF_SIZE   64
+static uint8_t  emm_v5_rx_buf[EMM_V5_RX_BUF_SIZE];
+static volatile int32_t emm_v5_pos[7];          // 按地址 1~6 存最新位置
+static volatile uint8_t emm_v5_pos_valid[7];
 
 /**
   * @brief    串口2发送命令帧（非阻塞）
@@ -209,6 +214,43 @@ void Emm_V5_Tx_Reset(void)
 uint8_t Emm_V5_Tx_Count(void)
 {
   return emm_v5_tx_count;
+}
+
+// 电机串口接收DMA开启
+void Emm_V5_Rx_Start(void)
+{
+  HAL_UARTEx_ReceiveToIdle_DMA(&huart2, emm_v5_rx_buf, EMM_V5_RX_BUF_SIZE);
+  __HAL_DMA_DISABLE_IT(huart2.hdmarx, DMA_IT_HT);   // 关半满中断
+}
+
+// 电机串口接收回调
+void Emm_V5_rx_callback(UART_HandleTypeDef *huart, uint16_t Size)
+{
+  // 回复格式：addr(1) + 0x36(1) + pos(4,大端) + status(1) + 0x6B(1) = 8 字节
+  for (uint16_t i = 0; i + 8 <= Size; i++) {
+    uint8_t addr = emm_v5_rx_buf[i];
+    if (addr >= 1 && addr <= 6 &&
+        emm_v5_rx_buf[i + 1] == 0x36 &&
+        emm_v5_rx_buf[i + 7] == 0x6B) {
+
+      int32_t pos = (int32_t)((uint32_t)emm_v5_rx_buf[i + 2] << 24 |
+                              (uint32_t)emm_v5_rx_buf[i + 3] << 16 |
+                              (uint32_t)emm_v5_rx_buf[i + 4] << 8  |
+                              (uint32_t)emm_v5_rx_buf[i + 5]);
+      emm_v5_pos[addr] = pos;
+      emm_v5_pos_valid[addr] = 1;
+        }
+  }
+  memset(emm_v5_rx_buf, 0, EMM_V5_RX_BUF_SIZE);   // 清缓冲，防重复解析
+}
+
+// 上层拿位置（取走后清 valid）
+uint8_t Emm_V5_Get_Pos(uint8_t addr, int32_t *pos)
+{
+  if (addr < 1 || addr > 6 || !emm_v5_pos_valid[addr]) return 0;
+  *pos = emm_v5_pos[addr];
+  emm_v5_pos_valid[addr] = 0;
+  return 1;
 }
 
 /**

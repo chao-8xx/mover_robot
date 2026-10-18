@@ -2,16 +2,16 @@
 #define GONGXUN_1_LED_BUZZER_H
 
 // 拓展板板载LED与蜂鸣器初始化
-void led_buzzer_init(void);
+void light_buzzer_init(void);
 
-// LED亮灯
-void led_on(void);
+// 补光板亮灯
+void light_on(void);
 
-// LED灭灯
-void led_off(void);
+// 补光板灭灯
+void light_off(void);
 
-// LED翻转
-void led_toggle(void);
+// 补光板翻转
+void light_toggle(void);
 
 // 蜂鸣器打开
 void buzzer_on(void);

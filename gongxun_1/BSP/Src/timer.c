@@ -4,7 +4,7 @@ void all_init(void)
 {
     timer_init();
     uart_init();
-    led_buzzer_init();
+    light_buzzer_init();
 
     tf_init();
 }
@@ -40,5 +40,6 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
     }
     else if (htim ->Instance == TIM2) {    // 10ms中断
         system_control();
+        // car_stretch_follow_material_test();
     }
 }

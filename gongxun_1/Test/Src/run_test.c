@@ -507,6 +507,7 @@ void bfs_multi_track_test(void)
 }
 
 // 小车麦轮跟踪锁定物料测试
+static uint16_t i = 0;
 void car_follow_material_test(void)
 {
     // 用于主循环和中断外 即初始化部分
@@ -519,37 +520,52 @@ void car_follow_material_test(void)
     // 放入主循环
     // cam_task();                     // 解析摄像头数据
 
-    // static uint8_t time = 0;
-    // 更新物料发现状态
-    // if (maix_vision.ok == 1) {
-    //     time ++;
-    //     task_state.is_find_target = 1;
-    //     task_state.follow_x = maix_vision.dx;
-    //     task_state.follow_y = maix_vision.dy;
-    //     if (time >= 200) {
-    //         task_state.remindState = GREEN_REMIND;
-    //     }
-    // }
-    // else {
-    //     time ++;
-    //     task_state.is_find_target = 0;
-    //     task_state.follow_x = 0;
-    //     task_state.follow_y = 0;
-    //     if (time >= 200) {
-    //         task_state.remindState = RED_REMIND;
-    //     }
-    //
-    // }
     // 更新物料发现状态
     target_state_get();
     // 追踪物料
-    if (task_state.is_find_target == 1 && task_state.is_stable_target == 1) {
+    if (task_state.is_find_target == 1) {
         follow_target(0.0f,(int16_t)0,(int16_t)0);
-        buzzer_off();
+        if (++i > 50) {
+            printf("DX=%d,DY=%d\n",task_state.follow_x,task_state.follow_y);
+        }
     }
     else {
         car_stop();
-        buzzer_off();
+        PID_Clear();
+        task_state.follow_x = 0;
+        task_state.follow_y = 0;
+    }
+}
+
+// 小车麦轮和伸缩跟踪锁定物料测试
+void car_stretch_follow_material_test(void)
+{
+    // 用于主循环和中断外 即初始化部分
+    // cam_init(&huart1);          // OpenMV maixcam 摄像头
+    // HAL_Delay(1000);
+    // holder_rotate(HOLDER_CATCH);
+    // HAL_Delay(1000);
+    // maix_start_blob(MAIX_COLOR_RED);
+
+    // 放入主循环
+    // cam_task();                     // 解析摄像头数据
+
+    // 更新物料发现状态
+    target_state_get();
+    // 追踪物料
+    if (task_state.is_find_target == 1) {
+        follow_target(0.0f,(int16_t)0,task_state.follow_y);
+        follow_stretch_target((int16_t)0);
+        if (++i > 50) {
+            printf("DX=%d,DY=%d\n",task_state.follow_x,task_state.follow_y);
+        }
+    }
+    else {
+        car_stop();
+        catch_stretch_stop();
+        PID_Clear();
+        task_state.follow_x = 0;
+        task_state.follow_y = 0;
     }
 }
 

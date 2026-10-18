@@ -59,18 +59,18 @@ void task_init()
     task_state.area_buf_one[0] = AREA_1;
     task_state.area_buf_one[1] = AREA_2;
     task_state.area_buf_one[2] = AREA_3;
-    task_state.color_buf_two[0] = TASK_YELLOW; // 第二组 黄黑浅蓝
-    task_state.color_buf_two[1] = TASK_BLACK;
-    task_state.color_buf_two[2] = TASK_LOW_BLUE;
+    task_state.color_buf_two[0] = TASK_BLUE; // 第二组 黄黑浅蓝
+    task_state.color_buf_two[1] = TASK_RED;
+    task_state.color_buf_two[2] = TASK_GREEN;
     task_state.area_buf_two[0] = AREA_1;
     task_state.area_buf_two[1] = AREA_2;
     task_state.area_buf_two[2] = AREA_3;
     task_state.color_buf[0] = TASK_RED;      // 总顺序
     task_state.color_buf[1] = TASK_GREEN;
     task_state.color_buf[2] = TASK_BLUE;
-    task_state.color_buf[3] = TASK_YELLOW;
-    task_state.color_buf[4] = TASK_BLACK;
-    task_state.color_buf[5] = TASK_LOW_BLUE;
+    task_state.color_buf[3] = TASK_BLUE;
+    task_state.color_buf[4] = TASK_RED;
+    task_state.color_buf[5] = TASK_GREEN;
 }
 
 // 任务解析 把接收到的C0、C1等颜色字节转化为状态
@@ -166,7 +166,7 @@ uint8_t task_receive(void)
 
     memset(task_state.color_buf, 0, sizeof(task_state.color_buf));   // 先清
 
-    uint8_t i = 0,j = 0;
+    uint8_t i = 0,j = 0,k = 0,e = 0,f = 0;
     // 第一组整理顺序
     for (i = 0; i < 3; i++) {
         if (task_state.area_buf_one[i] == AREA_1) {
@@ -193,9 +193,21 @@ uint8_t task_receive(void)
     }
 
     // ★ 六个槽任意一个没填上（或值为 0）就算解析失败
-    for (uint8_t k = 0; k < 6; k++) {
+    for (k = 0; k < 6; k++) {
         if (task_state.color_buf[k] < TASK_RED || task_state.color_buf[k] > TASK_LOW_BLUE)
             return 0;      // 失败
+    }
+
+    // 计算第二批的颜色 → 第一批的位置
+    // color_buf[0..2] 是第一批按位置排序的颜色，索引就是位置(0=1号位)
+    for (e = 0; e < 3; e++) {
+        task_state.turntable_seq[e] = 0;                    // 默认 1 号位
+        for (f = 0; f < 3; f++) {
+            if (task_state.color_buf[f] == task_state.color_buf_two[e]) {
+                task_state.turntable_seq[e] = f;            // 找到同色位置
+                break;
+            }
+        }
     }
     return 1;              // 成功
 }
@@ -269,7 +281,6 @@ void mv_task(void)
         openmv_send_stop_scan();
         service_for(STOP_GUARD_MS);
         cam_empty_rx();
-        led_off();
         openmv_start = 0;
         openmv_end = 1;
     }
@@ -286,9 +297,9 @@ void send_conduct_task(void)
         send_circle_conduct();
         my_control.is_send_circle = 0;
     }
-    if (my_control.is_send_onup == 1) {
-        send_onup_conduct();
-        my_control.is_send_onup = 0;
+    if (my_control.is_send_stack == 1) {
+        send_stack_conduct();
+        my_control.is_send_stack = 0;
     }
 }
 

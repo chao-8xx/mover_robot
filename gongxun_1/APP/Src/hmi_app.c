@@ -214,7 +214,10 @@ void hmi_control_send_tick(void)
         // 伸缩每条指令隔3ms
         stretch_time_gap ++;
         if (stretch_time_gap >= 3) {
-            catch_stretch_dist((float)hmi_stretch_mm/10.0f);
+            // catch_stretch_dist((float)hmi_stretch_mm/10.0f);    // 丝杆
+            if (hmi_stretch_mm > 0 && hmi_stretch_mm < 350) {
+                catch_stretch_distance((float)hmi_stretch_mm/10.0f);        // 齿轮齿条
+            }
             stretch_time_gap = 0;
             hmi_stretch_state = 0;
         }

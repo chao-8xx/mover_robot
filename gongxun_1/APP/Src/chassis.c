@@ -91,8 +91,11 @@ static void chassis_solve(void)
         }
     }
     chassis_send_mode = 0;     // 速度模式
-    chassis_send_index = 0;
-    chassis_sending = 1;
+    // 只有当前没在发送时才重置序列 让car_move_send_tick把 4 个轮子依次发完
+    if (!chassis_sending) {
+        chassis_send_index = 0;
+        chassis_sending = 1;
+    }
 }
 
 // 停车
@@ -335,7 +338,6 @@ void car_move_send_tick(void)
                                chassis_wheel_cmd[chassis_send_index]);
                 chassis_send_index++;
             }
-
         }
         else if (chassis_send_mode == 0) {
             // 速度模式下每条指令隔3ms
@@ -363,8 +365,8 @@ void car_move_send_tick(void)
     }
 }
 
-// 1ms 周期调用（可放在 1ms 定时器里）：
-// 只负责移动的非阻塞计时，到时间后清除 busy，不做旋转控制
+// 1ms 周期调用（可放在 1ms 定时器里）
+// 只负责移动的非阻塞计时，到时间后清除busy 不做旋转控制
 void car_run_tick(void)
 {
     if (!chassis_inited) {

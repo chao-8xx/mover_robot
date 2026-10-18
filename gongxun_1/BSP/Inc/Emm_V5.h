@@ -53,11 +53,13 @@ void Emm_V5_Origin_Trigger_Return(uint8_t addr, uint8_t o_mode, bool snF); // �
 void Emm_V5_Origin_Interrupt(uint8_t addr); // 强制中断并退出回零
 
 void Emm_V5_tx_callback(UART_HandleTypeDef *huart);	// 发送中断回调
-
 // 复位串口2发送队列（串口错误后调用，避免队列状态卡死）
 void Emm_V5_Tx_Reset(void);
-
 // 返回串口2发送队列里还没发完的帧数（0 = 队列空闲）
 uint8_t Emm_V5_Tx_Count(void);
+
+void Emm_V5_Rx_Start(void);	// 电机串口接收DMA开启
+void Emm_V5_rx_callback(UART_HandleTypeDef *huart, uint16_t Size);	// 电机串口接收回调
+uint8_t Emm_V5_Get_Pos(uint8_t addr, int32_t *pos);	// 上层拿位置（取走后清 valid）
 
 #endif

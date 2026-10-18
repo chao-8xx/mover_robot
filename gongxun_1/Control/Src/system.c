@@ -14,6 +14,7 @@ void system_init(void)
     step_motor_init();          // 闭环步进电机
     HAL_Delay(100);             // 等待一会儿
 
+    light_buzzer_init();        // 蜂鸣器 补光板
     chassis_init();             // 底盘装置
     catch_init();               // 抓取装置
     cam_init(&huart1);          // OpenMV maix摄像头
@@ -21,8 +22,7 @@ void system_init(void)
     HAL_Delay(100);             // 等待一会儿
     debug_uart_init(&huart6);   // 串口调试
     remind_init();              // 提示装置
-    bfs_init();                 // 路径规划
-    bfs_base_obstacle();
+    bfs_init();                 // 路径规划初始化
     HAL_Delay(100);             // 等待一会儿
 
     init_ok_remind();           // 初始化完成提醒

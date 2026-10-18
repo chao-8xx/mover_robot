@@ -12,6 +12,8 @@ void bfs_multi_track_test(void);
 
 // 小车麦轮跟踪锁定物料测试
 void car_follow_material_test(void);
+// 小车麦轮和伸缩跟踪锁定物料测试
+void car_stretch_follow_material_test(void);
 
 // 抓取颜色指令 主循环调用
 void catch_color_send(void);

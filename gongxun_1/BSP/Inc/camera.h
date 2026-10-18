@@ -65,7 +65,7 @@ typedef struct
     uint8_t cmd;        // 命令码
     uint8_t target;     // 目标任务  F407 当前下发的颜色/数字目标
     uint8_t frame_id;   // Maix 单字节视觉帧ID
-    uint8_t ok;         // 当前单帧识别结果
+    uint8_t ok;         // 当前单帧识别结果  B2:0无目标/1发现/2对准
     int16_t dx;         // X偏差值
     int16_t dy;         // Y偏差值
     uint32_t tick;      // F407 接收此原始帧的时间
@@ -73,15 +73,18 @@ typedef struct
 } maix_vision_t;
 
 // F407根据最近5个不重复FRAME_ID计算的控制层结果
-// valid：窗口内至少3帧OK；stable：至少3个OK坐标落在设定跨度内
+// valid：窗口内至少3帧有效目标（B2的1/2均有效） 允许单帧晃动
+// stable：当前帧有效  且窗口内至少3个候选坐标满足原跨度条件
+// B2另要求当前OK=2  稳定候选仅取OK=2  B3/B4候选仍取OK=1
 typedef struct
 {
     uint8_t cmd;
     uint8_t target;
     uint8_t frame_id;    // 最近参与窗口计算的单帧ID
-    uint8_t valid;       // 有效时 可抓取
-    uint8_t stable;      // 转盘稳定时
-    uint8_t valid_count;
+    uint8_t ok;          // 最新帧原始OK  超时/停止后为0  不等同窗口valid
+    uint8_t valid;       // 窗口内目标有效
+    uint8_t stable;      // 当前任务满足视觉稳定条件
+    uint8_t valid_count; // 窗口内有效目标帧数 B2的OK=1/2都计数
     uint8_t sample_count;
     int16_t dx;          // stable时取最佳三帧中值，否则取全部有效帧中值
     int16_t dy;

@@ -71,6 +71,8 @@ static uint8_t test_maix_task(const char *name, uint8_t cmd, uint8_t target,
     uint16_t unique = 0, dup = 0, ok_cnt = 0, invalid_zero = 0, invalid_nonzero = 0;
     uint8_t saw_valid = 0, saw_stable = 0, saw_invalid_before_ok = 0;
     uint8_t has_last = 0, last_id = 0;
+    uint32_t first_tick = 0, last_tick = 0;
+    uint16_t aligned_cnt = 0;
 
     start_fn(target);
     printf("[%s] 启动，等待至少 %u 个独立帧...\n", name, MIN_FRAMES);
@@ -102,6 +104,9 @@ static uint8_t test_maix_task(const char *name, uint8_t cmd, uint8_t target,
             has_last = 1;
             last_id = raw.frame_id;
             unique++;
+            if (unique == 1) first_tick = raw.tick;
+            last_tick = raw.tick;
+            if (raw.ok == 2) aligned_cnt++;
 
             // 统计 ok 和零偏移
             if (raw.ok) {
@@ -129,8 +134,8 @@ static uint8_t test_maix_task(const char *name, uint8_t cmd, uint8_t target,
             if (res.valid) saw_valid = 1;
             if (res.stable) saw_stable = 1;
             if (became_valid || became_stable) {
-                printf("[%s FILTER] samples=%u valid=%u stable=%u dx=%d dy=%d\r\n",
-                       name, res.sample_count, res.valid, res.stable,
+                printf("[%s FILTER] ok=%u samples=%u valid_count=%u valid=%u stable=%u dx=%d dy=%d\r\n",
+                       name, res.ok, res.sample_count, res.valid_count, res.valid, res.stable,
                        res.dx, res.dy);
             }
         }
@@ -147,6 +152,9 @@ static uint8_t test_maix_task(const char *name, uint8_t cmd, uint8_t target,
     printf("[%s] 汇总：独立帧=%u 重复=%u ok帧=%u 无效零=%u 无效非零=%u 有效=%u 稳定=%u 先无效=%u\n",
            name, unique, dup, ok_cnt, invalid_zero, invalid_nonzero,
            saw_valid, saw_stable, saw_invalid_before_ok);
+    float rx_hz = (unique > 1 && last_tick != first_tick) ?
+        (float)(unique - 1) * 1000.0f / (uint32_t)(last_tick - first_tick) : 0.0f;
+    printf("[%s] OK=2帧=%u 新帧RXHZ=%.1f（本次接收窗口）\r\n", name, aligned_cnt, rx_hz);
 
     // 判定条件
     uint8_t pass = (unique >= MIN_FRAMES && saw_valid && saw_stable &&
@@ -193,7 +201,8 @@ static uint8_t test_b3_loss(void)
 static uint8_t test_b0_clear(void)
 {
     maix_stop();
-    uint8_t pass = (maix_vision.new_data == 0 && maix_result.valid == 0 &&
+    uint8_t pass = (maix_vision.new_data == 0 && maix_vision.ok == 0 &&
+                    maix_vision.dx == 0 && maix_vision.dy == 0 && maix_result.ok == 0 && maix_result.valid == 0 &&
                     maix_result.stable == 0 && maix_result.sample_count == 0);
     printf("[B0清除] %s\n", pass ? "通过" : "失败");
     return pass;
@@ -225,6 +234,8 @@ static uint8_t test_timeout(void)
     maix_result_task();
     maix_result_t res;
     uint8_t got_res = maix_get_filtered_result(&res);
+    maix_vision_t raw;
+    uint8_t got_raw = maix_get_result(&raw);
 
     // 超时结果取出后再停止Maix并丢弃暂停期间的DMA积压数据。
     maix_stop();
@@ -233,7 +244,8 @@ static uint8_t test_timeout(void)
     cam_empty_rx();
 
     uint8_t pass = got_res && res.sample_count == 0 && res.valid_count == 0 &&
-                   !res.valid && !res.stable;
+                   !res.ok && !res.valid && !res.stable && res.dx == 0 && res.dy == 0 &&
+                   got_raw && !raw.ok && raw.dx == 0 && raw.dy == 0;
     printf("[超时] %s (收到结果=%u samples=%u valid=%u stable=%u)\n",
            pass ? "通过" : "失败", got_res, res.sample_count, res.valid, res.stable);
     return pass;
@@ -260,7 +272,6 @@ void openmv_test(void)
     openmv_send_stop_scan();
     service_for(STOP_GUARD_MS);
     cam_empty_rx();
-    led_off();
 
     printf("[OpenMV] 单项测试：%s\r\n", pass ? "通过" : "失败");
     printf("=============================================\r\n");
@@ -272,7 +283,7 @@ void maix_b2_test(void)
 {
     printf("\r\n========== Maix B2 -> F407 单项测试 =========="
            "\r\n");
-    printf("[Maix B2] 请确保画面中有绿色物料\r\n");
+    printf("[Maix B2] 请将绿色物料移入抓取ROI并达到覆盖阈值，观察OK=1/2及stable\r\n");
     printf("[Maix B2] 发送B0并清空USART1残留\r\n");
     maix_stop();
     service_for(STOP_GUARD_MS);
@@ -287,7 +298,6 @@ void maix_b2_test(void)
     maix_stop();
     service_for(STOP_GUARD_MS);
     cam_empty_rx();
-    led_off();
 
     printf("[Maix B2] 单项测试：%s\r\n", pass ? "通过" : "失败");
     printf("=============================================\r\n");
@@ -333,7 +343,6 @@ void cam_all_test(void)
     printf("[步骤7] 超时复位测试\n");
     uint8_t timeout_pass = test_timeout();
 
-    led_off();
     printf("\n========== 测试汇总 ==========\n");
     printf("二维码: %s\n", qr_pass ? "通过" : "失败");
     printf("B2色块: %s\n", b2_pass ? "通过" : "失败");

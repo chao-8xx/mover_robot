@@ -32,6 +32,7 @@ void bfs_init(void)
 {
     memset(bfs_map, 0, sizeof(bfs_map));
     bfs_path_len = 0;
+    bfs_base_obstacle();        // 基础障碍设置
 }
 
 // 设置/清除障碍物 1 设障碍 0 清除

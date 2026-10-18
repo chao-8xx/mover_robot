@@ -12,7 +12,7 @@ LED_Color led_color = LED_OFF;  // ws2812颜色状态机
 void remind_init(void)
 {
     ws2812_init();
-    led_buzzer_init();
+    light_buzzer_init();
 }
 
 // 初始化完成提醒 阻塞 蜂鸣器
