@@ -246,17 +246,25 @@ void openmv_frame_handle(const uint8_t *data, uint8_t len)
 void maix_frame_handle(uint8_t cmd, const uint8_t *data, uint8_t len)
 {
     // 固定 maix 数据帧字节数为MAIX_DATA_LEN 即为6
-    if (len != MAIX_DATA_LEN || cmd != maix_now_cmd ||
+    if (data == NULL || len != MAIX_DATA_LEN || cmd != maix_now_cmd ||
         maix_now_cmd == MAIX_CMD_NONE)
         return;
+
+    // 状态按任务校验 重复帧不刷新原始结果 也不能延长超时时间
+    if (data[1] > (cmd == MAIX_CMD_BLOB ? 2 : 1) ||
+        (maix_has_last_frame && data[0] == maix_last_frame_id))
+        return;
+
+    // 新帧若在断流后才到达 先撤销旧窗口 再处理本帧
+    maix_result_task();
 
     // 接收解析 DATA数据 单帧数据
     maix_vision.cmd      = cmd;
     maix_vision.target   = maix_now_target;
     maix_vision.frame_id = data[0];
     maix_vision.ok       = data[1];
-    maix_vision.dx       = read_i16_le(&data[2]);
-    maix_vision.dy       = read_i16_le(&data[4]);
+    maix_vision.dx       = data[1] ? read_i16_le(&data[2]) : 0;
+    maix_vision.dy       = data[1] ? read_i16_le(&data[4]) : 0;
 
     maix_vision.tick     = HAL_GetTick();
     maix_vision.new_data = 1;
@@ -375,6 +383,9 @@ void maix_filter_handle(const maix_vision_t *raw)
     int16_t valid_dx[MAIX_WINDOW_SIZE]; // 有效帧dx数组
     int16_t valid_dy[MAIX_WINDOW_SIZE]; // 有效帧dy数组
     uint8_t valid_count = 0;            // 有效帧计数
+    int16_t stable_dx[MAIX_WINDOW_SIZE]; // B2只取OK=2  B3/B4取OK=1
+    int16_t stable_dy[MAIX_WINDOW_SIZE];
+    uint8_t stable_count = 0;
 
     uint8_t best_found = 0;             // 是否找到稳定簇
     uint16_t best_span_score = 255;     // 最小跨度评分
@@ -383,7 +394,7 @@ void maix_filter_handle(const maix_vision_t *raw)
 
     // raw 需与当前的cmd 一致
     if (raw == NULL || raw->cmd != maix_now_cmd ||
-        maix_now_cmd == MAIX_CMD_NONE)
+        maix_now_cmd == MAIX_CMD_NONE || raw->ok > (raw->cmd == MAIX_CMD_BLOB ? 2 : 1))
         return;
 
     // 帧ID防重
@@ -412,13 +423,24 @@ void maix_filter_handle(const maix_vision_t *raw)
             valid_dx[valid_count] = maix_filter[i].dx;
             valid_dy[valid_count] = maix_filter[i].dy;
             valid_count++;
+            if (raw->cmd != MAIX_CMD_BLOB || maix_filter[i].ok == 2)
+            {
+                stable_dx[stable_count] = maix_filter[i].dx;
+                stable_dy[stable_count] = maix_filter[i].dy;
+                stable_count++;
+            }
         }
     }
+
+    // 单帧无效不清历史  B2当前OK=1也保留窗口  但本帧不报稳定
+    if (raw->ok == 0 || (raw->cmd == MAIX_CMD_BLOB && raw->ok != 2))
+        stable_count = 0;
 
     // 填充结果结构体
     maix_result.cmd = raw->cmd;
     maix_result.target = raw->target;
     maix_result.frame_id = raw->frame_id;
+    maix_result.ok = raw->ok;
     maix_result.sample_count = maix_filter_count;
     maix_result.valid_count = valid_count;
     maix_result.valid = (valid_count >= MAIX_VALID_MIN) ? 1 : 0;
@@ -428,7 +450,8 @@ void maix_filter_handle(const maix_vision_t *raw)
     maix_result.tick = raw->tick;
 
     // 稳定性判定 —— 寻找“小跨度簇”
-    // 注: 算法目标：从最多5个有效点中，找出任意 3个 点，使得它们的 dx 和 dy 的跨度（最大差值）都小于预设阈值（MAIX_FILTER_STABLE_DX_SPAN 和 DY_SPAN）
+    // 注: 算法目标：从最多5个候选点中找任意 3 点，保持原有跨度阈值和中位数算法
+    // B2候选仅为OK=2 不要求连续 OK=1仍参与上面的valid和普通坐标滤波
     //      若找到，则认为这3点构成了稳定簇，输出其中位数作为最终稳定结果
     // 该算法允许存在跳点，只要有3个点在小跨度内即可判定稳定
     if (maix_result.valid)
@@ -442,14 +465,14 @@ void maix_filter_handle(const maix_vision_t *raw)
         maix_result.dy = get_median_i16(valid_dy, valid_count);
 
         // 从最多5个有效点中寻找任意3点的小跨度簇；单个跳点不会破坏稳定判定
-        for (a = 0; a + 2 < valid_count; a++)
+        for (a = 0; a + 2 < stable_count; a++)
         {
-            for (b = (uint8_t)(a + 1); b + 1 < valid_count; b++)
+            for (b = (uint8_t)(a + 1); b + 1 < stable_count; b++)
             {
-                for (c = (uint8_t)(b + 1); c < valid_count; c++)
+                for (c = (uint8_t)(b + 1); c < stable_count; c++)
                 {
-                    int16_t cluster_dx[3] = {valid_dx[a], valid_dx[b], valid_dx[c]};
-                    int16_t cluster_dy[3] = {valid_dy[a], valid_dy[b], valid_dy[c]};
+                    int16_t cluster_dx[3] = {stable_dx[a], stable_dx[b], stable_dx[c]};
+                    int16_t cluster_dy[3] = {stable_dy[a], stable_dy[b], stable_dy[c]};
                     int16_t min_dx = cluster_dx[0];
                     int16_t max_dx = cluster_dx[0];
                     int16_t min_dy = cluster_dy[0];
@@ -602,6 +625,7 @@ void maix_send_frame(uint8_t cmd, const uint8_t *data, uint8_t len)
 // maix 停止视觉任务
 void maix_stop(void)
 {
+    cam_empty_rx(); // 丢弃未解析旧字节和半帧  不增加阻塞等待
     maix_now_cmd = MAIX_CMD_NONE;
     maix_now_target = MAIX_COLOR_NONE;
     memset(&maix_vision, 0, sizeof(maix_vision));
@@ -612,6 +636,7 @@ void maix_stop(void)
 // maix 启动物料识别任务
 void maix_start_blob(uint8_t color)
 {
+    cam_empty_rx();
     maix_now_cmd = MAIX_CMD_BLOB;
     maix_now_target = color;
     memset(&maix_vision, 0, sizeof(maix_vision));
@@ -620,9 +645,14 @@ void maix_start_blob(uint8_t color)
     maix_send_frame(MAIX_CMD_BLOB, &color, 1);
 }
 
-// maix 启动数字识别与圆环定位任务
+// maix 启动2号圆环定位任务（不识别数字）
 void maix_start_ring(uint8_t number)
 {
+    if (number != MAIX_RING_2) {
+        printf("Maix B3 rejected: target=%02X, only D2 supported\r\n", number);
+        return;
+    }
+    cam_empty_rx();
     maix_now_cmd = MAIX_CMD_RING;
     maix_now_target = number;
     memset(&maix_vision, 0, sizeof(maix_vision));
@@ -634,6 +664,7 @@ void maix_start_ring(uint8_t number)
 // maix 启动码垛定位摆放任务
 void maix_start_onup(uint8_t color)
 {
+    cam_empty_rx();
     maix_now_cmd = MAIX_CMD_ONUP;
     maix_now_target = color;
     memset(&maix_vision, 0, sizeof(maix_vision));
@@ -654,7 +685,19 @@ void maix_result_task(void)
     if ((uint32_t)(now - maix_result.tick) <= MAIX_TIMEOUT_MS)
         return;
 
+    // 断流清原始结果并通知上层  保留最后帧ID 防止重复旧帧使结果复活
+    uint8_t last_id = maix_last_frame_id;
+    uint8_t has_last = maix_has_last_frame;
+    memset(&maix_vision, 0, sizeof(maix_vision));
+    maix_vision.cmd = maix_now_cmd;
+    maix_vision.target = maix_now_target;
+    maix_vision.frame_id = last_id;
+    maix_vision.tick = now;
+    maix_vision.new_data = 1;
     maix_filter_reset();
+    maix_last_frame_id = last_id;
+    maix_has_last_frame = has_last;
+    maix_result.frame_id = last_id;
     maix_result.tick = now;
     maix_result.new_data = 1;
 }

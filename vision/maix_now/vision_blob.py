@@ -22,7 +22,7 @@ MORPH_KERNEL = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
 # 运行时只使用当前颜色的一组LAB阈值。缓存对应的 uint8 数组，
 # 避免每帧重复把 Python list 转换成多个 NumPy 小数组。
 _THRESHOLD_CACHE = {}
-B2_PIPELINE_BUILD = "B2_BUFFERS_V1"
+B2_PIPELINE_BUILD = "B2_EXCLUDE_V4"
 
 
 class ColorBuffers:
@@ -95,8 +95,9 @@ def make_run_geometry(config, source_width, source_height,
     area_scale = scale_x * scale_y
 
     center = config["center"]
-    scaled_center_x = min(scaled_w - 1, max(0, int(round(center["x"] * scale_x))))
-    scaled_center_y = min(scaled_h - 1, max(0, int(round(center["y"] * scale_y))))
+    # B2的原图参考点允许落在裁剪区外，不能夹到ROI边缘而改变dx/dy原点。
+    scaled_center_x = int(round(center["x"] * scale_x))
+    scaled_center_y = int(round(center["y"] * scale_y))
 
     blob = config["blob"]
     scaled_min_area = max(1, int(round(blob["min_area"] * area_scale)))
@@ -117,6 +118,16 @@ def make_run_geometry(config, source_width, source_height,
         },
         "blob": {"min_area": scaled_min_area, "max_area": scaled_max_area},
     }
+    if "exclude_rois" in config:
+        process_config["exclude_rois"] = []
+        for rect in config["exclude_rois"]:
+            # INTER_NEAREST采样原图floor(i*source/processed)，两端均向上取整。
+            left = max(0, ((rect["x"] - source_x) * scaled_w + source_w - 1) // source_w)
+            top = max(0, ((rect["y"] - source_y) * scaled_h + source_h - 1) // source_h)
+            right = min(scaled_w, ((rect["x"] + rect["w"] - source_x) * scaled_w + source_w - 1) // source_w)
+            bottom = min(scaled_h, ((rect["y"] + rect["h"] - source_y) * scaled_h + source_h - 1) // source_h)
+            if right > left and bottom > top:
+                process_config["exclude_rois"].append(dict(x=left, y=top, w=right-left, h=bottom-top))
     return {
         "source_roi": (source_x, source_y, source_w, source_h),
         "process_roi": (0, 0, scaled_w, scaled_h),
@@ -175,7 +186,8 @@ def map_run_result_to_source(result, source_config, geometry):
         max(1, int(round(rect_w / scale_x))),
         max(1, int(round(rect_h / scale_y))),
     )
-    return {
+    mapped = dict(result)
+    mapped.update({
         "found": True,
         "cx": cx,
         "cy": cy,
@@ -184,7 +196,74 @@ def map_run_result_to_source(result, source_config, geometry):
         "area": int(round(result["area"] / area_scale)),
         "rect": mapped_rect,
         "contour": None,
-    }
+    })
+    return mapped
+
+
+def scale_grasp_roi(grasp, geometry):
+    """半开区间左上向下、右下向上取整，至少保留1个处理像素。
+
+    使用整数比例避免边缘浮点误差；分母也是此处理图ROI的完整像素数。
+    此框仅用于覆盖统计，绝不成为检测的搜索ROI。
+    """
+    roi = grasp["roi"]
+    sx, sy, sw, sh = geometry["source_roi"]
+    _, _, pw, ph = geometry["process_roi"]
+    # 保留完整抓取框的投影，不能把超出搜索ROI的部分裁掉并缩小分母。
+    left = (roi["x"] - sx) * pw // sw
+    top = (roi["y"] - sy) * ph // sh
+    right = ((roi["x"] + roi["w"] - sx) * pw + sw - 1) // sw
+    bottom = ((roi["y"] + roi["h"] - sy) * ph + sh - 1) // sh
+    return left, top, right - left, bottom - top
+
+
+def selected_coverage(mask, contour, rect, roi_rect, grasp_roi, preview=None):
+    """只计选中轮廓所属的8连通颜色区域，空洞和其他同色岛均不贡献。
+
+    仅复制该候选外接框，种子取自现有轮廓（重心可能落在空洞中）。
+    不填满外轮廓、不重做全图阈值，也不对全图执行连通域标记。
+    """
+    gx, gy, gw, gh = grasp_roi
+    if preview is not None:
+        # 仅LCD预览帧分配小块掩膜；它与计数使用同一个连通区域，不重做检测。
+        preview.update(rect=grasp_roi, mask=np.zeros((gh, gw), dtype=np.uint8))
+    gx -= roi_rect[0]
+    gy -= roi_rect[1]
+    x, y, w, h = rect
+    left, top = max(x, gx), max(y, gy)
+    right, bottom = min(x + w, gx + gw), min(y + h, gy + gh)
+    if left >= right or top >= bottom:
+        return 0, gw * gh
+    contained = (left, top, right, bottom) == (x, y, x + w, y + h)
+    # 部分重叠但交集无颜色时，贡献必然为0；整候选被包含时无需这次预检。
+    if not contained and cv2.countNonZero(mask[top:bottom, left:right]) == 0:
+        return 0, gw * gh
+    component = mask[y:y + h, x:x + w].copy()
+    point = np.asarray(contour).reshape(-1, 2)[0]
+    seed = (int(point[0]) - x, int(point[1]) - y)
+    filled, _, _, _ = cv2.floodFill(component, None, seed, 128, flags=8)
+    if contained and preview is None:
+        # 抓取框包含整个候选时，直接复用洪泛返回的连通像素数。
+        return int(filled), gw * gh
+    overlap = component[top - y:bottom - y, left - x:right - x]
+    valid = overlap == 128
+    if preview is not None:
+        preview["mask"][top - gy:bottom - gy, left - gx:right - gx][valid] = 255
+    return int(np.count_nonzero(valid)), gw * gh
+
+
+def apply_grasp_status(result, grasp):
+    """在320x240原图坐标中判中心；用整数交叉相乘保证恰好达标通过。"""
+    if not result["found"]:
+        return empty_result()
+    roi = grasp["roi"]
+    inside = (roi["x"] <= result["cx"] < roi["x"] + roi["w"] and
+              roi["y"] <= result["cy"] < roi["y"] + roi["h"])
+    total = result.get("coverage_total", 0)
+    pixels = result.get("coverage_pixels", 0)
+    enough = total > 0 and pixels * 100 >= total * grasp["min_coverage_pct"]
+    result["ok"] = 2 if inside and enough else 1
+    return result
 
 
 def convert_color_space(roi_bgr, dst=None):
@@ -233,10 +312,27 @@ def build_mask(roi_bgr, config):
     """兼容入口：颜色转换、阈值和配置中选定的形态学档位。"""
     converted = convert_color_space(roi_bgr)
     mask = apply_color_threshold(converted, config)
-    return clean_mask(mask, config.get("morph_mode", MORPH_OPEN_CLOSE))
+    roi = config["roi"]
+    rect = tuple(roi[k] for k in ("x", "y", "w", "h"))
+    clear_exclusions(mask, rect, config.get("exclude_rois", []))
+    mask = clean_mask(mask, config.get("morph_mode", MORPH_OPEN_CLOSE))
+    clear_exclusions(mask, rect, config.get("exclude_rois", []))
+    return mask
 
 
-def detect_color(roi_bgr, config, roi_rect, need_mask=True, buffers=None, fast_filter=False):
+def clear_exclusions(mask, roi_rect, exclusions):
+    """只在二值掩膜置零，不涂原图，保证黑色目标也不会把屏蔽区当作目标。"""
+    x, y, w, h = roi_rect
+    for rect in exclusions:
+        left, top = max(0, rect["x"] - x), max(0, rect["y"] - y)
+        right = min(w, rect["x"] + rect["w"] - x)
+        bottom = min(h, rect["y"] + rect["h"] - y)
+        if right > left and bottom > top:
+            mask[top:bottom, left:right] = 0
+
+
+def detect_color(roi_bgr, config, roi_rect, need_mask=True, buffers=None, fast_filter=False,
+                 grasp_roi=None, grasp_preview=False):
     """只检测指定颜色；RUN不保留预览MASK，不创建三色结果集合。"""
     tick = perf_counter()
     converted = (convert_color_space(roi_bgr) if buffers is None else
@@ -247,13 +343,21 @@ def detect_color(roi_bgr, config, roi_rect, need_mask=True, buffers=None, fast_f
             apply_color_threshold(converted, config, dst=buffers.mask))
     threshold_ms = (perf_counter() - tick) * 1000.0
     tick = perf_counter()
+    exclusions = config.get("exclude_rois", [])
+    clear_exclusions(mask, roi_rect, exclusions)
     mode = config.get("morph_mode", MORPH_OPEN_CLOSE)
     mask = (clean_mask(mask, mode) if buffers is None else
             clean_mask(mask, mode, dst=buffers.cleaned))
+    if mode != "NONE":
+        clear_exclusions(mask, roi_rect, exclusions)
     morph_ms = (perf_counter() - tick) * 1000.0
     tick = perf_counter()
-    result = (find_largest_blob(mask, config, roi_rect, fast_filter=True) if fast_filter else
-              find_largest_blob(mask, config, roi_rect))
+    options = {"grasp_roi": grasp_roi} if grasp_roi is not None else {}
+    if fast_filter:
+        options["fast_filter"] = True
+    if grasp_preview:
+        options["grasp_preview"] = True
+    result = find_largest_blob(mask, config, roi_rect, **options)
     blob_ms = (perf_counter() - tick) * 1000.0
     return result, mask if need_mask else None, {
         "conversion_ms": conversion_ms,
@@ -267,6 +371,10 @@ def empty_result():
     """统一的未识别结果；未来其他任务也可以沿用相同基础字段。"""
     return {
         "found": False,
+        "ok": 0,
+        "coverage_pixels": 0,
+        "coverage_total": 0,
+        "coverage_ratio": 0.0,
         "cx": 0,
         "cy": 0,
         "dx": 0,
@@ -283,21 +391,25 @@ def build_roi_mask(cv_bgr, config):
     return build_mask(roi_bgr, config), roi_rect
 
 
-def find_largest_blob(mask_roi, config, roi_rect, fast_filter=False):
+def find_largest_blob(mask_roi, config, roi_rect, fast_filter=False, grasp_roi=None,
+                      grasp_preview=False):
     """在已有 ROI 掩膜中只选择面积最大的合格色块并计算中心偏差。"""
     x, y, w, h = roi_rect
     min_area = config["blob"]["min_area"]
     max_area = config["blob"]["max_area"]
     best_contour = None
     best_area = 0.0
+    best_rect = None
     for contour in _find_contours(mask_roi):
+        contour_rect = None
         if fast_filter:
             # 某些设备绑定返回tuple/list；直接规范化，避免每个轮廓先抛一次异常。
             if isinstance(contour, (tuple, list)):
                 contour = _normalize_contour(contour)
                 if contour is None:
                     continue
-            _, _, rect_w, rect_h = cv2.boundingRect(contour)
+            contour_rect = cv2.boundingRect(contour)
+            _, _, rect_w, rect_h = contour_rect
             # contourArea不可能大于外接矩形面积。只跳过必然低于原min_area的噪点，
             # 合格轮廓仍以原轮廓面积/矩求结果，不改成像素面积、不改任何门槛。
             if (rect_w - 1) * (rect_h - 1) < min_area:
@@ -312,6 +424,7 @@ def find_largest_blob(mask_roi, config, roi_rect, fast_filter=False):
         if min_area <= area <= max_area and area > best_area:
             best_area = area
             best_contour = contour
+            best_rect = contour_rect
 
     result = empty_result()
     if best_contour is None:
@@ -326,10 +439,12 @@ def find_largest_blob(mask_roi, config, roi_rect, fast_filter=False):
     center = config["center"]
     grab_x = x + center["x"]
     grab_y = y + center["y"]
-    rect_x, rect_y, rect_w, rect_h = cv2.boundingRect(best_contour)
+    rect_x, rect_y, rect_w, rect_h = (best_rect if best_rect is not None else
+                                     cv2.boundingRect(best_contour))
 
     result.update({
         "found": True,
+        "ok": 1,
         "cx": cx,
         "cy": cy,
         "dx": cx - grab_x,
@@ -338,6 +453,19 @@ def find_largest_blob(mask_roi, config, roi_rect, fast_filter=False):
         "rect": (rect_x + x, rect_y + y, rect_w, rect_h),
         "contour": None,
     })
+    if grasp_roi is not None:
+        tick = perf_counter()
+        counted = {} if grasp_preview else None
+        pixels, total = selected_coverage(
+            mask_roi, best_contour, (rect_x, rect_y, rect_w, rect_h), roi_rect, grasp_roi,
+            preview=counted)
+        result.update(coverage_pixels=pixels, coverage_total=total,
+                      coverage_ratio=float(pixels) / total,
+                      coverage_ms=(perf_counter() - tick) * 1000.0)
+        if counted is not None:
+            counted["contour"] = (np.asarray(best_contour, dtype=np.int32).reshape(-1, 1, 2) +
+                                   np.array((x, y), dtype=np.int32))
+            result["grasp_preview"] = counted
     return result
 
 
@@ -352,7 +480,13 @@ def expand_roi_mask(mask_roi, image_shape, roi_rect):
 def detect_largest_blob(cv_bgr, config, need_full_mask=True):
     """兼容入口；主循环使用拆开的三个函数以便分别计时。"""
     mask_roi, roi_rect = build_roi_mask(cv_bgr, config)
-    result = find_largest_blob(mask_roi, config, roi_rect)
+    detection = config
+    if "exclude_rois" in config:
+        detection = dict(config)
+        detection["center"] = dict(config["center"])
+        detection["center"]["x"] -= roi_rect[0]
+        detection["center"]["y"] -= roi_rect[1]
+    result = find_largest_blob(mask_roi, detection, roi_rect)
     mask_full = expand_roi_mask(mask_roi, cv_bgr.shape, roi_rect) if need_full_mask else None
     return mask_full, result
 
@@ -371,13 +505,36 @@ def make_preview(cv_bgr, mask_full, result, config, view_mode="OVERLAY"):
             tint[mask_full > 0] = (0, 220, 255)
             preview = cv2.addWeighted(preview, 0.72, tint, 0.28, 0)
 
+    counted = result.get("grasp_preview")
+    if "exclude_rois" in config:
+        # 仅调试显示灰色排除范围；检测输入/相机图像保持原样。
+        roi = config["roi"]
+        x, y, w, h = (roi[k] for k in ("x", "y", "w", "h"))
+        preview[:y] //= 3
+        preview[y + h:] //= 3
+        preview[y:y + h, :x] //= 3
+        preview[y:y + h, x + w:] //= 3
+        for rect in config["exclude_rois"]:
+            ex, ey, ew, eh = (rect[k] for k in ("x", "y", "w", "h"))
+            preview[ey:ey + eh, ex:ex + ew] //= 3
+            cv2.rectangle(preview, (ex, ey), (ex + ew - 1, ey + eh - 1), (0, 140, 255), 1)
+    if counted is not None:
+        # 青色仅覆盖真正计入分子的像素；原图中的亮面/漏分割区域仍保持原色。
+        gx, gy, gw, gh = counted["rect"]
+        patch = preview[gy:gy + gh, gx:gx + gw]
+        tint = np.empty_like(patch)
+        tint[:] = (255, 255, 0)
+        tint = cv2.addWeighted(patch, 0.35, tint, 0.65, 0)
+        valid = counted["mask"] != 0
+        patch[valid] = tint[valid]
+
     roi = config["roi"]
     x, y, w, h = roi["x"], roi["y"], roi["w"], roi["h"]
     cv2.rectangle(preview, (x, y), (x + w - 1, y + h - 1), (0, 220, 255), 2)
 
     center = config["center"]
-    grab_x = x + center["x"]
-    grab_y = y + center["y"]
+    grab_x = center["x"] if "exclude_rois" in config else x + center["x"]
+    grab_y = center["y"] if "exclude_rois" in config else y + center["y"]
     cv2.drawMarker(
         preview, (grab_x, grab_y), (255, 255, 255),
         markerType=cv2.MARKER_CROSS, markerSize=14, thickness=1
@@ -385,8 +542,12 @@ def make_preview(cv_bgr, mask_full, result, config, view_mode="OVERLAY"):
 
     if result["found"]:
         rect_x, rect_y, rect_w, rect_h = result["rect"]
-        cv2.rectangle(preview, (rect_x, rect_y),
-                      (rect_x + rect_w - 1, rect_y + rect_h - 1), (0, 255, 0), 2)
+        if counted is not None:
+            # B2展示真实选中轮廓，避免外接矩形让人误以为矩形内部全部有效。
+            cv2.drawContours(preview, [counted["contour"]], -1, (0, 255, 0), 1)
+        else:
+            cv2.rectangle(preview, (rect_x, rect_y),
+                          (rect_x + rect_w - 1, rect_y + rect_h - 1), (0, 255, 0), 2)
         cv2.circle(preview, (result["cx"], result["cy"]), 4, (0, 0, 255), -1)
         cv2.line(
             preview, (grab_x, grab_y), (result["cx"], result["cy"]),

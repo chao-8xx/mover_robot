@@ -43,7 +43,7 @@
 
 // 应用、算法
 #include "bfs.h"        // BFS广度优先搜索算法
-#include "grid.h"       // 旧栅格接口，本版道路地图不使用
+// #include "grid.h"       // 旧栅格接口，本版道路地图不使用
 #include "track_map.h"  // 5x5赛道拓扑
 #include "map_data.h"   // 道路状态和已确认障碍物
 #include "map_update.h" // 跨圈障碍确认与道路更新

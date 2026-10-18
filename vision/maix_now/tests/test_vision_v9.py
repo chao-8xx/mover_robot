@@ -24,7 +24,11 @@ from vision_runtime import ResultSender, PerfStats, pack_xy_frame, send_interval
 
 
 def config():
-    return validate_config(copy.deepcopy(DEFAULT_CONFIG))
+    cfg = validate_config(copy.deepcopy(DEFAULT_CONFIG))
+    # 合成图测试明确选择红色，不依赖现场默认颜色（当前为浅蓝）。
+    cfg["target_color"] = "red"
+    cfg["exclude_rois"] = []  # 基础检测测试与现场夹爪位置隔离；屏蔽单独验收。
+    return cfg
 
 
 def midpoint_bgr(cfg, key):
@@ -69,16 +73,16 @@ class ConfigTests(unittest.TestCase):
         # 从2.1.3交付包提取的真实旧默认JSON快照，不依赖历史ZIP仍然存在。
         return json.loads((MODULE_DIR / "tests" / "fixtures" / "now_v8_config.json").read_text(encoding="utf-8"))
 
-    def test_previous_saved_defaults_migrate_to_main_calibration_and_save_once(self):
+    def test_previous_saved_values_are_preserved_when_adding_grasp_and_save_once(self):
         old = self.previous_now_config()
         with tempfile.TemporaryDirectory() as path:
             store = VisionConfigStore(path)
             Path(store.path).write_text(json.dumps(old), encoding="utf-8")
             value, status = store.load()
             self.assertIn("迁移", status)
-            self.assertEqual(value["thresholds"], DEFAULT_CONFIG["thresholds"])
-            self.assertEqual(value["blob"], dict(min_area=1000, max_area=10000))
-            self.assertEqual(value["center"], dict(x=177, y=92, custom=True))
+            self.assertEqual(value["thresholds"], old["thresholds"])
+            self.assertEqual(value["blob"], old["blob"])
+            self.assertEqual(value["center"], old["center"])
             self.assertEqual(value["ring"], old["ring"])
             self.assertEqual(value["stack"], old["stack"])
             saved, _ = store.save(value)
@@ -103,7 +107,7 @@ class ConfigTests(unittest.TestCase):
         old["roi"] = dict(x=110, y=25, w=135, h=135)
         old["center"] = dict(x=160, y=120, custom=False)
         value = validate_config(old)
-        self.assertEqual(value["roi"], dict(x=0, y=0, w=320, h=240))
+        self.assertEqual(value["roi"], old["roi"])
         self.assertEqual(value["center"], dict(x=177, y=92, custom=True))
         self.assertEqual(validate_config(value), value)
 
@@ -121,13 +125,14 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(value["stack"]["blob"], DEFAULT_CONFIG["stack"]["blob"])
         self.assertEqual(value["stack"]["roi"], DEFAULT_CONFIG["stack"]["roi"])
 
-    def test_old_small_b2_roi_migrates_full_and_preserves_absolute_center(self):
+    def test_old_small_b2_roi_preserves_search_and_migrates_absolute_center(self):
         cfg = config()
+        cfg["schema_version"] = 10
         cfg["roi"] = {"x": 110, "y": 25, "w": 135, "h": 135}
         cfg["center"] = {"x": 60, "y": 70, "custom": True}
         original_thresholds = copy.deepcopy(cfg["thresholds"])
         migrated = validate_config(cfg)
-        self.assertEqual(migrated["roi"], dict(x=0, y=0, w=320, h=240))
+        self.assertEqual(migrated["roi"], cfg["roi"])
         self.assertEqual(migrated["center"], dict(x=170, y=95, custom=True))
         self.assertEqual(validate_config(migrated), migrated)
         self.assertEqual(migrated["thresholds"], original_thresholds)
@@ -290,15 +295,19 @@ class ColorTests(unittest.TestCase):
         self.assertTrue(result["found"])
         self.assertAlmostEqual(result["dx"], 285 - cfg["center"]["x"], delta=2)
 
-    def test_b2_full_roi_even_if_unvalidated_legacy_roi_is_passed(self):
+    def test_b2_respects_configured_search_roi(self):
         cfg = config()
         cfg["roi"] = dict(x=100, y=60, w=120, h=120)
         manager = TaskManager()
         manager.switch(TASK_MATERIAL, 1)
         value = manager.process(color_frame(cfg), cfg, True)
-        self.assertEqual(value["roi_rect"], (0, 0, 320, 240))
+        self.assertEqual(value["roi_rect"], (100, 60, 120, 120))
+        self.assertFalse(value["result"]["found"])
+        cfg["target_color"] = "yellow"
+        value = manager.process(color_frame(cfg), cfg, True)
         self.assertTrue(value["result"]["found"])
-        self.assertAlmostEqual(value["result"]["cx"], 35, delta=2)
+        self.assertAlmostEqual(value["result"]["cx"], 160, delta=2)
+        self.assertAlmostEqual(value["result"]["dx"], 160 - cfg["center"]["x"], delta=2)
 
     def test_b4_shared_tracker_single_conversion_single_color_own_center(self):
         cfg = config()

@@ -98,8 +98,6 @@ add_executable(${CMAKE_PROJECT_NAME}
         BSP/Inc/debug_printf.h
         Control/Inc/control.h
         Control/Src/control.c
-        APP/Src/grid.c
-        APP/Inc/grid.h
         APP/Src/map_data.c
         APP/Inc/map_data.h
         APP/Src/map_update.c

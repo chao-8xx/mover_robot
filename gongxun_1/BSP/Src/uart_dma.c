@@ -7,7 +7,7 @@ void uart_init(void)
     cam_init(&huart1);          // OpenMV maixcam 摄像头
     my_hwt101_init();           // HWT101 陀螺仪
     lidar_init(&huart4);        // 雷达
-    hmi_init(&huart5);          // 串口屏
+    my_hmi_init();              // 串口屏
     debug_uart_init(&huart6);   // 串口调试
 }
 

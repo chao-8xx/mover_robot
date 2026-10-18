@@ -4,6 +4,10 @@
 
 #include "headfile.h"
 
+/**
+ * 将原始雷达数据转换为点云和聚类
+ */
+
 // 初始化结构体
 point_cloud_t cloud = {0};
 obstacle_result_t obstacle_result = {0};

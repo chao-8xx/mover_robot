@@ -65,6 +65,19 @@ void lidar_test(void) {
     lidar_process();
 
     scan = lidar_get_scan();
+    //
+    // static uint32_t last_debug_tick = 0;
+    // uint32_t now = HAL_GetTick();
+    //
+    // // 每秒输出一次调试信息
+    // if (now - last_debug_tick >= 1000) {
+    //     last_debug_tick = now;
+    //     printf("LIDAR left=%lu ok=%lu err=%lu drop=%lu\r\n",
+    //            (unsigned long)__HAL_DMA_GET_COUNTER(huart4.hdmarx),
+    //            (unsigned long)lidar_get_xor_ok_cnt(),
+    //            (unsigned long)lidar_get_xor_err_cnt(),
+    //            (unsigned long)lidar_get_scan_drop_cnt());
+    // }
 
     if (scan == NULL || scan->scan_num == 0)
         return;
@@ -1001,34 +1014,40 @@ void obstacle_cluster_test(void)
     static uint32_t last_cluster_print = 0;
     uint32_t now = HAL_GetTick();
 
-    // 每500ms打印一次，避免大量串口输出阻塞主循环
-    if (now - last_cluster_print < 500U)
+    // 每500ms打印一次 避免大量串口输出阻塞主循环
+    if (now - last_cluster_print < 500)
         return;
 
     last_cluster_print = now;
 
+    // 聚类摘要：update=聚类结果更新序号；cloud=本结果使用的点云更新序号
+    // count=当前全部有效聚类数量，不一定等于真实物体数量，也不是固定跟踪目标数量
+    // age=当前时刻减去聚类结果更新时间，表示这份结果已经过去多少ms
     printf("CLUSTER update=%lu cloud=%lu count=%u age=%lums\r\n",
            (unsigned long)obstacle_result.update_flag,
            (unsigned long)obstacle_result.cloud_flag,
            (unsigned int)obstacle_result.cluster_count,
            (unsigned long)(now - obstacle_result.update_tick));
 
-    for (uint16_t i = 0;
-         i < obstacle_result.cluster_count && i < 8U;
-         i++)
+    for (uint16_t i = 0; i < obstacle_result.cluster_count && i < 8; i++)
     {
-        const lidar_cluster_t *cluster = &obstacle_result.clusters[i];
+        const lidar_cluster_t *cluster = &obstacle_result.clusters[i];  // 只读访问第i组聚类
 
+        // C0、C1等是本次结果的数组下标 下一圈重新分组后，
+        // angle是原始雷达角度范围 如307~57表示跨过359度/0度，不是角度顺序错误
+        // center是聚类里全部有效点map坐标的平均值，不是物体真实几何中心
+        // size是map坐标下包围框沿X、Y的尺寸 height不是物体竖直高度
+        // 桌面测试的位姿和安装变换都为0时，map数值等同于局部坐标
         printf("C%u angle=%u~%u points=%u center=(%.1f,%.1f) "
                "size=(%.1f,%.1f) near=%.0f\r\n",
-               (unsigned int)i,
-               (unsigned int)cluster->start_angle,
-               (unsigned int)cluster->end_angle,
-               (unsigned int)cluster->point_count,
-               cluster->center_point.x,
-               cluster->center_point.y,
-               cluster->width,
-               cluster->height,
-               cluster->nearest_distance);
+               (unsigned int)i,                          // C编号 从0开始 只表示当前数组顺序  不保证仍对应同一个物体
+               (unsigned int)cluster->start_angle,        // 本组第一个点的原始雷达角度
+               (unsigned int)cluster->end_angle,          // 本组最后一个点的原始雷达角度
+               (unsigned int)cluster->point_count,        // 本组有效点数 按整数角度保留后的点数
+               cluster->center_point.x,                  // 全部点的平均X坐标 mm
+               cluster->center_point.y,                  // 全部点的平均Y坐标 mm
+               cluster->width,                           // X方向跨度 max_x-min_x，单位mm
+               cluster->height,                          // Y方向跨度 max_y-min_y，单位mm
+               cluster->nearest_distance);               // 本组最近有效点到雷达的原始测距 mm
     }
 }

@@ -120,9 +120,9 @@ static uint16_t lidar_xor_check(const uint8_t *data, uint16_t len) {
     for (uint8_t i = 0; i < len; i++) {
         offset = FRAME_LEN + (uint16_t)i * 3;
 
-        // 每个采样点占3字节 前两个字节组成16位 最后一个字节单独参与XOR
-        check_num ^= read_u16(&data[offset]);
-        check_num ^= (uint16_t)data[offset + 2];
+        // 与D6配套驱动一致：第一个字节补零参与XOR 后两个字节组成小端16位
+        check_num ^= (uint16_t)data[offset];
+        check_num ^= read_u16(&data[offset + 1]);
     }
 
     return check_num;

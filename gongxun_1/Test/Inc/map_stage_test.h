@@ -6,4 +6,7 @@
 // 手动从 main 调用，串口打印地图各阶段的检查结果
 uint8_t map_stage_test(void);
 
+// 真实雷达桌面联调 主循环持续调用，使用固定测试位姿，只观察R8中间的一小块区域
+void map_lidar_test(void);
+
 #endif // GONGXUN_1_MAP_STAGE_TEST_H

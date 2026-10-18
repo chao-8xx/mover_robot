@@ -9,6 +9,7 @@ from unittest.mock import Mock
 from test_ui_v9 import _FakeImageModule, VisionUI
 from test_vision_v9 import MODULE_DIR, config, color_frame
 from vision_tasks import TASK_MATERIAL
+from vision_config import VisionConfigStore
 
 
 class MainLoopTests(unittest.TestCase):
@@ -39,7 +40,8 @@ class MainLoopTests(unittest.TestCase):
         exec(compile(tree, "main.py", "exec"), env)
         return env
 
-    def hardware(self, env, path, chunks, loops=4, local=False, bgr=True):
+    def hardware(self, env, path, chunks, loops=4, local=False, bgr=True, local_run=True,
+                 clock_step=2):
         cam = Mock()
         cam.read.return_value = color_frame(config())
         disp = Mock()
@@ -50,12 +52,13 @@ class MainLoopTests(unittest.TestCase):
         app = Mock()
         app.get_app_data_path.return_value = path
         app.need_exit.side_effect = [False] * loops + [True]
-        clock = itertools.count(0, 2)
+        clock = itertools.count(0, clock_step)
         def create_ui(*args):
             ui = VisionUI(*args)
             if local:
                 ui._open_task(TASK_MATERIAL)
-                ui._activate("START_RUN")
+                if local_run:
+                    ui._activate("START_RUN")
             return ui
         class ImageModule(_FakeImageModule):
             Format = types.SimpleNamespace(FMT_BGR888=1)
@@ -89,6 +92,50 @@ class MainLoopTests(unittest.TestCase):
         self.assertEqual(packet[5], 1)
         self.assertTrue(all(not call.kwargs["copy"] for call in convert.call_args_list))
         cam.close.assert_called_once()
+
+    def save_grasp_config(self, path):
+        cfg = config()
+        cfg["grasp"] = dict(roi=dict(x=10, y=95, w=51, h=51), min_coverage_pct=60)
+        VisionConfigStore(path).save(cfg)
+
+    def test_main_sends_ok2_from_real_b2_detector(self):
+        env = self.load_entry()
+        with tempfile.TemporaryDirectory() as path:
+            self.save_grasp_config(path)
+            _, disp, serial, _ = self.hardware(env, path, [self.command(0xB2, [0xC1])])
+        packets = [call.args[0] for call in serial.write.call_args_list]
+        self.assertGreater(len(packets), 0)
+        self.assertTrue(all(packet[5] == 2 for packet in packets))
+        self.assertEqual(disp.show.call_count, 1)
+
+    def test_main_stale_grasp_frame_sends_zero(self):
+        env = self.load_entry()
+        sender_class = env["ResultSender"]
+        env["ResultSender"] = lambda: sender_class(max_age_ms=1)
+        with tempfile.TemporaryDirectory() as path:
+            self.save_grasp_config(path)
+            _, _, serial, _ = self.hardware(env, path, [self.command(0xB2, [0xC1])])
+        self.assertGreater(serial.write.call_count, 0)
+        self.assertTrue(all(call.args[0][5:10] == bytes(5) for call in serial.write.call_args_list))
+
+    def test_main_discards_ok2_on_stop_task_or_color_change_during_detection(self):
+        for cmd, data in ((0xB0, []), (0xB4, [0xC1]), (0xB3, [0xD2]), (0xB2, [0xC2])):
+            env = self.load_entry()
+            manager = env["TaskManager"]()
+            process = manager.process
+            observed = []
+            def record(*args, **kwargs):
+                frame = process(*args, **kwargs)
+                observed.append(frame["result"]["ok"])
+                return frame
+            manager.process = record
+            env["TaskManager"] = lambda: manager
+            with tempfile.TemporaryDirectory() as path:
+                self.save_grasp_config(path)
+                _, _, serial, _ = self.hardware(
+                    env, path, [self.command(0xB2, [0xC1]), self.command(cmd, data)], loops=1)
+            self.assertEqual(observed, [2])
+            serial.write.assert_not_called()
 
     def test_stop_arriving_during_detection_discards_pending_result(self):
         env = self.load_entry()
@@ -133,6 +180,41 @@ class MainLoopTests(unittest.TestCase):
         serial.write.assert_not_called()
         self.assertFalse(env["uart_control_active"])
 
+    def test_local_ui_and_run_print_preview_without_enabling_uart(self):
+        for local_run in (False, True):
+            env = self.load_entry(local=True)
+            with tempfile.TemporaryDirectory() as path:
+                self.save_grasp_config(path)
+                _, _, serial, _ = self.hardware(env, path, [], local=True, local_run=local_run)
+            lines = [call.args[0] for call in env["print"].call_args_list
+                     if call.args and "[VISION B2 PREVIEW]" in str(call.args[0])]
+            self.assertGreater(len(lines), 0)
+            self.assertIn("RUN" if local_run else "UI", lines[0])
+            self.assertIn("OK=2", lines[0])
+            serial.write.assert_not_called()
+            self.assertFalse(env["uart_tx_owned"])
+
+    def test_fps_is_present_in_both_detail_and_periodic_perf_log(self):
+        env = self.load_entry(local=True)
+        with tempfile.TemporaryDirectory() as path:
+            self.hardware(env, path, [], loops=12, local=True, local_run=False, clock_step=20)
+        lines = [str(call.args[0]) for call in env["print"].call_args_list if call.args]
+        details = [line for line in lines if "[VISION B2 PREVIEW]" in line]
+        self.assertTrue(all("FPS=" in line for line in details))
+        self.assertTrue(any("FPS=0.0" not in line for line in details))
+        self.assertTrue(any("[VISION PERF] B2 UI FPS:" in line for line in lines))
+
+    def test_formal_log_hex_matches_successful_uart_write(self):
+        env = self.load_entry()
+        with tempfile.TemporaryDirectory() as path:
+            self.save_grasp_config(path)
+            _, _, serial, _ = self.hardware(env, path, [self.command(0xB2, [0xC1])])
+        logs = [call.args[0] for call in env["print"].call_args_list
+                if call.args and "[VISION B2 TX]" in str(call.args[0])]
+        self.assertGreater(len(logs), 0)
+        packet = bytes.fromhex(logs[0].split("HEX=")[1])
+        self.assertEqual(packet, serial.write.call_args_list[0].args[0])
+
     def test_rgb_camera_fallback_never_uses_unsafe_zero_copy(self):
         env = self.load_entry()
         with tempfile.TemporaryDirectory() as path:
@@ -165,6 +247,12 @@ class MainLoopTests(unittest.TestCase):
             __file__="/old/vision_config.py", SCHEMA_VERSION=8,
             COLOR_ORDER=("red", "yellow", "blue", "green", "black", "light_blue"))
         with self.assertRaisesRegex(RuntimeError, "vision_config.*upload ALL"):
+            env["check_b2_modules"]()
+
+    def test_b2_rejects_runtime_module_that_would_squash_state_two(self):
+        env = self.load_entry()
+        env["runtime_module"] = types.SimpleNamespace(__file__="/old/vision_runtime.py")
+        with self.assertRaisesRegex(RuntimeError, "vision_runtime.*upload ALL"):
             env["check_b2_modules"]()
 
 

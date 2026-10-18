@@ -6,6 +6,7 @@ from vision_tasks import TASK_MATERIAL, safe_xy_result
 SEND_TIME_MS = 25
 B2_SEND_TIME_MS = 28
 MAX_RESULT_AGE_MS = 50
+B2_RUNTIME_BUILD = "B2_OK2_PIXELS_V3"
 
 
 def send_interval_ms(task_id):
@@ -25,30 +26,86 @@ class ResultSender:
         self.next_send_ms = now_ms
         self.frame_id = 0
 
-    def take(self, result, capture_ms, now_ms, require_track=False):
+    def take(self, result, capture_ms, now_ms, require_track=False, allow_grasp=False):
         self.frame_id = (self.frame_id + 1) & 0xFF
         if now_ms < self.next_send_ms:
             return None
         missed = int((now_ms - self.next_send_ms) // self.interval_ms)
         self.next_send_ms += (missed + 1) * self.interval_ms
-        valid, dx, dy = safe_xy_result(result, require_track)
+        valid, dx, dy = safe_xy_result(result, require_track, allow_grasp)
         age_ms = max(0, now_ms - capture_ms)
         fresh = age_ms <= self.max_age_ms
         if not fresh:
-            valid, dx, dy = False, 0, 0
+            valid, dx, dy = 0, 0, 0
         return {"frame_id": self.frame_id, "raw_ok": valid,
                 "dx": dx, "dy": dy, "age_ms": age_ms, "fresh": fresh}
 
 
 def pack_xy_frame(cmd, frame_id, raw_ok, dx, dy):
     """AA55 CMD 06 FRAME_ID RAW_OK int16(dx) int16(dy) SUM。"""
-    if not raw_ok:
+    ok = 2 if cmd == 0xB2 and raw_ok == 2 else 1 if raw_ok in (1, 2) else 0
+    if not ok:
         dx = dy = 0
     dx = max(-32768, min(32767, int(dx))) & 0xFFFF
     dy = max(-32768, min(32767, int(dy))) & 0xFFFF
-    data = [int(frame_id) & 0xFF, int(bool(raw_ok)),
+    data = [int(frame_id) & 0xFF, ok,
             dx & 0xFF, dx >> 8, dy & 0xFF, dy >> 8]
     return bytes([0xAA, 0x55, cmd, 6] + data + [(cmd + 6 + sum(data)) & 0xFF])
+
+
+class B2DebugLog:
+    """只打印，不获取TX所有权；稳定状态1Hz，变化最多5Hz，避免逐帧打印。
+
+    PREVIEW是本帧检测结果的模拟打包；TX仅采样已成功发送的同一帧。
+    SEEN记录本日志窗口出现过的检测状态，防止短暂的2被限频完全隐藏。
+    """
+
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.last_ms = None
+        self.last_key = None
+        self.seen = 0
+        self.preview_id = 0
+
+    def line(self, result, grasp, now_ms, run_mode=False, sent=None, tx_active=False,
+             fps=0.0, tx_hz=0.0):
+        self.preview_id = (self.preview_id + 1) & 255
+        det_ok, dx, dy = safe_xy_result(result, allow_grasp=True)
+        self.seen |= 1 << det_ok
+        # 没发出的帧不能标成TX；正式发送失败/未到发送时刻也不伪装成PREVIEW。
+        if tx_active and sent is None:
+            return None
+        roi = grasp["roi"]
+        cx, cy = int(result.get("cx", 0)), int(result.get("cy", 0))
+        inside = (bool(result.get("found")) and
+                  roi["x"] <= cx < roi["x"] + roi["w"] and
+                  roi["y"] <= cy < roi["y"] + roi["h"])
+        reason = ("NO_TARGET" if not det_ok else "CENTER_OUT" if not inside else
+                  "ALIGNED" if det_ok == 2 else "LOW_COVER")
+        tx = sent if sent is not None else {
+            "frame_id": self.preview_id, "raw_ok": det_ok, "dx": dx, "dy": dy}
+        if sent is not None and not sent["fresh"]:
+            reason = "STALE"
+        key = (tx["raw_ok"], det_ok, reason)
+        changed = key != self.last_key or bool(self.seen & (self.seen - 1))
+        if self.last_ms is not None:
+            gap = now_ms - self.last_ms
+            if gap < 200 or (not changed and gap < 1000):
+                return None
+        packet = pack_xy_frame(0xB2, tx["frame_id"], tx["raw_ok"], tx["dx"], tx["dy"])
+        states = ",".join(str(i) for i in range(3) if self.seen & (1 << i))
+        text = ("[VISION B2 {}] {} FPS={:.1f} TXHZ={:.1f} OK={} DET_OK={} WHY={} IN={} "
+                "COV={:.1f}%/{}% PIX={}/{} C=({},{}) ROI=({},{},{},{}) D=({},{}) SEEN={} HEX={}").format(
+            "TX" if sent is not None else "PREVIEW", "RUN" if run_mode else "UI",
+            fps, tx_hz, packet[5], det_ok, reason, int(inside), result.get("coverage_ratio", 0.0) * 100,
+            grasp["min_coverage_pct"], result.get("coverage_pixels", 0),
+            result.get("coverage_total", 0), cx, cy,
+            roi["x"], roi["y"], roi["w"], roi["h"], tx["dx"], tx["dy"], states,
+            " ".join("{:02X}".format(value) for value in packet))
+        self.last_ms, self.last_key, self.seen = now_ms, key, 0
+        return text
 
 
 class PerfStats:
@@ -73,7 +130,7 @@ class PerfStats:
         if display_ms > 0:
             self.display_count += 1
         for key in ("conversion_ms", "threshold_ms", "morph_ms", "blob_ms",
-                    "mask_ms", "group_ms", "contour_ms", "filter_ms", "resize_ms"):
+                    "mask_ms", "group_ms", "contour_ms", "filter_ms", "resize_ms", "coverage_ms"):
             self.totals[key] = self.totals.get(key, 0.0) + result.get(key, 0.0)
         if tx is not None:
             self.tx_count += 1
@@ -113,4 +170,7 @@ class PerfStats:
             if task_id == 1:
                 text += " RESIZE:{:.1f} BUF:{}".format(
                     avg("resize_ms"), int(result.get("buffer_reuse", False)))
+                text += " OK:{} COV:{:.1f}%".format(
+                    result.get("ok", 0), result.get("coverage_ratio", 0.0) * 100)
+                text += " COVER:{:.1f}".format(avg("coverage_ms"))
         return text

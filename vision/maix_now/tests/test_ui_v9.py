@@ -140,7 +140,7 @@ class VisionUiTests(unittest.TestCase):
         cfg = self.ui.detection_config()
         self.assertEqual(cfg["target_color"], "blue")
         self.assertNotIn("mode", cfg)
-        self.assertEqual(self.ui.saved_config["target_color"], "red")
+        self.assertEqual(self.ui.saved_config["target_color"], DEFAULT_CONFIG["target_color"])
 
     def test_b2_and_b4_home_and_editor_offer_all_six_colors_without_mode_buttons(self):
         for size in ((640, 480), (480, 640)):

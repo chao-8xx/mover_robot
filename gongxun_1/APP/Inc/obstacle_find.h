@@ -61,7 +61,7 @@ typedef struct
 } point_cloud_t;
 
 
-// 雷达聚类结构体
+// 雷达聚类结构体   (雷达坐标系下)
 // 一组相互连接的雷达点形成一个候选物体
 typedef struct
 {

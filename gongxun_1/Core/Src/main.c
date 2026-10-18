@@ -105,35 +105,13 @@ int main(void)
   MX_TIM2_Init();
   MX_TIM4_Init();
   /* USER CODE BEGIN 2 */
+
+  // 系统整体初始化
   system_init();
 
+  maix_b2_test();
 
-  timer_init();       // 定时器初始化
-
-  // my_hwt101_init();   // 陀螺仪
-  uart_init();
-  tf_init();
-
-  HAL_GPIO_WritePin(GPIOE, GPIO_PIN_4, GPIO_PIN_SET);  // 开启补光板
-  // obstacle_map_init();
-
-  HAL_Delay(5000);
-
-  // my_hmi_init();      // 串口屏
-  // HAL_Delay(10);      // 等待一会儿
-  // step_motor_init();  // 闭环步进电机
-  // HAL_Delay(100);     // 等待一会儿
-  // chassis_init();     // 底盘装置
-  // catch_init();       // 夹取装置
-  // HAL_Delay(100);     // 等待一会儿
-  // bfs_init();
-  // bfs_base_obstacle();
-  // remind_init();
-  // task_init();
-
-  lidar_start();
-
-  // openmv_test();
+  // map_stage_test();  // 预设数据的地图自检，需要时单独启用
 
   /* USER CODE END 2 */
 
@@ -142,15 +120,10 @@ int main(void)
 
   while (1)
   {
-    cam_task();               // 解析摄像头数据
-    mv_task();                // OpenMV扫码处理任务
-    send_conduct_task();      // 给maix发数据处理任务
-    hmi_get_car_state_task(); // 非阻塞式发送小车当前状态至串口屏任务
-
-
-    // lidar_process();  // 激光雷达处理
-
-    // openmv_qr_task();
+    // cam_task();               // 解析摄像头数据
+    // mv_task();                // OpenMV扫码处理任务
+    // send_conduct_task();      // 给maix发数据处理任务
+    // hmi_get_car_state_task(); // 非阻塞式发送小车当前状态至串口屏任务
 
 
 
@@ -158,44 +131,27 @@ int main(void)
     // lidar_install_test();
     // wheel_mask_test();  // 四车轮遮挡测试，需要时切换回来
 
-    lidar_test();
+    // // 雷达测试
+    // lidar_test();
 
-    // printf("111\r\n");
 
-    // static uint32_t last_cloud_update = 0;
-    //
-    // lidar_process();  // 激光雷达处理
-    //
+    // // 遮挡测试
+    // wheel_mask_test();
+
+    // // 坐标标定测试
+    // lidar_install_test();
+
+    // 坐标变换测试
     // // tf2d_test();
-    //
-    // // if (cam_rx_flag || cam_error_flag) {
-    // //   cam_error_flag = 0;
-    // //   cam_rx_flag = 0;  // 先清除标志位
-    // //   cam_rx_handle();
-    // // }
-    // // maix_result_task();  // 维护5帧VALID/STABLE 并处理视觉数据超时
-    //
-    // if(hwt101_rx_flag || hwt101_error_flag) {
-    //   hwt101_error_flag = 0;
-    //   hwt101_rx_flag = 0;  // 先清除标志位
-    //   hwt101_rx_handle();
-    // }
-    // uint32_t now = HAL_GetTick();
-    //
-    // if (now - last_cloud_update >= 500) {
-    //   last_cloud_update = now;
-    //   point_cloud_update(500.0f, 500.0f, my_yaw, now);
-    //   obstacle_cluster_update(&cloud, now);
-    // }
-    //
 
-    // imu_task();
-    //
-    // if (obstacle_find_task(500.0f, 500.0f, my_yaw)) {
-    //   point_cloud_test();
-    //   obstacle_cluster_test();
+    // // 雷达点云和障碍物扫描测试
+    // if (obstacle_find_task(0.0f, 0.0f, 0.0f)) {
+    //   point_cloud_test();        // 雷达点云测试
+    //   obstacle_cluster_test();   // 雷达障碍物扫描测试
     // }
 
+    // // 真实雷达桌面地图联调 固定测试位姿，只观察R8中间的测试区域
+    // map_lidar_test();
 
     /* USER CODE END WHILE */
 

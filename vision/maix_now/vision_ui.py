@@ -28,7 +28,7 @@ from vision_tasks import (
 )
 
 
-B2_UI_BUILD = "B2_LAB6_UI_TOP_V5"
+B2_UI_BUILD = "B2_EXCLUDE_UI_V3"
 PAGE_TASKS = "TASKS"
 PAGE_HOME = "HOME"
 PAGE_RUN = "RUN"
@@ -38,6 +38,7 @@ PAGE_CENTER = "CENTER"
 PAGE_MORPH = "MORPH"
 PAGE_COLOR_LIST = "COLOR_LIST"
 PAGE_THRESHOLD = "THRESHOLD"
+PAGE_GRASP = "GRASP"
 PAGE_RING_HOME = "RING_HOME"
 PAGE_RING_RUN = "RING_RUN"
 PAGE_RING_CALIBRATE = "RING_CALIBRATE"
@@ -139,6 +140,7 @@ class VisionUI:
         self.threshold_param = 0
         self.threshold_step_index = 0
         self.pixel_step = 5
+        self.grasp_param = "x"
 
         self.touch_down = False
         self.touch_start = (0, 0)
@@ -190,6 +192,7 @@ class VisionUI:
         """编辑页返回草稿参数供即时预览，其余页面只返回已保存参数。"""
         if self.draft_config is not None and self.page in (
             PAGE_ROI, PAGE_CENTER, PAGE_MORPH, PAGE_THRESHOLD,
+            PAGE_GRASP,
             PAGE_RING_BLACK, PAGE_RING_SIZE,
         ):
             return self.draft_config
@@ -728,7 +731,7 @@ class VisionUI:
             ("EDIT_MORPH", "形态学实验"),
         )
         if self.selected_task == TASK_MATERIAL:
-            items = items[1:]
+            items = items[1:] + (("EDIT_GRASP", "抓取判定区域"),)
         if self.portrait:
             rect = self._preview(canvas, preview_bgr, (8, 55, self.screen_w - 16, 175))
             start_y = rect[1] + rect[3] + 12
@@ -742,9 +745,11 @@ class VisionUI:
             rect = self._preview(canvas, preview_bgr, (8, 55, int(self.screen_w * 0.60), self.screen_h - 63))
             x = rect[0] + rect[2] + 12
             w = self.screen_w - x - 8
+            row_h = (min(93, (self.screen_h - 63) // len(items))
+                     if self.selected_task == TASK_MATERIAL else 93)
             for index, item in enumerate(items):
                 self._button(
-                    canvas, item[0], (x, 58 + index * 93, w, 82),
+                    canvas, item[0], (x, 58 + index * row_h, w, row_h - 11),
                     item[1], active=index == 0
                 )
 
@@ -797,6 +802,41 @@ class VisionUI:
                          "保存", active=True)
             self._button(canvas, "RESTORE_EDITOR", (panel_x, 396, panel_w, 44),
                          "恢复上次")
+
+    def _draw_grasp(self, canvas, preview_bgr):
+        """沿用调参预览/草稿/保存机制，只新增五个可选数值。"""
+        self._header(canvas, "抓取判定（需实物标定）", back=True)
+        area = ((8, 55, self.screen_w - 16, 175) if self.portrait else
+                (8, 55, int(self.screen_w * 0.60), self.screen_h - 63))
+        rect = self._preview(canvas, preview_bgr, area)
+        if self.portrait:
+            x, y, w = 12, rect[1] + rect[3] + 10, self.screen_w - 24
+            row_h = 38
+        else:
+            x, y = rect[0] + rect[2] + 10, 55
+            w, row_h = self.screen_w - x - 8, 30
+        grasp = self.draft_config["grasp"]
+        for index, (key, label) in enumerate((
+                ("x", "X"), ("y", "Y"), ("w", "宽"), ("h", "高"),
+                ("min_coverage_pct", "覆盖阈值"))):
+            value = grasp[key] if key == "min_coverage_pct" else grasp["roi"][key]
+            suffix = "%" if key == "min_coverage_pct" else " px"
+            self._button(canvas, "GRASP_PARAM_" + key,
+                         (x, y + index * (row_h + 4), w, row_h),
+                         "{}: {}{}".format(label, value, suffix),
+                         active=self.grasp_param == key, font="small")
+        y += 5 * (row_h + 4)
+        self._button(canvas, "GRASP_MINUS", (x, y, w // 2 - 3, 36), "－")
+        self._button(canvas, "GRASP_PLUS", (x + w // 2 + 3, y, w // 2 - 3, 36), "＋", active=True)
+        y += 40
+        for index, step in enumerate((1, 5, 10)):
+            self._button(canvas, "PIXEL_STEP_" + str(step),
+                         (x + index * (w // 3), y, w // 3 - 3, 30), str(step),
+                         active=self.pixel_step == step, font="small")
+        y += 34
+        self._button(canvas, "SAVE_EDITOR", (x, y, w // 2 - 3, 38), "保存", active=True, font="small")
+        self._button(canvas, "RESTORE_EDITOR", (x + w // 2 + 3, y, w // 2 - 3, 38),
+                     "恢复上次", font="small")
 
     def _draw_roi_overlay(self, canvas):
         roi = self._task_config()["roi"]
@@ -877,7 +917,8 @@ class VisionUI:
         task_config = self._task_config()
         roi = task_config["roi"]
         center = task_config["center"]
-        sx, sy = self._img_to_screen(roi["x"] + center["x"], roi["y"] + center["y"])
+        ox, oy = (0, 0) if self.selected_task == TASK_MATERIAL else (roi["x"], roi["y"])
+        sx, sy = self._img_to_screen(ox + center["x"], oy + center["y"])
         color = ACCENT if self.center_selected else WHITE
         cv2.drawMarker(canvas, (sx, sy), color, cv2.MARKER_CROSS, 24, 3)
         cv2.circle(canvas, (sx, sy), 13, color, 2)
@@ -1034,6 +1075,8 @@ class VisionUI:
             self._draw_color_list(canvas)
         elif self.page == PAGE_THRESHOLD:
             self._draw_threshold(canvas, preview_bgr)
+        elif self.page == PAGE_GRASP:
+            self._draw_grasp(canvas, preview_bgr)
 
     def _draw_text_ops(self, output):
         """把中文文字一次性烘焙进静态页面缓存。"""
@@ -1118,10 +1161,18 @@ class VisionUI:
         if self.preview_rect is None:
             return
         x, y, w, h = self.preview_rect
-        cv2.rectangle(canvas, (x + 4, y + 4), (x + 142, y + 25), (16, 19, 24), -1)
-        cv2.putText(canvas, "V:{:.1f} D:{:.1f}".format(vision_fps, display_fps),
+        cv2.rectangle(canvas, (x + 4, y + 4), (min(x + w - 5, x + 180), y + 25), (16, 19, 24), -1)
+        cv2.putText(canvas, "FPS:{:.1f} LCD:{:.1f}".format(vision_fps, display_fps),
                     (x + 9, y + 20),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.43, (80, 255, 170), 1)
+        if self.selected_task == TASK_MATERIAL:
+            ok = result.get("ok", 0)
+            color = ACCENT if ok == 2 else YELLOW if ok == 1 else RED
+            threshold = self.detection_config()["grasp"]["min_coverage_pct"]
+            info = "OK={}  {:.1f}% / {}%".format(
+                ok, result.get("coverage_ratio", 0.0) * 100, threshold)
+            cv2.rectangle(canvas, (x + 4, y + 27), (x + w - 5, y + 48), (16, 19, 24), -1)
+            cv2.putText(canvas, info, (x + 9, y + 43), cv2.FONT_HERSHEY_SIMPLEX, 0.43, color, 1)
         if self.selected_task == TASK_RING:
             info = "C:{} LOCK:{} {}".format(
                 result.get("candidate_count", 0),
@@ -1135,6 +1186,16 @@ class VisionUI:
         else:
             info = "NO TARGET"
         text_y = y + h - 8
+        if self.selected_task == TASK_MATERIAL:
+            roi = self.detection_config()["grasp"]["roi"]
+            inside = (bool(result.get("found")) and
+                      roi["x"] <= result["cx"] < roi["x"] + roi["w"] and
+                      roi["y"] <= result["cy"] < roi["y"] + roi["h"])
+            pixels = "PIX:{}/{} IN:{}".format(
+                result.get("coverage_pixels", 0), result.get("coverage_total", 0), int(inside))
+            cv2.rectangle(canvas, (x + 4, text_y - 36), (x + w - 5, text_y - 17), (16, 19, 24), -1)
+            cv2.putText(canvas, pixels, (x + 9, text_y - 19), cv2.FONT_HERSHEY_SIMPLEX,
+                        0.4, (230, 235, 240), 1)
         cv2.rectangle(canvas, (x + 4, text_y - 17),
                       (min(x + w - 4, x + 230), text_y + 3), (16, 19, 24), -1)
         cv2.putText(canvas, info, (x + 9, text_y), cv2.FONT_HERSHEY_SIMPLEX,
@@ -1153,6 +1214,13 @@ class VisionUI:
         self.preview_rect = self.static_cache_preview_rect
         canvas = self.static_cache.copy()
         self._paste_live_preview(canvas, preview_bgr)
+        if self.selected_task == TASK_MATERIAL and self.preview_rect is not None:
+            roi = self.detection_config()["grasp"]["roi"]
+            ok = result.get("ok", 0)
+            color = ACCENT if ok == 2 else YELLOW if ok == 1 else RED
+            cv2.rectangle(canvas, self._img_to_screen(roi["x"], roi["y"]),
+                          self._img_to_screen(roi["x"] + roi["w"] - 1,
+                                              roi["y"] + roi["h"] - 1), color, 2)
         self._draw_realtime_info(canvas, result, vision_fps, display_fps)
 
         # ROI 四角和中心点属于动态标记，覆盖实时画面后再补画。
@@ -1289,13 +1357,15 @@ class VisionUI:
         task_config = self._task_config()
         roi = task_config["roi"]
         ix, iy = image_pos
-        if not (roi["x"] <= ix < roi["x"] + roi["w"] and
+        if self.selected_task != TASK_MATERIAL and not (
+                roi["x"] <= ix < roi["x"] + roi["w"] and
                 roi["y"] <= iy < roi["y"] + roi["h"]):
             self.message = "请在 ROI 内取点"
             self._invalidate()
             return
         center = task_config["center"]
-        marker_x, marker_y = self._img_to_screen(roi["x"] + center["x"], roi["y"] + center["y"])
+        ox, oy = (0, 0) if self.selected_task == TASK_MATERIAL else (roi["x"], roi["y"])
+        marker_x, marker_y = self._img_to_screen(ox + center["x"], oy + center["y"])
         near_marker = (x - marker_x) ** 2 + (y - marker_y) ** 2 <= 24 ** 2
         if center["custom"] and not self.center_selected and not near_marker:
             self.message = "请先点击上次保存的中心点"
@@ -1306,8 +1376,8 @@ class VisionUI:
             self.message = "中心点已选中"
             self._invalidate()
             return
-        center["x"] = ix - roi["x"]
-        center["y"] = iy - roi["y"]
+        center["x"] = ix - ox
+        center["y"] = iy - oy
         center["custom"] = True
         self.center_selected = True
         self.draft_config = validate_config(self.draft_config)
@@ -1328,8 +1398,8 @@ class VisionUI:
             center["y"] -= self.pixel_step
         else:
             center["y"] += self.pixel_step
-        center["x"] = _clamp(center["x"], 0, roi["w"] - 1)
-        center["y"] = _clamp(center["y"], 0, roi["h"] - 1)
+        center["x"] = _clamp(center["x"], 0, 319 if self.selected_task == TASK_MATERIAL else roi["w"] - 1)
+        center["y"] = _clamp(center["y"], 0, 239 if self.selected_task == TASK_MATERIAL else roi["h"] - 1)
         center["custom"] = True
 
     def _adjust_threshold(self, sign):
@@ -1426,9 +1496,18 @@ class VisionUI:
             if self.selected_task != TASK_MATERIAL:
                 self._begin_editor(PAGE_ROI)
             else:
-                self.message = "物料识别使用固定全图ROI"
+                self.message = "B2检测ROI请在vision_config.py或JSON设置"
         elif button_id == "EDIT_CENTER":
             self._begin_editor(PAGE_CENTER)
+        elif button_id == "EDIT_GRASP" and self.selected_task == TASK_MATERIAL:
+            self._begin_editor(PAGE_GRASP)
+        elif button_id.startswith("GRASP_PARAM_"):
+            self.grasp_param = button_id[len("GRASP_PARAM_"):]
+        elif button_id in ("GRASP_MINUS", "GRASP_PLUS"):
+            grasp = self.draft_config["grasp"]
+            target = grasp if self.grasp_param == "min_coverage_pct" else grasp["roi"]
+            target[self.grasp_param] += self.pixel_step * (1 if button_id == "GRASP_PLUS" else -1)
+            self.draft_config = validate_config(self.draft_config)
         elif button_id == "EDIT_COLOR":
             self._open(PAGE_COLOR_LIST)
         elif button_id == "EDIT_MORPH":
@@ -1462,7 +1541,9 @@ class VisionUI:
             task_config = self._task_config()
             roi = task_config["roi"]
             task_config["center"] = {
-                "x": roi["w"] // 2, "y": roi["h"] // 2, "custom": False
+                "x": 160 if self.selected_task == TASK_MATERIAL else roi["w"] // 2,
+                "y": 120 if self.selected_task == TASK_MATERIAL else roi["h"] // 2,
+                "custom": False
             }
             self.center_selected = False
         elif button_id == "SAVE_EDITOR":

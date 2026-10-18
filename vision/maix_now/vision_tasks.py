@@ -4,8 +4,8 @@ import cv2
 from time import perf_counter
 
 from vision_blob import (
-    ColorBuffers, detect_color, empty_result, extract_roi, make_run_geometry,
-    map_run_result_to_source, resize_run_roi,
+    ColorBuffers, apply_grasp_status, detect_color, empty_result, extract_roi, make_run_geometry,
+    map_run_result_to_source, resize_run_roi, scale_grasp_roi,
 )
 from vision_config import (
     IMAGE_HEIGHT, IMAGE_WIDTH,
@@ -15,26 +15,27 @@ from vision_ring import detect_ring_candidates
 
 
 TASK_NONE = 0
-B2_TASK_BUILD = "B2_BUFFERS_V1"
+B2_TASK_BUILD = "B2_EXCLUDE_V4"
 TASK_MATERIAL = 1
 TASK_RING = 2
 TASK_STACK = 3
 TASK_LABELS = {
     TASK_NONE: "待机",
-    TASK_MATERIAL: "任务一 全图单色物料",
+    TASK_MATERIAL: "任务一 单色物料定位",
     TASK_RING: "任务二 圆环中心定位",
     TASK_STACK: "任务三 码垛堆放",
 }
 
 
-def safe_xy_result(result, require_track=False):
+def safe_xy_result(result, require_track=False, allow_grasp=False):
     """无效或未锁定的帧绝不携带旧坐标。"""
     valid = bool(result.get("found", False))
     if require_track:
         valid = valid and result.get("state") == "TRACK"
     if not valid:
-        return False, 0, 0
-    return True, int(result.get("dx", 0)), int(result.get("dy", 0))
+        return 0, 0, 0
+    ok = 2 if allow_grasp and result.get("ok") == 2 else 1
+    return ok, int(result.get("dx", 0)), int(result.get("dy", 0))
 
 
 class ColorTracker:
@@ -59,7 +60,13 @@ class ColorTracker:
         self.run_geometry_key = None
         self.b2_buffers = None
 
-    def process(self, cv_bgr, config, run_mode=False, need_mask=True, reuse_buffers=False):
+    def _ensure_b2_buffers(self, width, height):
+        if self.b2_buffers_supported and (self.b2_buffers is None or
+                                         self.b2_buffers.mask.shape != (height, width)):
+            self.b2_buffers = ColorBuffers(width, height)
+
+    def process(self, cv_bgr, config, run_mode=False, need_mask=True, reuse_buffers=False,
+                grasp=None):
         resize_tick = perf_counter()
         if run_mode:
             roi, center, blob = config["roi"], config["center"], config["blob"]
@@ -67,6 +74,8 @@ class ColorTracker:
                    center["x"], center["y"], center["custom"],
                    blob["min_area"], blob["max_area"],
                    config["morph_mode"], config["target_color"])
+            key += (tuple(tuple(r[k] for k in ("x", "y", "w", "h"))
+                          for r in config.get("exclude_rois", [])),)
             if self.run_geometry is None or key != self.run_geometry_key:
                 self.run_geometry = make_run_geometry(
                     config, IMAGE_WIDTH, IMAGE_HEIGHT,
@@ -76,8 +85,8 @@ class ColorTracker:
             process_config = self.run_geometry["config"]
             process_config["thresholds"] = config["thresholds"]
             process_roi = self.run_geometry["process_roi"]
-            if reuse_buffers and self.b2_buffers_supported and self.b2_buffers is None:
-                self.b2_buffers = ColorBuffers(process_roi[2], process_roi[3])
+            if reuse_buffers:
+                self._ensure_b2_buffers(process_roi[2], process_roi[3])
             try:
                 dst = self.b2_buffers.bgr if reuse_buffers and self.b2_buffers is not None else None
                 roi_bgr = resize_run_roi(cv_bgr, self.run_geometry, dst=dst)
@@ -89,22 +98,32 @@ class ColorTracker:
         else:
             process_config = config
             roi_bgr, process_roi = extract_roi(cv_bgr, config)
+            if reuse_buffers:
+                self._ensure_b2_buffers(process_roi[2], process_roi[3])
 
         target_key = config["target_color"]
+        grasp_roi = None
+        if grasp is not None:
+            grasp_roi = (scale_grasp_roi(grasp, self.run_geometry) if run_mode else
+                         tuple(grasp["roi"][k] for k in ("x", "y", "w", "h")))
         resize_ms = (perf_counter() - resize_tick) * 1000.0
-        # 本轮优化只用于B2 RUN；B4和调参继续使用原检测路径。
-        buffers = self.b2_buffers if reuse_buffers and run_mode else None
+        # B2调参也复用LAB/MASK输出，仍按320x240处理；B4沿用原路径。
+        buffers = self.b2_buffers if reuse_buffers else None
         try:
             result, mask_roi, perf = detect_color(
                 roi_bgr, process_config, process_roi, need_mask, buffers=buffers,
-                fast_filter=reuse_buffers and run_mode,
+                fast_filter=reuse_buffers,
+                grasp_roi=grasp_roi,
+                grasp_preview=need_mask and not run_mode and grasp is not None,
             )
         except (TypeError, cv2.error) as error:
             if buffers is None:
                 raise
             self._disable_b2_buffers(error)
             result, mask_roi, perf = detect_color(
-                roi_bgr, process_config, process_roi, need_mask, fast_filter=run_mode)
+                roi_bgr, process_config, process_roi, need_mask, fast_filter=reuse_buffers,
+                grasp_roi=grasp_roi,
+                grasp_preview=need_mask and not run_mode and grasp is not None)
         if reuse_buffers:
             perf["resize_ms"] = resize_ms
             perf["buffer_reuse"] = buffers is not None and self.b2_buffers_supported
@@ -114,6 +133,8 @@ class ColorTracker:
                 roi = config["roi"]
                 mask_roi = cv2.resize(mask_roi, (roi["w"], roi["h"]),
                                       interpolation=cv2.INTER_NEAREST)
+        if grasp is not None:
+            result = apply_grasp_status(result, grasp)
         result.update(perf)
         result["target_color"] = target_key
         result["color_count"] = 1
@@ -309,11 +330,19 @@ class TaskManager:
             return self.current.process(cv_bgr, config, run_mode, need_mask)
         task_config = dict(config)
         if self.task_id == TASK_STACK:
+            task_config.pop("exclude_rois", None)
             for key in ("roi", "center", "blob"):
                 task_config[key] = config["stack"][key]
         else:
-            task_config["roi"] = {"x": 0, "y": 0, "w": IMAGE_WIDTH, "h": IMAGE_HEIGHT}
-        return self.current.process(
+            # 持久化B2参考点为原图绝对坐标，检测器内部仍接收ROI内相对参考点。
+            task_config["center"] = dict(config["center"])
+            task_config["center"]["x"] -= config["roi"]["x"]
+            task_config["center"]["y"] -= config["roi"]["y"]
+        frame = self.current.process(
             cv_bgr, task_config, run_mode, need_mask=need_mask,
             reuse_buffers=self.task_id == TASK_MATERIAL,
+            grasp=config["grasp"] if self.task_id == TASK_MATERIAL else None,
         )
+        if self.task_id == TASK_MATERIAL:
+            frame["config"] = config  # 预览仍用原图绝对参考点，内部局部坐标不外泄。
+        return frame

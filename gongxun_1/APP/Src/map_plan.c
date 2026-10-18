@@ -1,5 +1,8 @@
 #include "headfile.h"
 
+/**
+ * 根据新观测更新障碍物和道路状态
+ */
 #define MAP_COST_INF      0xFFFF
 #define MAP_COST_FREE     1
 #define MAP_COST_UNKNOWN  2  // 同样步数时优先已确认通行的道路

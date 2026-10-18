@@ -1,4 +1,4 @@
-# 校赛后独立入口：B2全图单色LAB / B3纯圆心 / B4单色码垛。
+# 校赛后独立入口：B2单色LAB/可裁剪与屏蔽 / B3纯圆心 / B4单色码垛。
 # 参数只在vision_config.py或触屏菜单修改；没有第二套旧阈值。
 # 协议不变：AA 55 CMD 06 FRAME_ID RAW_OK dxL dxH dyL dyH SUM。
 
@@ -8,6 +8,7 @@ import vision_config as config_module
 import vision_blob as blob_module
 import vision_tasks as tasks_module
 import vision_ui as ui_module
+import vision_runtime as runtime_module
 
 from vision_config import COLOR_NUMBERS, IMAGE_WIDTH, IMAGE_HEIGHT, VisionConfigStore
 from vision_blob import make_preview, expand_roi_mask
@@ -16,9 +17,9 @@ from vision_tasks import (
     TASK_NONE, TASK_MATERIAL, TASK_RING, TASK_STACK, TASK_LABELS, TaskManager,
 )
 from vision_ui import TouchInput, VisionUI
-from vision_runtime import B2_SEND_TIME_MS, SEND_TIME_MS, ResultSender, PerfStats, pack_xy_frame, send_interval_ms
+from vision_runtime import B2_SEND_TIME_MS, SEND_TIME_MS, B2DebugLog, ResultSender, PerfStats, pack_xy_frame, send_interval_ms
 
-BUILD = "NOW_UI_TOP_LAB6_B2_TX28_V7"
+BUILD = "NOW_B2_ROI_EXCLUDE_V11"
 CMD_NONE, CMD_BLOB, CMD_RING, CMD_ONUP = 0xB0, 0xB2, 0xB3, 0xB4
 COLOR_NONE, SUM_2 = 0xC0, 0xD2
 COLOR_CODE_TO_KEY = {0xC0 + number: key for key, number in COLOR_NUMBERS.items()}
@@ -41,10 +42,11 @@ def now_ms():
 
 
 def check_b2_modules():
-    """直接上传main.py时检查实际导入的依赖，确保六色菜单与单色LAB检测一致。"""
-    modules = (("vision_blob", blob_module, "B2_PIPELINE_BUILD", "B2_BUFFERS_V1"),
-               ("vision_tasks", tasks_module, "B2_TASK_BUILD", "B2_BUFFERS_V1"),
-               ("vision_ui", ui_module, "B2_UI_BUILD", "B2_LAB6_UI_TOP_V5"))
+    """检查实际导入的依赖，避免新抓取界面/检测混用会压掉OK=2的旧模块。"""
+    modules = (("vision_blob", blob_module, "B2_PIPELINE_BUILD", "B2_EXCLUDE_V4"),
+               ("vision_tasks", tasks_module, "B2_TASK_BUILD", "B2_EXCLUDE_V4"),
+               ("vision_ui", ui_module, "B2_UI_BUILD", "B2_EXCLUDE_UI_V3"),
+               ("vision_runtime", runtime_module, "B2_RUNTIME_BUILD", "B2_OK2_PIXELS_V3"))
     mismatch = []
     for name, module, attr, expected in modules:
         actual = getattr(module, attr, "OLD")
@@ -54,7 +56,7 @@ def check_b2_modules():
     colors = tuple(getattr(config_module, "COLOR_ORDER", ()))
     schema = getattr(config_module, "SCHEMA_VERSION", 0)
     print("[VISION B2 MODULE] vision_config", getattr(config_module, "__file__", "?"), colors, "schema=", schema)
-    if colors != ("red", "yellow", "blue", "green", "black", "light_blue") or schema != 9:
+    if colors != ("red", "yellow", "blue", "green", "black", "light_blue") or schema != 11:
         mismatch.append("vision_config")
     if mismatch:
         raise RuntimeError("B2 module mismatch: " + ",".join(mismatch) +
@@ -228,6 +230,7 @@ def run():
     touch = TouchInput(ts)
     tasks = TaskManager()
     sender = ResultSender()
+    b2_debug = B2DebugLog()
     stats = PerfStats(now_ms())
     try:
         serial = uart.UART(SERIAL_DEVICE, SERIAL_BAUD)
@@ -248,6 +251,7 @@ def run():
     previous_revision = -1
     last_display = 0
     fps = 0.0
+    tx_hz = display_fps = 0.0
     # copy=False会忽略ensure_bgr，只有原生BGR才允许借用内存。
     # 回退到默认RGB相机时必须copy=True，否则红蓝会互换。
     zero_copy = native_bgr
@@ -255,7 +259,7 @@ def run():
         while not app.need_exit():
             loop_start = now_ms()
             # 本地触屏调试只注释下一行；下面第二次接收受此开关控制。
-            rx_handle()
+            # rx_handle()
 
             event = touch.poll()
             if event is not None:
@@ -270,6 +274,7 @@ def run():
                         ui.save_succeeded(value, save_status)
                     tasks.reset_current()
                     sender.reset(now_ms())
+                    b2_debug.reset()
 
             active_mode, active_target = active_task(ui)
             task_id = mode_to_task_id(active_mode)
@@ -282,13 +287,20 @@ def run():
             changed = signature != previous_signature
             if changed and task_id == TASK_MATERIAL:
                 check_b2_modules()
+                geometry_config = ui.detection_config()
+                print("[VISION B2 GEOMETRY] search=", geometry_config["roi"],
+                      "exclude=", geometry_config["exclude_rois"],
+                      "reference=", geometry_config["center"],
+                      "grasp=", geometry_config["grasp"]["roi"])
             tasks.switch(task_id, active_target)
             if changed:
                 tasks.reset_current()
                 # 切任务先选择本任务周期，再清空旧调度，不让B2的28ms带到B3/B4。
                 sender.interval_ms = send_interval_ms(task_id)
                 sender.reset(now_ms())
+                b2_debug.reset()
                 stats.reset(now_ms())
+                fps = tx_hz = display_fps = 0.0
                 previous_signature = signature
                 print("[VISION TASK]", TASK_LABELS[task_id],
                       "target=0x%02X" % active_target, "RUN" if run_mode else "UI")
@@ -323,7 +335,7 @@ def run():
             detect_start = now_ms()
             frame = tasks.process(cv_bgr, config, run_mode,
                                   need_mask=display_due and not run_mode and
-                                  ui.needs_mask_for_display())
+                                  (task_id == TASK_MATERIAL or ui.needs_mask_for_display()))
             result = frame["result"]
             detect_ms = now_ms() - detect_start
 
@@ -336,16 +348,25 @@ def run():
             sent = None
             if run_mode and uart_control_active and uart_tx_owned:
                 tx = sender.take(result, capture_start, now_ms(),
-                                 require_track=task_id == TASK_RING)
+                                 require_track=task_id == TASK_RING,
+                                 allow_grasp=task_id == TASK_MATERIAL)
                 if tx is not None and send_result(active_mode, tx):
                     sent = tx
+
+            if task_id == TASK_MATERIAL:
+                debug_line = b2_debug.line(
+                    result, config["grasp"], now_ms(), run_mode, sent,
+                    tx_active=run_mode and uart_control_active and uart_tx_owned,
+                    fps=fps, tx_hz=tx_hz)
+                if debug_line is not None:
+                    print(debug_line)
 
             if display_due and not run_mode:
                 display_start = now_ms()
                 preview_config = frame["config"]
                 if task_id in (TASK_MATERIAL, TASK_STACK):
                     full_mask = None
-                    if frame["mask_roi"] is not None:
+                    if frame["mask_roi"] is not None and ui.current_view_mode() in ("MASK", "OVERLAY"):
                         full_mask = expand_roi_mask(
                             frame["mask_roi"], cv_bgr.shape, frame["roi_rect"])
                     preview = make_preview(cv_bgr, full_mask, result,
@@ -355,7 +376,7 @@ def run():
                                                 config["ring"], ui.current_view_mode())
                 else:
                     preview = cv_bgr
-                disp.show(ui.render(preview, result, fps, 0.0))
+                disp.show(ui.render(preview, result, fps, display_fps))
                 display_ms += now_ms() - display_start
                 previous_revision = ui.ui_revision
                 last_display = now_ms()
@@ -366,6 +387,8 @@ def run():
             stats.add(loop_end - loop_start, capture_ms, detect_ms, display_ms, result, sent)
             if loop_end - stats.start_ms >= 1000:
                 fps = stats.frames * 1000.0 / (loop_end - stats.start_ms)
+                tx_hz = stats.tx_count * 1000.0 / (loop_end - stats.start_ms)
+                display_fps = stats.display_count * 1000.0 / (loop_end - stats.start_ms)
                 if task_id != TASK_NONE:
                     print(stats.line(loop_end, task_id, run_mode, result))
                 stats.reset(loop_end)

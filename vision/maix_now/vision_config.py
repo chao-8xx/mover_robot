@@ -9,7 +9,7 @@ import json
 import os
 
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 11
 IMAGE_WIDTH = 320
 IMAGE_HEIGHT = 240
 
@@ -46,36 +46,38 @@ COLOR_NUMBERS = {
     "light_blue": 6,
 }
 
-# 只用于识别旧NOW默认值的单次迁移，不是第二套现场可调参数。
-# 与这些值不同的已保存LAB阈值保持原样；保存为版本9后不再替换。
-_LEGACY_NOW_LAB = {
-    "red": ([110, 170, 130], [210, 220, 170]),
-    "yellow": ([216, 100, 195], [255, 130, 220]),
-    "blue": ([85, 138, 50], [138, 175, 80]),
-    "green": ([175, 70, 145], [205, 100, 170]),
-    "black": ([55, 105, 110], [155, 140, 140]),
-    "light_blue": ([145, 105, 75], [195, 135, 100]),
-}
-
-
 DEFAULT_CONFIG = {
     "schema_version": SCHEMA_VERSION,
     # B2/B4每帧只检测指定颜色；固定LAB，参数中不再保存模式开关。
-    "target_color": "light_blue",
+    "target_color": "red",
     # 当前真机性能基线使用 OPEN_ONLY；仍保留另外三档供现场对比。
     "morph_mode": MORPH_OPEN_ONLY,
-    # B2保留完整视野，固定全图ROI；RUN仍缩小整幅图到240x180。
-    "roi": {"x": 0, "y": 0, "w": IMAGE_WIDTH, "h": IMAGE_HEIGHT},
-    # center.x/y 是 ROI 内相对坐标；custom=False 表示使用 ROI 几何中心。
+    # B2外层检测ROI：决定搜索范围。默认先保留全图，按实物修改x/y/w/h即可裁剪。
+    # RUN保持约0.75的采样比例，只缩小此ROI，不将裁剪区拉伸成整幅240x180。
+    "roi": {"x": 65, "y": 30, "w": 220, "h": 200},
+    # B2内部屏蔽区：320x240原图坐标，只清检测掩膜，不把原图涂黑。
+    # 以下左右夹爪矩形按照片估计，须检查夹爪全行程；设为[]可关闭屏蔽。
+    "exclude_rois": [
+        {"x": 65, "y": 216, "w": 22, "h": 14},   # 左夹爪
+        {"x": 285, "y": 216, "w": 22, "h": 14},   # 右夹爪
+    ],
+    # B2 center.x/y为原图绝对坐标，裁剪外层ROI不能移动此参考点。
+    # custom=False使用原图中心(160,120)；stack/ring的center仍为各自ROI内相对坐标。
     "center": {
         # 旧main的ROI(110,25,135,135)几何中心为原图(177,92)。
         # NOW保留全图视野，因此明确保存为自定义绝对对准点。
-        "x": 177,
-        "y": 92,
+        "x": 1+3,
+        "y": 116,
         "custom": True,
     },
     # 面积范围同样按 320x240 等效面积保存，RUN 内部会自动按像素比例换算。
-    "blob": {"min_area": 1000, "max_area": 14000},
+    "blob": {"min_area": 600, "max_area": 12000},
+    # B2抓取判定区：只判定覆盖，不裁剪全图搜索、不改变dx/dy参考点。
+    # 320x240原图坐标；40x40/60%只是初试值，新镜头/夹爪必须实物标定。
+    "grasp": {
+        "roi": {"x": 150, "y": 103, "w": 25, "h": 25},
+        "min_coverage_pct": 50,
+    },
     # 任务三复用颜色阈值和ColorTracker，但保留独立ROI、对准中心和面积范围。
     "stack": {
         "roi": {"x": 110, "y": 25, "w": 135, "h": 135},
@@ -84,17 +86,17 @@ DEFAULT_CONFIG = {
             "y": IMAGE_HEIGHT // 2,
             "custom": False,
         },
-        "blob": {"min_area": 1000, "max_area": 12000},
+        "blob": {"min_area": 600, "max_area": 12000},
     },
     "thresholds": {
         # 按用户提供的maix_main现场配置迁入六色LAB；B2/B4共享此表。
         "LAB": {
-            "red": {"lower": [110, 170, 130], "upper": [210, 220, 170]},
-            "yellow": {"lower": [190, 100, 185], "upper": [230, 130, 220]},
-            "blue": {"lower": [50, 135, 50], "upper": [138, 175, 80]},
-            "green": {"lower": [150, 70, 128], "upper": [205, 120, 170]},
-            "black": {"lower": [55, 105, 110], "upper": [155, 140, 140]},
-            "light_blue": {"lower": [145, 105, 75], "upper": [195, 135, 100]},
+            "red": {"lower": [75, 170, 130], "upper": [210, 220, 170]},
+            "yellow": {"lower": [125, 100, 185], "upper": [230, 130, 220]},
+            "blue": {"lower": [35, 135, 50], "upper": [138, 185, 110]},
+            "green": {"lower": [102, 70, 128], "upper": [205, 120, 170]},
+            "black": {"lower": [40, 105, 110], "upper": [155, 140, 140]},
+            "light_blue": {"lower": [85, 100, 75], "upper": [195, 135, 100]},
         },
     },
     # F407先到2号附近，B3只定位几何圆心，不识别数字。
@@ -132,7 +134,7 @@ def clone_config(config):
 def _clamp(value, low, high):
     try:
         value = int(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         value = low
     return max(low, min(high, value))
 
@@ -168,7 +170,6 @@ def validate_config(value):
     """只接受已知字段，并将所有坐标和阈值限制在安全范围内。"""
     source = value if isinstance(value, dict) else {}
     result = clone_config(DEFAULT_CONFIG)
-    migrate_defaults = _clamp(source.get("schema_version", 0), 0, 9999) < 9
 
     target = source.get("target_color", result["target_color"])
     if target in COLOR_ORDER:
@@ -181,36 +182,43 @@ def validate_config(value):
     roi_source = source.get("roi", {})
     if not isinstance(roi_source, dict):
         roi_source = {}
-    w = _clamp(roi_source.get("w", IMAGE_WIDTH), 20, IMAGE_WIDTH)
-    h = _clamp(roi_source.get("h", IMAGE_HEIGHT), 20, IMAGE_HEIGHT)
-    x = _clamp(roi_source.get("x", 0), 0, IMAGE_WIDTH - w)
-    y = _clamp(roi_source.get("y", 0), 0, IMAGE_HEIGHT - h)
-    result["roi"] = {"x": 0, "y": 0, "w": IMAGE_WIDTH, "h": IMAGE_HEIGHT}
+    fallback = DEFAULT_CONFIG["roi"]
+    w = _clamp(roi_source.get("w", fallback["w"]), 20, IMAGE_WIDTH)
+    h = _clamp(roi_source.get("h", fallback["h"]), 20, IMAGE_HEIGHT)
+    x = _clamp(roi_source.get("x", fallback["x"]), 0, IMAGE_WIDTH - w)
+    y = _clamp(roi_source.get("y", fallback["y"]), 0, IMAGE_HEIGHT - h)
+    result["roi"] = {"x": x, "y": y, "w": w, "h": h}
 
     center_source = source.get("center", {})
     if not isinstance(center_source, dict):
         center_source = {}
     small_roi = (x, y, w, h) != (0, 0, IMAGE_WIDTH, IMAGE_HEIGHT)
-    center_custom = bool(center_source.get("custom", False if small_roi else result["center"]["custom"]))
-    fallback_x = w // 2 if small_roi else result["center"]["x"]
-    fallback_y = h // 2 if small_roi else result["center"]["y"]
-    result["center"] = {
-        # 从旧小ROI迁移时保留对准点的原图绝对位置。
-        "x": _clamp(x + _clamp(center_source.get("x", fallback_x), 0, w - 1),
-                    0, IMAGE_WIDTH - 1),
-        "y": _clamp(y + _clamp(center_source.get("y", fallback_y), 0, h - 1),
-                    0, IMAGE_HEIGHT - 1),
-        "custom": center_custom,
-    }
-    if not result["center"]["custom"]:
-        if small_roi:
-            # 原来使用小ROI几何中心时，迁到全图后同样保留原图对准位置。
-            result["center"] = {"x": x + w // 2, "y": y + h // 2, "custom": True}
-        elif migrate_defaults:
-            result["center"] = clone_config(DEFAULT_CONFIG["center"])
-        else:
-            # 版本9后用户主动选择全图几何中心，仍允许保存(160,120)。
-            result["center"] = {"x": IMAGE_WIDTH // 2, "y": IMAGE_HEIGHT // 2, "custom": False}
+    legacy_local = small_roi and _clamp(source.get("schema_version", 0), 0, 9999) < 11
+    custom = bool(center_source.get("custom", False if legacy_local else result["center"]["custom"]))
+    if legacy_local:
+        # v10及以前小ROI中心是局部坐标，仅迁移一次，保持原图位置。
+        cx = x + (_clamp(center_source.get("x", w // 2), 0, w - 1) if custom else w // 2)
+        cy = y + (_clamp(center_source.get("y", h // 2), 0, h - 1) if custom else h // 2)
+        result["center"] = {"x": cx, "y": cy, "custom": True}
+    else:
+        result["center"] = {
+            "x": _clamp(center_source.get("x", result["center"]["x"]), 0, IMAGE_WIDTH - 1) if custom else IMAGE_WIDTH // 2,
+            "y": _clamp(center_source.get("y", result["center"]["y"]), 0, IMAGE_HEIGHT - 1) if custom else IMAGE_HEIGHT // 2,
+            "custom": custom,
+        }
+
+    exclusions = source.get("exclude_rois", DEFAULT_CONFIG["exclude_rois"])
+    result["exclude_rois"] = []
+    for rect in exclusions if isinstance(exclusions, (list, tuple)) else []:
+        if not isinstance(rect, dict):
+            continue
+        left = _clamp(rect.get("x", 0), -IMAGE_WIDTH, IMAGE_WIDTH)
+        top = _clamp(rect.get("y", 0), -IMAGE_HEIGHT, IMAGE_HEIGHT)
+        right = min(IMAGE_WIDTH, left + _clamp(rect.get("w", 0), 0, IMAGE_WIDTH))
+        bottom = min(IMAGE_HEIGHT, top + _clamp(rect.get("h", 0), 0, IMAGE_HEIGHT))
+        left, top = max(0, left), max(0, top)
+        if right > left and bottom > top:
+            result["exclude_rois"].append(dict(x=left, y=top, w=right-left, h=bottom-top))
 
     blob_source = source.get("blob", {})
     if not isinstance(blob_source, dict):
@@ -222,8 +230,25 @@ def validate_config(value):
         min_area, IMAGE_WIDTH * IMAGE_HEIGHT
     )
     result["blob"] = {"min_area": min_area, "max_area": max_area}
-    if migrate_defaults and result["blob"] == {"min_area": 1800, "max_area": 12000}:
-        result["blob"] = clone_config(DEFAULT_CONFIG["blob"])
+
+    # 旧JSON仅补充新字段，绝不按“看起来像旧默认值”覆盖现场标定。
+    grasp_source = source.get("grasp", {})
+    if not isinstance(grasp_source, dict):
+        grasp_source = {}
+    grasp_roi = grasp_source.get("roi", {})
+    if not isinstance(grasp_roi, dict):
+        grasp_roi = {}
+    defaults = DEFAULT_CONFIG["grasp"]
+    gw = _clamp(grasp_roi.get("w", defaults["roi"]["w"]), 1, IMAGE_WIDTH)
+    gh = _clamp(grasp_roi.get("h", defaults["roi"]["h"]), 1, IMAGE_HEIGHT)
+    # 旧配置缺少抓取框时围绕其实际对准点初始化，已有抓取框则独立保存。
+    gx = _clamp(grasp_roi.get("x", result["center"]["x"] - gw // 2), 0, IMAGE_WIDTH - gw)
+    gy = _clamp(grasp_roi.get("y", result["center"]["y"] - gh // 2), 0, IMAGE_HEIGHT - gh)
+    result["grasp"] = {
+        "roi": {"x": gx, "y": gy, "w": gw, "h": gh},
+        "min_coverage_pct": _clamp(
+            grasp_source.get("min_coverage_pct", defaults["min_coverage_pct"]), 0, 100),
+    }
 
     stack_source = source.get("stack", {})
     if not isinstance(stack_source, dict):
@@ -295,9 +320,6 @@ def validate_config(value):
         result["thresholds"]["LAB"][color_key] = _validated_threshold(
             lab_source.get(color_key), fallback
         )
-        lower, upper = _LEGACY_NOW_LAB[color_key]
-        if migrate_defaults and result["thresholds"]["LAB"][color_key] == {"lower": lower, "upper": upper}:
-            result["thresholds"]["LAB"][color_key] = clone_config(fallback)
 
     ring_source = source.get("ring", {})
     if not isinstance(ring_source, dict):

@@ -1,5 +1,11 @@
 #include "headfile.h"
 
+/**
+ * @brief 处理雷达数据并更新地图
+ * @param pose_valid: 位姿是否有效的标志
+ * @return uint8_t: 返回更新结果，0表示未更新，非0表示更新成功
+ */
+
 // 雷达的单圈结果只在这里转换，地图更新模块不依赖雷达和 HAL
 uint8_t map_lidar_handle(uint8_t pose_valid) {
     map_scan_obs_t boxes[CLUSTER_MAX_COUNT];

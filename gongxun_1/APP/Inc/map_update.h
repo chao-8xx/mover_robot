@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 
-// 这些值需要在现场看雷达效果再调，不代表障碍物已经能被稳定看到
+// 这些值需要在现场看雷达效果再调  不代表障碍物已经能被稳定看到
 #define MAP_MATCH_DISTANCE_MM   120.0f   // 两圈聚类中心最大匹配距离
 #define MAP_DUP_DISTANCE_MM      30.0f   // 同一圈几乎重合的聚类只计一次
 #define MAP_CONFIRM_SCAN_NUM    2        // 允许漏扫一圈，三圈中至少两圈看到才确认
@@ -12,7 +12,7 @@
 #define MAP_CANDIDATE_TIMEOUT_MS 1000U  // 停更超过1秒的旧候选不能与恢复后的一圈共同确认，现场可调整
 #endif
 
-// 一圈雷达聚类转换成的地图候选框，坐标单位 mm
+// 一圈雷达聚类转换成的地图候选框     (地图坐标系下)
 typedef struct {
     float center_x;
     float center_y;
