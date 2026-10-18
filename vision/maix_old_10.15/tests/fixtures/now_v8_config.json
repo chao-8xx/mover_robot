@@ -1,0 +1,137 @@
+{
+  "schema_version": 8,
+  "target_color": "red",
+  "morph_mode": "OPEN_ONLY",
+  "roi": {
+    "x": 0,
+    "y": 0,
+    "w": 320,
+    "h": 240
+  },
+  "center": {
+    "x": 160,
+    "y": 120,
+    "custom": false
+  },
+  "blob": {
+    "min_area": 1800,
+    "max_area": 12000
+  },
+  "stack": {
+    "roi": {
+      "x": 110,
+      "y": 25,
+      "w": 135,
+      "h": 135
+    },
+    "center": {
+      "x": 67,
+      "y": 67,
+      "custom": false
+    },
+    "blob": {
+      "min_area": 1800,
+      "max_area": 12000
+    }
+  },
+  "thresholds": {
+    "LAB": {
+      "red": {
+        "lower": [
+          35,
+          160,
+          150
+        ],
+        "upper": [
+          110,
+          185,
+          170
+        ]
+      },
+      "yellow": {
+        "lower": [
+          140,
+          110,
+          160
+        ],
+        "upper": [
+          165,
+          130,
+          185
+        ]
+      },
+      "blue": {
+        "lower": [
+          30,
+          135,
+          70
+        ],
+        "upper": [
+          55,
+          155,
+          105
+        ]
+      },
+      "green": {
+        "lower": [
+          83,
+          75,
+          140
+        ],
+        "upper": [
+          135,
+          95,
+          180
+        ]
+      },
+      "black": {
+        "lower": [
+          0,
+          105,
+          105
+        ],
+        "upper": [
+          40,
+          135,
+          135
+        ]
+      },
+      "light_blue": {
+        "lower": [
+          90,
+          110,
+          90
+        ],
+        "upper": [
+          130,
+          135,
+          100
+        ]
+      }
+    }
+  },
+  "ring": {
+    "target_number": 2,
+    "roi": {
+      "x": 0,
+      "y": 0,
+      "w": 320,
+      "h": 240
+    },
+    "center": {
+      "x": 160,
+      "y": 120,
+      "custom": false
+    },
+    "black_v_max": 125,
+    "min_diameter": 45,
+    "max_diameter": 120,
+    "min_contour_area": 2000,
+    "max_contour_area": 12000,
+    "min_circularity": 0.2,
+    "min_layers": 3,
+    "center_tolerance": 8,
+    "track_padding": 48,
+    "layer_check_interval": 5
+  }
+}
