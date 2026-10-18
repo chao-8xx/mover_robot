@@ -28,6 +28,11 @@ def config():
     # 合成图测试明确选择红色，不依赖现场默认颜色（当前为浅蓝）。
     cfg["target_color"] = "red"
     cfg["exclude_rois"] = []  # 基础检测测试与现场夹爪位置隔离；屏蔽单独验收。
+    cfg["exclude_polygons"] = []
+    # 合成场景固定几何，现场修改默认ROI/中心/抓取框不应改变测试输入。
+    cfg["roi"] = dict(x=0, y=0, w=320, h=240)
+    cfg["center"] = dict(x=177, y=92, custom=True)
+    cfg["grasp"] = dict(roi=dict(x=157, y=72, w=40, h=40), min_coverage_pct=60)
     return cfg
 
 

@@ -109,9 +109,11 @@ int main(void)
   // 系统整体初始化
   system_init();
 
-  maix_b2_test();
+  // maix 任务一测试
+  // maix_b2_test();
 
-  // map_stage_test();  // 预设数据的地图自检，需要时单独启用
+  // 预设数据的地图自检
+  // map_stage_test();
 
   /* USER CODE END 2 */
 
@@ -150,8 +152,8 @@ int main(void)
     //   obstacle_cluster_test();   // 雷达障碍物扫描测试
     // }
 
-    // // 真实雷达桌面地图联调 固定测试位姿，只观察R8中间的测试区域
-    // map_lidar_test();
+    // 真实雷达桌面地图联调 固定测试位姿，只观察R8中间的测试区域
+    map_lidar_test();
 
     /* USER CODE END WHILE */
 

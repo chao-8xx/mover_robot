@@ -21,7 +21,8 @@ class ExclusionTests(unittest.TestCase):
         for color in COLOR_ORDER:
             cfg = config()
             cfg["target_color"] = color
-            cfg["exclude_rois"] = copy.deepcopy(DEFAULT_CONFIG["exclude_rois"])
+            cfg["exclude_rois"] = [dict(x=28, y=140, w=98, h=80),
+                                   dict(x=210, y=150, w=108, h=70)]
             image = np.full((240, 320, 3), 255, np.uint8)
             bgr = midpoint_bgr(cfg, color)
             image[150:210, 45:115] = bgr

@@ -4,7 +4,8 @@ import itertools
 import tempfile
 import types
 import unittest
-from unittest.mock import Mock
+from pathlib import Path
+from unittest.mock import Mock, patch
 
 from test_ui_v9 import _FakeImageModule, VisionUI
 from test_vision_v9 import MODULE_DIR, config, color_frame
@@ -71,6 +72,10 @@ class MainLoopTests(unittest.TestCase):
             err=Mock(), time=Mock(), now_ms=lambda: next(clock),
             open_camera=lambda: (cam, bgr), VisionUI=create_ui,
         )
+        # 明确装入合成场景参数，现场默认裁剪/参考点变化不应改变本测试目标。
+        store = VisionConfigStore(path)
+        if not Path(store.path).exists():
+            store.save(config())
         env["run"]()
         return cam, disp, serial, conversion
 
@@ -79,7 +84,7 @@ class MainLoopTests(unittest.TestCase):
         return bytes([0xAA, 0x55, cmd, len(data)] + data +
                      [(cmd + len(data) + sum(data)) & 255])
 
-    def test_formal_run_static_screen_and_current_frame_uart(self):
+    def test_formal_run_preview_and_current_frame_uart(self):
         env = self.load_entry()
         start = self.command(0xB2, [0xC1])
         with tempfile.TemporaryDirectory() as path:
@@ -233,6 +238,44 @@ class MainLoopTests(unittest.TestCase):
         calls = env["camera"].Camera.call_args_list
         self.assertEqual(calls[0].kwargs, {"fps": 60})
         self.assertEqual(calls[1].kwargs, {})
+
+    def test_all_run_tasks_refresh_repeatedly_but_not_every_processed_frame(self):
+        for cmd, target in ((0xB2, 0xC1), (0xB3, 0xD2), (0xB4, 0xC1)):
+            env = self.load_entry()
+            rendered_at = []
+            render = VisionUI.render
+            def record(ui, preview, result, *args):
+                self.assertIsNotNone(preview)
+                rendered_at.append(env["now_ms"]())
+                return render(ui, preview, result, *args)
+            with tempfile.TemporaryDirectory() as path:
+                with patch.object(VisionUI, "render", record):
+                    cam, disp, _, _ = self.hardware(
+                        env, path, [self.command(cmd, [target])], loops=25)
+            self.assertEqual(cam.read.call_count, 25)
+            self.assertGreater(disp.show.call_count, 1)
+            self.assertLess(disp.show.call_count, cam.read.call_count)
+            self.assertTrue(all(b - a >= env["DISPLAY_TIME_MS"]
+                                for a, b in zip(rendered_at, rendered_at[1:])))
+
+    def test_current_result_is_sent_before_slow_lcd_render(self):
+        env = self.load_entry()
+        events = []
+        send = env["send_result"]
+        render = VisionUI.render
+        def record_send(*args):
+            events.append("send")
+            return send(*args)
+        def record_render(ui, *args):
+            events.append("display")
+            return render(ui, *args)
+        env["send_result"] = record_send
+        with tempfile.TemporaryDirectory() as path:
+            with patch.object(VisionUI, "render", record_render):
+                self.hardware(env, path, [self.command(0xB2, [0xC1])], loops=2)
+        self.assertIn("send", events)
+        self.assertIn("display", events)
+        self.assertLess(events.index("send"), events.index("display"))
 
     def test_b2_reports_and_rejects_mixed_old_ui_module(self):
         env = self.load_entry()

@@ -19,12 +19,12 @@ from vision_tasks import (
 from vision_ui import TouchInput, VisionUI
 from vision_runtime import B2_SEND_TIME_MS, SEND_TIME_MS, B2DebugLog, ResultSender, PerfStats, pack_xy_frame, send_interval_ms
 
-BUILD = "NOW_B2_ROI_EXCLUDE_V11"
+BUILD = "NOW_RUN_PREVIEW_V12"
 CMD_NONE, CMD_BLOB, CMD_RING, CMD_ONUP = 0xB0, 0xB2, 0xB3, 0xB4
 COLOR_NONE, SUM_2 = 0xC0, 0xD2
 COLOR_CODE_TO_KEY = {0xC0 + number: key for key, number in COLOR_NUMBERS.items()}
 MAX_RX_DATA_LEN = 32
-DISPLAY_TIME_MS = 100
+DISPLAY_TIME_MS = 100  # 调试期UI/RUN均显示实时画面，最多约10次/秒；不限制检测/发送。
 SERIAL_DEVICE, SERIAL_BAUD = "/dev/serial0", 115200
 UART_TX_PIN, UART_TX_GPIO, UART_TX_FUNCTION = "A16", "GPIOA16", "UART0_TX"
 
@@ -43,9 +43,9 @@ def now_ms():
 
 def check_b2_modules():
     """检查实际导入的依赖，避免新抓取界面/检测混用会压掉OK=2的旧模块。"""
-    modules = (("vision_blob", blob_module, "B2_PIPELINE_BUILD", "B2_EXCLUDE_V4"),
-               ("vision_tasks", tasks_module, "B2_TASK_BUILD", "B2_EXCLUDE_V4"),
-               ("vision_ui", ui_module, "B2_UI_BUILD", "B2_EXCLUDE_UI_V3"),
+    modules = (("vision_blob", blob_module, "B2_PIPELINE_BUILD", "B2_POLYGON_V5"),
+               ("vision_tasks", tasks_module, "B2_TASK_BUILD", "B2_POLYGON_V5"),
+               ("vision_ui", ui_module, "B2_UI_BUILD", "B2_LIVE_RUN_UI_V4"),
                ("vision_runtime", runtime_module, "B2_RUNTIME_BUILD", "B2_OK2_PIXELS_V3"))
     mismatch = []
     for name, module, attr, expected in modules:
@@ -56,7 +56,7 @@ def check_b2_modules():
     colors = tuple(getattr(config_module, "COLOR_ORDER", ()))
     schema = getattr(config_module, "SCHEMA_VERSION", 0)
     print("[VISION B2 MODULE] vision_config", getattr(config_module, "__file__", "?"), colors, "schema=", schema)
-    if colors != ("red", "yellow", "blue", "green", "black", "light_blue") or schema != 11:
+    if colors != ("red", "yellow", "blue", "green", "black", "light_blue") or schema != 12:
         mismatch.append("vision_config")
     if mismatch:
         raise RuntimeError("B2 module mismatch: " + ",".join(mismatch) +
@@ -246,6 +246,7 @@ def run():
     print("[VISION RATE] B2={}ms ({:.1f}Hz); B3/B4={}ms ({:.1f}Hz); verify FPS/TXHZ separately".format(
         B2_SEND_TIME_MS, 1000.0 / B2_SEND_TIME_MS, SEND_TIME_MS, 1000.0 / SEND_TIME_MS))
     print("[VISION RING] geometric center only; F407 must approach slot 2 first")
+    print("[VISION DISPLAY] UI/RUN live preview interval={}ms; verify actual FPS/LCD/TXHZ".format(DISPLAY_TIME_MS))
 
     previous_signature = None
     previous_revision = -1
@@ -259,7 +260,7 @@ def run():
         while not app.need_exit():
             loop_start = now_ms()
             # 本地触屏调试只注释下一行；下面第二次接收受此开关控制。
-            # rx_handle()
+            rx_handle()
 
             event = touch.poll()
             if event is not None:
@@ -290,6 +291,7 @@ def run():
                 geometry_config = ui.detection_config()
                 print("[VISION B2 GEOMETRY] search=", geometry_config["roi"],
                       "exclude=", geometry_config["exclude_rois"],
+                      "polygons=", geometry_config["exclude_polygons"],
                       "reference=", geometry_config["center"],
                       "grasp=", geometry_config["grasp"]["roi"])
             tasks.switch(task_id, active_target)
@@ -306,18 +308,8 @@ def run():
                       "target=0x%02X" % active_target, "RUN" if run_mode else "UI")
 
             display_due = (changed or ui.ui_revision != previous_revision or
-                           (not run_mode and now_ms() - last_display >= DISPLAY_TIME_MS))
+                           now_ms() - last_display >= DISPLAY_TIME_MS)
             display_ms = 0.0
-            if run_mode and display_due:
-                # 慢速LCD刷新放在采集之前，而且RUN仅在页面改变时显示一次。
-                display_start = now_ms()
-                disp.show(ui.render(None, {}, fps, 0.0))
-                display_ms += now_ms() - display_start
-                previous_revision = ui.ui_revision
-                last_display = now_ms()
-                if changed and hasattr(cam, "clear_buff"):
-                    # 换任务/首次RUN页面绘制很慢，丢掉这段时间的排队旧图。
-                    cam.clear_buff()
 
             capture_start = now_ms()
             camera_image = cam.read()
@@ -334,7 +326,7 @@ def run():
             config = ui.detection_config()
             detect_start = now_ms()
             frame = tasks.process(cv_bgr, config, run_mode,
-                                  need_mask=display_due and not run_mode and
+                                  need_mask=display_due and
                                   (task_id == TASK_MATERIAL or ui.needs_mask_for_display()))
             result = frame["result"]
             detect_ms = now_ms() - detect_start
@@ -361,7 +353,8 @@ def run():
                 if debug_line is not None:
                     print(debug_line)
 
-            if display_due and not run_mode:
+            # 结果发送/停止检查在LCD之前；未到显示时刻不生成预览或绘制。
+            if display_due:
                 display_start = now_ms()
                 preview_config = frame["config"]
                 if task_id in (TASK_MATERIAL, TASK_STACK):
@@ -380,6 +373,9 @@ def run():
                 display_ms += now_ms() - display_start
                 previous_revision = ui.ui_revision
                 last_display = now_ms()
+                if run_mode and changed and hasattr(cam, "clear_buff"):
+                    # 首次页面缓存生成较慢，避免下一帧取到期间排队的旧图。
+                    cam.clear_buff()
 
             if task_id == TASK_NONE:
                 time.sleep_ms(5)

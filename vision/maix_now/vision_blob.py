@@ -9,6 +9,8 @@ import numpy as np
 from time import perf_counter
 
 from vision_config import (
+    IMAGE_WIDTH,
+    IMAGE_HEIGHT,
     MORPH_CLOSE_ONLY,
     MORPH_OPEN_CLOSE,
     MORPH_OPEN_ONLY,
@@ -22,7 +24,33 @@ MORPH_KERNEL = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
 # 运行时只使用当前颜色的一组LAB阈值。缓存对应的 uint8 数组，
 # 避免每帧重复把 Python list 转换成多个 NumPy 小数组。
 _THRESHOLD_CACHE = {}
-B2_PIPELINE_BUILD = "B2_EXCLUDE_V4"
+B2_PIPELINE_BUILD = "B2_POLYGON_V5"
+_POLYGON_MASK_CACHE = {}
+
+
+def polygon_exclusion_mask(roi_rect, polygons, process_size=None):
+    """只在几何参数变化时绘制；RUN最近邻采样同一份原图屏蔽形状。"""
+    if not polygons:
+        return None
+    key = (tuple(roi_rect), process_size,
+           tuple(tuple(tuple(p) for p in polygon) for polygon in polygons))
+    if key in _POLYGON_MASK_CACHE:
+        return _POLYGON_MASK_CACHE[key]
+    x, y, w, h = roi_rect
+    mask = np.zeros((IMAGE_HEIGHT, IMAGE_WIDTH), dtype=np.uint8)
+    for polygon in polygons:
+        points = np.asarray(polygon, dtype=np.int32)
+        # 分别填充以取并集；一次传多个重叠轮廓会产生奇偶填充的空洞。
+        cv2.fillPoly(mask, [points.reshape((-1, 1, 2))], 255)
+    # 先在原图光栅化再裁剪，避免斜边在不同ROI边界裁切时产生像素偏移。
+    mask = mask[y:y + h, x:x + w]
+    if process_size is not None and process_size != (w, h):
+        mask = cv2.resize(mask, process_size, interpolation=cv2.INTER_NEAREST)
+    excluded = mask != 0
+    if len(_POLYGON_MASK_CACHE) >= 4:
+        _POLYGON_MASK_CACHE.clear()
+    _POLYGON_MASK_CACHE[key] = excluded
+    return excluded
 
 
 class ColorBuffers:
@@ -128,6 +156,9 @@ def make_run_geometry(config, source_width, source_height,
             bottom = min(scaled_h, ((rect["y"] + rect["h"] - source_y) * scaled_h + source_h - 1) // source_h)
             if right > left and bottom > top:
                 process_config["exclude_rois"].append(dict(x=left, y=top, w=right-left, h=bottom-top))
+    process_config["_exclude_polygon_mask"] = polygon_exclusion_mask(
+        (source_x, source_y, source_w, source_h), config.get("exclude_polygons", []),
+        (scaled_w, scaled_h))
     return {
         "source_roi": (source_x, source_y, source_w, source_h),
         "process_roi": (0, 0, scaled_w, scaled_h),
@@ -314,13 +345,14 @@ def build_mask(roi_bgr, config):
     mask = apply_color_threshold(converted, config)
     roi = config["roi"]
     rect = tuple(roi[k] for k in ("x", "y", "w", "h"))
-    clear_exclusions(mask, rect, config.get("exclude_rois", []))
+    polygon_mask = polygon_exclusion_mask(rect, config.get("exclude_polygons", []))
+    clear_exclusions(mask, rect, config.get("exclude_rois", []), polygon_mask)
     mask = clean_mask(mask, config.get("morph_mode", MORPH_OPEN_CLOSE))
-    clear_exclusions(mask, rect, config.get("exclude_rois", []))
+    clear_exclusions(mask, rect, config.get("exclude_rois", []), polygon_mask)
     return mask
 
 
-def clear_exclusions(mask, roi_rect, exclusions):
+def clear_exclusions(mask, roi_rect, exclusions, polygon_mask=None):
     """只在二值掩膜置零，不涂原图，保证黑色目标也不会把屏蔽区当作目标。"""
     x, y, w, h = roi_rect
     for rect in exclusions:
@@ -329,6 +361,8 @@ def clear_exclusions(mask, roi_rect, exclusions):
         bottom = min(h, rect["y"] + rect["h"] - y)
         if right > left and bottom > top:
             mask[top:bottom, left:right] = 0
+    if polygon_mask is not None:
+        mask[polygon_mask] = 0
 
 
 def detect_color(roi_bgr, config, roi_rect, need_mask=True, buffers=None, fast_filter=False,
@@ -344,12 +378,14 @@ def detect_color(roi_bgr, config, roi_rect, need_mask=True, buffers=None, fast_f
     threshold_ms = (perf_counter() - tick) * 1000.0
     tick = perf_counter()
     exclusions = config.get("exclude_rois", [])
-    clear_exclusions(mask, roi_rect, exclusions)
+    polygon_mask = (config["_exclude_polygon_mask"] if "_exclude_polygon_mask" in config else
+                    polygon_exclusion_mask(roi_rect, config.get("exclude_polygons", [])))
+    clear_exclusions(mask, roi_rect, exclusions, polygon_mask)
     mode = config.get("morph_mode", MORPH_OPEN_CLOSE)
     mask = (clean_mask(mask, mode) if buffers is None else
             clean_mask(mask, mode, dst=buffers.cleaned))
     if mode != "NONE":
-        clear_exclusions(mask, roi_rect, exclusions)
+        clear_exclusions(mask, roi_rect, exclusions, polygon_mask)
     morph_ms = (perf_counter() - tick) * 1000.0
     tick = perf_counter()
     options = {"grasp_roi": grasp_roi} if grasp_roi is not None else {}
@@ -518,6 +554,13 @@ def make_preview(cv_bgr, mask_full, result, config, view_mode="OVERLAY"):
             ex, ey, ew, eh = (rect[k] for k in ("x", "y", "w", "h"))
             preview[ey:ey + eh, ex:ex + ew] //= 3
             cv2.rectangle(preview, (ex, ey), (ex + ew - 1, ey + eh - 1), (0, 140, 255), 1)
+        polygons = config.get("exclude_polygons", [])
+        polygon_mask = polygon_exclusion_mask((0, 0, preview.shape[1], preview.shape[0]), polygons)
+        if polygon_mask is not None:
+            preview[polygon_mask] //= 3
+            for polygon in polygons:
+                cv2.polylines(preview, [np.asarray(polygon, dtype=np.int32).reshape((-1, 1, 2))],
+                              True, (0, 140, 255), 1)
     if counted is not None:
         # 青色仅覆盖真正计入分子的像素；原图中的亮面/漏分割区域仍保持原色。
         gx, gy, gw, gh = counted["rect"]

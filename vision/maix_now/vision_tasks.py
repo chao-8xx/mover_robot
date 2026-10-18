@@ -15,7 +15,7 @@ from vision_ring import detect_ring_candidates
 
 
 TASK_NONE = 0
-B2_TASK_BUILD = "B2_EXCLUDE_V4"
+B2_TASK_BUILD = "B2_POLYGON_V5"
 TASK_MATERIAL = 1
 TASK_RING = 2
 TASK_STACK = 3
@@ -76,6 +76,8 @@ class ColorTracker:
                    config["morph_mode"], config["target_color"])
             key += (tuple(tuple(r[k] for k in ("x", "y", "w", "h"))
                           for r in config.get("exclude_rois", [])),)
+            key += (tuple(tuple(tuple(p) for p in polygon)
+                          for polygon in config.get("exclude_polygons", [])),)
             if self.run_geometry is None or key != self.run_geometry_key:
                 self.run_geometry = make_run_geometry(
                     config, IMAGE_WIDTH, IMAGE_HEIGHT,
@@ -331,6 +333,7 @@ class TaskManager:
         task_config = dict(config)
         if self.task_id == TASK_STACK:
             task_config.pop("exclude_rois", None)
+            task_config.pop("exclude_polygons", None)
             for key in ("roi", "center", "blob"):
                 task_config[key] = config["stack"][key]
         else:

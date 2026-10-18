@@ -90,8 +90,8 @@ class GraspMaskTests(unittest.TestCase):
                 self.assertEqual(result["coverage_pixels"], count)
                 self.assertEqual(result["coverage_total"], 400)
                 self.assertEqual(result["coverage_ratio"], count / 400)
-                self.assertEqual(result["dx"], result["cx"] - DEFAULT_CONFIG["center"]["x"])
-                self.assertEqual(result["dy"], result["cy"] - DEFAULT_CONFIG["center"]["y"])
+                self.assertEqual(result["dx"], result["cx"] - grasp_config()["center"]["x"])
+                self.assertEqual(result["dy"], result["cy"] - grasp_config()["center"]["y"])
 
     def test_other_same_color_target_cannot_contribute(self):
         mask = np.zeros((240, 320), np.uint8)
@@ -161,7 +161,7 @@ class GraspIntegrationTests(unittest.TestCase):
 
     def test_preview_and_run_share_rule_and_reference_without_extra_conversion(self):
         cfg = grasp_config()
-        cfg["grasp"] = copy.deepcopy(DEFAULT_CONFIG["grasp"])
+        cfg["grasp"] = copy.deepcopy(config()["grasp"])
         frame = np.full((240, 320, 3), 255, np.uint8)
         frame[60:140, 140:210] = midpoint_bgr(cfg, "red")
         mgr = TaskManager()
@@ -219,7 +219,7 @@ class GraspIntegrationTests(unittest.TestCase):
         mgr.switch(TASK_MATERIAL, 1)
         self.assertEqual(mgr.process(frame, cfg, True)["result"]["ok"], 1)
         geometry = mgr.color_tracker.run_geometry
-        cfg["grasp"] = copy.deepcopy(DEFAULT_CONFIG["grasp"])
+        cfg["grasp"] = copy.deepcopy(config()["grasp"])
         self.assertEqual(mgr.process(frame, cfg, True)["result"]["ok"], 2)
         self.assertIs(mgr.color_tracker.run_geometry, geometry)
 
@@ -248,8 +248,9 @@ class GraspConfigTests(unittest.TestCase):
             value = validate_config(old)
             for key in old.keys() - {"schema_version"}:
                 self.assertEqual(value[key], old[key])
-            self.assertEqual(value["grasp"]["roi"], dict(x=280, y=0, w=40, h=40))
-            self.assertEqual(value["grasp"]["min_coverage_pct"], 60)
+            w, h = (DEFAULT_CONFIG["grasp"]["roi"][k] for k in ("w", "h"))
+            self.assertEqual(value["grasp"]["roi"], dict(x=min(310-w//2, 320-w), y=0, w=w, h=h))
+            self.assertEqual(value["grasp"]["min_coverage_pct"], DEFAULT_CONFIG["grasp"]["min_coverage_pct"])
 
     def test_invalid_grasp_fields_are_clamped_to_valid_image_region(self):
         for roi in (dict(x=-10, y=999, w=0, h=-2), dict(x=999, y=-100, w=1000, h=999),

@@ -9,7 +9,7 @@ import json
 import os
 
 
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 IMAGE_WIDTH = 320
 IMAGE_HEIGHT = 240
 
@@ -61,12 +61,19 @@ DEFAULT_CONFIG = {
         {"x": 65, "y": 216, "w": 22, "h": 14},   # 左夹爪
         {"x": 285, "y": 216, "w": 22, "h": 14},   # 右夹爪
     ],
+    # B2多边形屏蔽：每个列表是一块封闭区域，顶点沿边界顺序填写[x,y]。
+    # 圆弧用多个顶点近似：沿外弧走，再沿内弧反向返回，形成有厚度的弧带。
+    # 以下仅为右侧弧带占位，必须按实拍修改；设为[]可关闭多边形屏蔽。
+    "exclude_polygons": [
+        [[246, 65], [262, 85], [272, 110], [272, 138], [262, 160],
+         [253, 155], [263, 135], [263, 112], [254, 89], [239, 72]],
+    ],
     # B2 center.x/y为原图绝对坐标，裁剪外层ROI不能移动此参考点。
     # custom=False使用原图中心(160,120)；stack/ring的center仍为各自ROI内相对坐标。
     "center": {
         # 旧main的ROI(110,25,135,135)几何中心为原图(177,92)。
         # NOW保留全图视野，因此明确保存为自定义绝对对准点。
-        "x": 1+3,
+        "x": 163,
         "y": 116,
         "custom": True,
     },
@@ -219,6 +226,28 @@ def validate_config(value):
         left, top = max(0, left), max(0, top)
         if right > left and bottom > top:
             result["exclude_rois"].append(dict(x=left, y=top, w=right-left, h=bottom-top))
+
+    polygons = source.get("exclude_polygons", DEFAULT_CONFIG["exclude_polygons"])
+    result["exclude_polygons"] = []
+    for polygon in polygons if isinstance(polygons, (list, tuple)) else []:
+        if not isinstance(polygon, (list, tuple)) or len(polygon) < 3:
+            continue
+        points = []
+        try:
+            for point in polygon:
+                if not isinstance(point, (list, tuple)) or len(point) != 2:
+                    raise ValueError("invalid polygon point")
+                # 保留画面外顶点，光栅化时裁剪；逐点夹到边界会改变原多边形形状。
+                px, py = int(point[0]), int(point[1])
+                points.append([max(-IMAGE_WIDTH, min(2 * IMAGE_WIDTH, px)),
+                               max(-IMAGE_HEIGHT, min(2 * IMAGE_HEIGHT, py))])
+        except (TypeError, ValueError, OverflowError):
+            continue
+        area2 = sum(points[i][0] * points[(i + 1) % len(points)][1] -
+                    points[(i + 1) % len(points)][0] * points[i][1]
+                    for i in range(len(points)))
+        if area2 and len(set(map(tuple, points))) >= 3:
+            result["exclude_polygons"].append(points)
 
     blob_source = source.get("blob", {})
     if not isinstance(blob_source, dict):

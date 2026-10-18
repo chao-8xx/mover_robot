@@ -127,24 +127,30 @@ uint8_t map_stage_test(void) {
     ///////////////////////////////////// 5 跨圈确认并封路 ////////////////////////////////
     // map_update_scan参数依次为：障碍框数组、框数量、扫描编号、时间戳ms
     // 下面的1、2、3、4是模拟扫描编号；100、200等是模拟时间，不会等待真实时间
-    // first scan and duplicate scan：第1圈只建立候选；重复提交第1圈必须拒绝
+    // first scan and duplicate scan：第1圈只给R8累计一次；重复提交第1圈必须拒绝
     map_test_check(map_update_scan(&box, 1, 1, 100) &&
                    map_road_get(8, &state) && state == road_unknown &&
                    !map_update_scan(&box, 1, 1, 101),
                    "first scan and duplicate scan");
-    // one miss then confirm R8：第2圈没有障碍，第3圈重新看到同一障碍
-    // 三圈中出现两次后确认并封锁R8，道路状态变化次数应为1
+    // miss resets road confirmation：第2圈没有障碍，R8的连续次数清零
+    // 第3圈重新看到只算第一次，不能把不连续的两圈凑成确认
     // 参数(0,0,2,200)表示第2圈有效但没有障碍框，不表示雷达断流
     map_test_check(map_update_scan(0, 0, 2, 200) &&
                    map_road_get(8, &state) && state == road_unknown &&
                    map_update_scan(&box, 1, 3, 300) &&
+                   map_road_get(8, &state) && state == road_unknown &&
+                   map_update_change_get() == 0,
+                   "miss resets road confirmation");
+    // consecutive scans block R8：第3、4圈连续看到才封路，只记录一次道路变化
+    map_test_check(map_update_scan(&box, 1, 4, 400) &&
                    map_road_get(8, &state) && state == road_blocked &&
                    map_update_change_get() == 1,
-                   "one miss then confirm R8");
-    // other roads and blocked persistence：R0保持未知；第4圈没看到障碍也不自动解封R8
+                   "consecutive scans block R8");
+    // other roads and blocked persistence：R0保持未知；第5圈没看到障碍也不自动解封R8
     map_test_check(map_road_get(0, &state) && state == road_unknown &&
-                   map_update_scan(0, 0, 4, 400) &&
-                   map_road_get(8, &state) && state == road_blocked,
+                   map_update_scan(0, 0, 5, 500) &&
+                   map_road_get(8, &state) && state == road_blocked &&
+                   map_update_change_get() == 1,
                    "other roads and blocked persistence");
     // blocked road causes replan：旧直达路径失效，进入R8的决策必须是停止
     // 允许未知路参与搜索时应能绕行；新路径经过多条道路且检查有效
@@ -157,19 +163,58 @@ uint8_t map_stage_test(void) {
                    "blocked road causes replan");
 
     ///////////////////////////////////// 6 同圈去重与漏圈 ////////////////////////////////
-    // 两个相近的单圈聚类也只能算同一个候选 不能用一圈里的两个框凑成两圈确认
+    // 同一圈里有几个框都只给道路累计一次，不要求这些框彼此接近
     map_update_init(300.0f, 50.0f);  // 重置地图 这一组测试从空地图开始
-    map_scan_obs_t same_scan[2] = {box, box};  // 同一圈里重复出现两个相同的框
+    map_scan_obs_t same_scan[2] = {box, box};
+    same_scan[1].center_y += 150.0f; // 第二个框也在R8上，与第一个框相隔150mm
+    same_scan[1].min_y += 150.0f;
+    same_scan[1].max_y += 150.0f;
     map_update_scan(same_scan, 2, 1, 100);
-    // one scan cannot confirm twice：候选看到次数仍为1，R8保持未知
+    // one scan cannot confirm twice：单圈两个框也只能累计一次，R8保持未知
     map_test_check(map_road_get(8, &state) && state == road_unknown &&
-                   map_obs_get(0, &read_obs) && read_obs.seen_num == 1,
+                   map_update_change_get() == 0,
                    "one scan cannot confirm twice");
-    // missing scans remove candidate：从第1圈直接跳到第4圈，中间漏掉2圈
-    // 旧候选应删除，第4圈重新建立候选，因此R8仍不能立即封锁
-    map_update_scan(&box, 1, 4, 400);
-    map_test_check(map_road_get(8, &state) && state == road_unknown,
-                   "missing scans remove candidate");
+    // road confirmation needs no object matching：下一圈换个位置，与之前两个框都相距超过120mm
+    // 本版不配对物体，只要连续两圈影响R8就确认这条道路
+    map_scan_obs_t shifted_box = box;
+    shifted_box.center_y -= 150.0f;
+    shifted_box.min_y -= 150.0f;
+    shifted_box.max_y -= 150.0f;
+    map_test_check(map_update_scan(&shifted_box, 1, 2, 200) &&
+                   map_road_get(8, &state) && state == road_blocked,
+                   "road confirmation needs no object matching");
+
+    // skipped scan resets confirmation：第1圈直接跳到第3圈，也必须重新累计
+    map_update_init(300.0f, 50.0f);
+    map_update_scan(&box, 1, 1, 100);
+    map_test_check(map_update_scan(&box, 1, 3, 300) &&
+                   map_road_get(8, &state) && state == road_unknown &&
+                   map_update_scan(&box, 1, 4, 400) &&
+                   map_road_get(8, &state) && state == road_blocked,
+                   "skipped scan resets confirmation");
+
+    // long pause resets confirmation：编号相邻但间隔超过1秒，也不能沿用上次次数
+    map_update_init(300.0f, 50.0f);
+    map_update_scan(&box, 1, 1, 100);
+    map_test_check(map_update_scan(&box, 1, 2, 1200) &&
+                   map_road_get(8, &state) && state == road_unknown &&
+                   map_update_scan(&box, 1, 3, 1300) &&
+                   map_road_get(8, &state) && state == road_blocked,
+                   "long pause resets confirmation");
+
+    // clear restarts confirmation and keeps blocked：接收/位姿中断时清零；已经封路则保留
+    map_update_init(300.0f, 50.0f);
+    map_update_scan(&box, 1, 1, 100);
+    map_update_clear_candidates();
+    map_test_check(map_update_scan(&box, 1, 2, 200) &&
+                   map_road_get(8, &state) && state == road_unknown &&
+                   map_update_scan(&box, 1, 3, 300) &&
+                   map_road_get(8, &state) && state == road_blocked,
+                   "clear restarts road confirmation");
+    map_update_clear_candidates();
+    map_test_check(map_road_get(8, &state) && state == road_blocked &&
+                   map_update_change_get() == 1,
+                   "clear keeps blocked roads");
 
     ///////////////////////////////////// 7 节点堵塞与无路可走 ////////////////////////////
     // 把模拟障碍移到中心节点N4 车体安全膨胀后会影响它连接的四个出口
@@ -262,7 +307,7 @@ void map_lidar_test(void) {
     static uint8_t test_started = 0;
     static uint32_t last_print_tick = 0;
     static uint32_t last_change = 0;
-    static uint32_t last_drop = 0;  // 接收错误打断扫描后，清除尚未确认的旧候选
+    static uint32_t last_drop = 0;  // 接收错误打断扫描后，清零道路连续确认次数
     static map_path_t path;
     map_scan_obs_t boxes[CLUSTER_MAX_COUNT];
     uint8_t count = 0;
@@ -278,7 +323,7 @@ void map_lidar_test(void) {
         printf("===== LIDAR MAP DESK TEST START =====\r\n");
         printf("固定测试位姿=(1200,2125,180)，临时零安装偏移；不是实际全局定位\r\n");
         printf("观察原始0度方向前方400~600mm、左右各200mm；先移走挡板，再放到约500mm处\r\n");
-        printf("只收观察框内的完整聚类；移走挡板不自动解封，复位可清空重测\r\n");
+        printf("只收观察框内的完整聚类；道路连续两圈有障碍才封锁，移走不自动解封\r\n");
         // 允许搜索未知路只用于观察候选绕行结果 进入未知路的决策仍为SCAN
         map_plan_find(1, 4, map_unknown_allow, &path);
         map_lidar_test_print_path(&path);
@@ -290,7 +335,7 @@ void map_lidar_test(void) {
     if (drop != last_drop) {
         last_drop = drop;
         map_update_clear_candidates();
-        printf("[LIDAR MAP] SCAN INTERRUPTED, clear pending\r\n");
+        printf("[LIDAR MAP] SCAN INTERRUPTED, reset road confirmation\r\n");
         return;  // 受影响的这次更新不写地图 已确认的封锁道路保留
     }
     if (!updated) return;
@@ -312,7 +357,7 @@ void map_lidar_test(void) {
     }
 
     tick = obstacle_result.update_tick;
-    // count=0表示本圈观察框内没有完整聚类 仍提交，让未确认候选正常累计漏检次数
+    // count=0表示本圈观察框内没有完整聚类 仍提交，让道路连续确认次数清零
     if (!map_update_scan(boxes, count, cloud.scan_num, tick)) return;
     change = map_update_change_get();
     if (change != last_change) {
@@ -325,21 +370,14 @@ void map_lidar_test(void) {
         }
     }
 
-    // 每500ms打印一次摘要 selected=本圈入选框数；pending/confirmed=地图内候选/确认数量
+    // 每500ms打印一次摘要 selected=本圈入选框数；本版不再统计单个障碍物的候选/确认数量
     // R8=UNKNOWN表示尚未确认封锁，不能解释为可通行；changes=累计道路状态变化次数
     if (tick - last_print_tick < 500U) return;
     last_print_tick = tick;
-    uint8_t pending = 0, confirmed = 0;
-    for (uint8_t i = 0; i < MAP_OBS_MAX; i++) {
-        map_obs_t obs;
-        if (!map_obs_get(i, &obs)) continue;
-        if (obs.state == obs_unknown) pending++;
-        else if (obs.state == obs_ok) confirmed++;
-    }
     map_road_get(8, &road_state);
-    printf("[LIDAR MAP] scan=%lu clusters=%u selected=%u pending=%u confirmed=%u R8=%s changes=%lu\r\n",
+    printf("[LIDAR MAP] scan=%lu clusters=%u selected=%u R8=%s changes=%lu\r\n",
            (unsigned long)cloud.scan_num, (unsigned int)obstacle_result.cluster_count,
-           (unsigned int)count, (unsigned int)pending, (unsigned int)confirmed,
+           (unsigned int)count,
            road_state == road_blocked ? "BLOCKED" : road_state == road_free ? "FREE" : "UNKNOWN",
            (unsigned long)change);
     for (uint8_t i = 0; i < count; i++) {

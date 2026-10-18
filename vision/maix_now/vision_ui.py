@@ -7,7 +7,6 @@ import numpy as np
 from maix import image
 
 from vision_blob import threshold_swatch_bgr
-from vision_runtime import send_interval_ms
 from vision_config import (
     COLOR_LABELS,
     COLOR_NUMBERS,
@@ -28,7 +27,7 @@ from vision_tasks import (
 )
 
 
-B2_UI_BUILD = "B2_EXCLUDE_UI_V3"
+B2_UI_BUILD = "B2_LIVE_RUN_UI_V4"
 PAGE_TASKS = "TASKS"
 PAGE_HOME = "HOME"
 PAGE_RUN = "RUN"
@@ -517,7 +516,7 @@ class VisionUI:
                          "任务二调参", font="small")
 
     def _draw_ring_run(self, canvas, preview_bgr, result):
-        self._draw_fast_run(canvas, ring=True)
+        self._draw_fast_run(canvas, preview_bgr, ring=True)
 
     def _draw_ring_calibrate(self, canvas, preview_bgr):
         self._header(canvas, "任务二调参", back=True)
@@ -701,26 +700,13 @@ class VisionUI:
         self.preview_rect = None
 
     def _draw_run(self, canvas, preview_bgr, result):
-        self._draw_fast_run(canvas)
+        self._draw_fast_run(canvas, preview_bgr)
 
-    def _draw_fast_run(self, canvas, ring=False):
-        """高速RUN只绘制一次状态页，触摸返回继续有效。"""
+    def _draw_fast_run(self, canvas, preview_bgr, ring=False):
+        """调试期RUN保留实时预览；主循环限频刷新，中文框架仍只构建一次。"""
         self._header(canvas, TASK_LABELS.get(self.selected_task, "运行中"),
                      back=ring and not self.external_control, exit_run=not ring)
-        interval = send_interval_ms(self.selected_task)
-        rate_text = "结果发送目标：{:.1f}Hz（{}ms）".format(1000.0 / interval, interval)
-        lines = ["高速识别运行中", rate_text,
-                 "画面暂停刷新，实际FPS与发送Hz查看日志"]
-        if ring:
-            lines.append("只定位圆环中心，不识别数字")
-        else:
-            lines.append("当前输出颜色：" + COLOR_LABELS[self.saved_config["target_color"]])
-        if not self.external_control:
-            lines.append("点击返回，恢复实时调参画面")
-        for index, label in enumerate(lines):
-            self._text(label, 16, 94 + index * 48,
-                       ACCENT if index == 0 else WHITE, "normal" if index == 0 else "small")
-        self.preview_rect = None
+        self._preview(canvas, preview_bgr, (8, 55, self.screen_w - 16, self.screen_h - 63))
 
     def _draw_calibrate(self, canvas, preview_bgr):
         self._header(canvas, "调参", back=True)
@@ -1114,8 +1100,7 @@ class VisionUI:
         self.building_static = True
         self._draw_page(canvas, placeholder, result)
         self.building_static = False
-        if self.page not in (PAGE_RUN, PAGE_RING_RUN):
-            self._move_debug_content_up(canvas)
+        self._move_debug_content_up(canvas)
 
         static_image = image.cv2image(canvas)
         self._draw_text_ops(static_image)
@@ -1127,7 +1112,7 @@ class VisionUI:
         self.static_cache_preview_rect = self.preview_rect
 
     def _move_debug_content_up(self, canvas):
-        """只在调试页缓存重建时移动布局；RUN仍沿用原静态页。
+        """调试页和实时RUN缓存重建时移动布局。
 
         原顶部48px标题/返回栏移到底部，内容整体上移48px。
         同时迁移文字、按钮命中区与预览矩形，图像标定坐标仍是320×240。
@@ -1149,7 +1134,7 @@ class VisionUI:
             self.preview_rect = (x, screen_y(y), w, h)
 
     def _paste_live_preview(self, canvas, preview_bgr):
-        if self.preview_rect is None:
+        if self.preview_rect is None or preview_bgr is None:
             return
         x, y, w, h = self.preview_rect
         resized = cv2.resize(preview_bgr, (w, h), interpolation=cv2.INTER_LINEAR)
@@ -1179,7 +1164,7 @@ class VisionUI:
                 1 if result.get("target_confirmed", False) else 0,
                 result.get("state", "SEARCH"),
             )
-        elif result["found"]:
+        elif result.get("found", False):
             info = "AREA:{}  DX:{}  DY:{}".format(
                 result["area"], result["dx"], result["dy"]
             )

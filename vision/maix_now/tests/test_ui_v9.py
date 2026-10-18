@@ -79,7 +79,7 @@ class VisionUiTests(unittest.TestCase):
         self.ui._activate("START_RUN")
         self.assertTrue(self.ui.is_run_mode())
         self.ui.render(self.frame, empty_result())
-        self.assertIsNone(self.ui.preview_rect)
+        self.assertEqual(self.ui.preview_rect[1], 7)
 
     def test_b4_center_editor_uses_stack_geometry(self):
         self.ui._open_task(TASK_STACK)
@@ -124,7 +124,7 @@ class VisionUiTests(unittest.TestCase):
         self.ui._activate("START_RUN")
         self.assertTrue(self.ui.is_run_mode())
         self.ui.render(self.frame, empty_result())
-        self.assertIsNone(self.ui.preview_rect)
+        self.assertEqual(self.ui.preview_rect[1], 7)
 
     def test_b2_no_roi_editor_but_b4_keeps_one(self):
         for task in (TASK_MATERIAL, TASK_STACK):
@@ -184,12 +184,12 @@ class VisionUiTests(unittest.TestCase):
             self.assertEqual(action["config"]["thresholds"], original)
             self.ui.set_saved_config(action["config"])
 
-    def test_ring_static_run_render_accepts_no_camera_preview(self):
+    def test_ring_live_run_accepts_empty_preview_while_waiting_for_frame(self):
         self.ui._open_task(TASK_RING)
         self.ui._activate("START_RING_RUN")
         self.ui.render(None, {})
         self.assertTrue(self.ui.is_run_mode())
-        self.assertIsNone(self.ui.preview_rect)
+        self.assertEqual(self.ui.preview_rect[1], 7)
 
     def test_debug_preview_top_buttons_and_footer_have_matching_hit_regions(self):
         for size in ((640, 480), (480, 640)):
@@ -250,7 +250,7 @@ class VisionUiTests(unittest.TestCase):
         self.assertEqual((roi["w"], roi["h"]), (original["roi"]["w"], original["roi"]["h"]))
         self.assertEqual(self.ui.draft_config["stack"]["center"], original["center"])
 
-    def test_layout_move_preserves_cached_hit_regions_and_static_run_header(self):
+    def test_layout_move_preserves_cached_hit_regions_and_live_run_footer(self):
         self.ui._open_task(TASK_MATERIAL)
         self.ui.render(self.frame, empty_result())
         buttons, rect = list(self.ui.buttons), self.ui.preview_rect
@@ -260,8 +260,28 @@ class VisionUiTests(unittest.TestCase):
         self.ui._activate("START_RUN")
         self.ui.render(None, {})
         exit_button = next(b for b in self.ui.buttons if b[0] == "EXIT_RUN")
-        self.assertEqual(exit_button[2], 7)
-        self.assertIsNone(self.ui.preview_rect)
+        self.assertEqual(exit_button[2], self.ui.screen_h - 41)
+        self.assertEqual(self.ui.preview_rect[1], 7)
+
+    def test_all_run_pages_update_live_pixels_and_reuse_cached_layout(self):
+        for size in ((640, 480), (480, 640)):
+            for task in (TASK_MATERIAL, TASK_RING, TASK_STACK):
+                ui = VisionUI(*size, copy.deepcopy(DEFAULT_CONFIG), "loaded")
+                ui._open_task(task)
+                ui._activate("START_RING_RUN" if task == TASK_RING else "START_RUN")
+                dark = ui.render(np.zeros((240, 320, 3), np.uint8), empty_result(), 30, 8).array
+                cache, buttons = ui.static_cache, list(ui.buttons)
+                bright = ui.render(np.full((240, 320, 3), 255, np.uint8), empty_result(), 32, 9).array
+                self.assertIs(ui.static_cache, cache)
+                self.assertEqual(ui.buttons, buttons)
+                self.assertEqual(ui.preview_rect[1], 7)
+                px, py = ui._img_to_screen(80, 170)
+                self.assertFalse(np.array_equal(dark[py, px], bright[py, px]))
+                title = next(t for t in ui.text_ops if t[4] == "title")
+                self.assertGreaterEqual(title[1], size[1] - 48)
+                for name, x, y, w, h in ui.buttons:
+                    self.assertTrue(0 <= y and y + h <= size[1])
+                    self.assertEqual(ui._button_at(x + w // 2, y + h // 2), name)
 
 
 if __name__ == "__main__":

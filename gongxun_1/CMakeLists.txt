@@ -74,8 +74,8 @@ add_executable(${CMAKE_PROJECT_NAME}
         APP/Src/bfs.c
         Control/Inc/system.h
         Control/Src/system.c
-        APP/Src/track_map.c
-        APP/Inc/track_map.h
+        APP/Src/map_track.c
+        APP/Inc/map_track.h
         APP/Src/obstacle_find.c
         APP/Inc/obstacle_find.h
         Test/Src/map_test.c

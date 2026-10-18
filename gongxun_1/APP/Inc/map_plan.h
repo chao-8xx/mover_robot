@@ -1,8 +1,10 @@
 #ifndef GONGXUN_1_MAP_PLAN_H
 #define GONGXUN_1_MAP_PLAN_H
 
-#include <stdint.h>
-#include "track_map.h"
+
+#define MAP_COST_INF      0xFFFF    // 不可通行的道路
+#define MAP_COST_FREE     1         // 已确认可通行的道路
+#define MAP_COST_UNKNOWN  2         // 同样步数时优先已确认通行的道路
 
 // 未知路段的策略由上层选：允许搜索时，进路前仍需要停车扫描确认
 typedef enum {

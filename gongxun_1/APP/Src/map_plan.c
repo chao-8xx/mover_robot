@@ -3,39 +3,57 @@
 /**
  * 根据新观测更新障碍物和道路状态
  */
-#define MAP_COST_INF      0xFFFF
-#define MAP_COST_FREE     1
-#define MAP_COST_UNKNOWN  2  // 同样步数时优先已确认通行的道路
 
-// 判断道路是否允许搜索，并给出道路代价
-static uint8_t map_road_cost(uint8_t road_id, map_unknown_mode_t mode,
-                             uint16_t *cost) {
+
+// 判断道路是否允许搜索  并给出道路代价
+static uint8_t map_road_cost(uint8_t road_id, map_unknown_mode_t mode, uint16_t *cost) {
     road_state_t state;
-    if (!map_road_get(road_id, &state)) return 0;
-    if (state == road_blocked) return 0;
+
+    // 道路不存在
+    if (!map_road_get(road_id, &state))
+        return 0;
+
+    // 道路被阻塞
+    if (state == road_blocked)
+        return 0;
+
+    // 道路未知状态
     if (state == road_unknown) {
-        if (mode != map_unknown_allow) return 0;
+        if (mode != map_unknown_allow)
+            return 0;
         *cost = MAP_COST_UNKNOWN;
-    } else if (state == road_free) {
+    }
+
+    // 道路可通行
+    else if (state == road_free) {
         *cost = MAP_COST_FREE;
-    } else return 0;
+    }
+    else
+        return 0;
+
     return 1;
 }
 
-uint8_t map_plan_find(uint8_t start, uint8_t goal,
-                      map_unknown_mode_t mode, map_path_t *path) {
-    uint16_t cost[MAP_NODE_COUNT];
-    uint8_t done[MAP_NODE_COUNT] = {0};
-    uint8_t prev_node[MAP_NODE_COUNT];
-    uint8_t prev_road[MAP_NODE_COUNT];
-    uint8_t reverse_node[MAP_NODE_COUNT];
-    uint8_t reverse_road[MAP_NODE_COUNT - 1];
+
+// 根据起点和终点搜索最短路径  允许或不允许未知道路   Dijkstra 最短路径
+uint8_t map_plan_find(uint8_t start, uint8_t goal, map_unknown_mode_t mode, map_path_t *path) {
+    uint16_t cost[MAP_NODE_COUNT];              // 到每个节点的当前最短代价
+    uint8_t  done[MAP_NODE_COUNT] = {0};        // 是否已确定最短
+    uint8_t  prev_node[MAP_NODE_COUNT];         // 最短路径的前驱节点
+    uint8_t  prev_road[MAP_NODE_COUNT];         // 到达该节点所走的道路 ID
+    uint8_t reverse_node[MAP_NODE_COUNT];       // 反向存储路径节点
+    uint8_t reverse_road[MAP_NODE_COUNT - 1];   // 反向存储路径道路
     uint8_t count = 0;
 
-    if (path == 0) return 0;
+    // 参数检查
+    if (path == 0)
+        return 0;
+
+    // 初始化 清空路径
     memset(path, 0, sizeof(*path));
-    if (start >= MAP_NODE_COUNT || goal >= MAP_NODE_COUNT ||
-        (mode != map_unknown_allow && mode != map_unknown_stop)) return 0;
+
+    if (start >= MAP_NODE_COUNT || goal >= MAP_NODE_COUNT || (mode != map_unknown_allow && mode != map_unknown_stop))
+        return 0;
 
     for (uint8_t i = 0; i < MAP_NODE_COUNT; i++) {
         cost[i] = MAP_COST_INF;
