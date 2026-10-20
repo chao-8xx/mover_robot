@@ -1,7 +1,7 @@
 #include "headfile.h"
 
-#define TARGET_DX   (-16)         // 目标dx
-#define TARGET_DY   (14)          // 目标dy
+#define TARGET_DX   (0)         // 目标dx
+#define TARGET_DY   (0)          // 目标dy
 
 #define TARGET_CIRCLE_DX (2)     // 圆环目标dx
 #define TARGET_CIRCLE_DY (3)     // 圆环目标dy
@@ -9,7 +9,7 @@
 #define LEAVE_PARK_DX     15.0f       // 离开启停区的横向距离
 #define LEAVE_PARK_DY     12.0f       // 离开启停区的纵向距离
 
-#define LOCK_CAR_CALI    (0.1f)       // 抓物料时锁定小车的x轴位置的系数
+#define LOCK_CAR_CALI    (0.0f)       // 抓物料时锁定小车的x轴位置的系数
 #define LOCK_CAR_DY      (20)         // 抓物料时锁定小车的DY目标 小车横向锁转盘中心
 
 #define MOVE_SPEED        470         // 底盘非任务区运行速度
@@ -23,7 +23,7 @@
 
 // 舵机等待时间 ms
 #define CLAW_WAIT         600         // 等待夹爪
-#define HOLDER_WAIT       1200        // 等待云台
+#define HOLDER_WAIT       1100        // 等待云台
 
 // 任务完成标志
 uint8_t scan_finish = 0;    // 扫码任务完成标志
@@ -33,6 +33,9 @@ uint8_t pick_finish = 0;    // 拿起任务完成标志
 
 // 结构体定义
 Control_Variate my_control;
+
+// 声明变量
+extern volatile uint8_t stretch_pos_valid;
 
 // 目标点顺序初始化
 static void target_pos_init(void)
@@ -92,6 +95,7 @@ void leave_parking(void)
                 break;
             case 2:
                 leave_step = 0;
+                task_state.odom_on = 1;
                 my_control.step = my_control.target_pos[my_control.target_index];
                 break;
             default:
@@ -554,7 +558,7 @@ void final_road_move(void)
 // 目标状态获取 将摄像头所捕获的状态转化成车辆状态
 void target_state_get(void)
 {
-    if (maix_vision.ok == 1) {
+    if (maix_vision.ok != 1) {
         task_state.is_find_target = 1;
         task_state.follow_x = maix_vision.dx;
         task_state.follow_y = maix_vision.dy;
@@ -603,20 +607,26 @@ uint8_t catch_x_is_ok(void)
 uint8_t catch_is_ok(void)
 {
     static uint8_t stable_frame = 0;
+    static uint8_t lost_frame = 0;
 
     // 确认目标是否跟踪到可抓取位置附近 发现且稳定时
-    if ((task_state.follow_x < TARGET_DX + 2 && task_state.follow_x > TARGET_DX - 2) &&
-        (task_state.follow_y < TARGET_DY + 2 && task_state.follow_y > TARGET_DY - 2) &&
+    if ((task_state.follow_x < TARGET_DX + 8 && task_state.follow_x > TARGET_DX - 8) &&
+        (task_state.follow_y < TARGET_DY + 8 && task_state.follow_y > TARGET_DY - 8) &&
         task_state.is_find_target) {
         stable_frame += 1;
+        lost_frame = 0;
     }
     else {
-        stable_frame = 0;
+        // 允许短暂丢 4 帧，避免视觉瞬间抖动就把稳定计数清零
+        if (++lost_frame >= 5) {
+            stable_frame = 0;
+        }
     }
 
-    // 稳定20帧，即达到抓取条件
-    if (stable_frame >= 20) {
+    // 稳定10帧，即达到抓取条件
+    if (stable_frame >= 10) {
         stable_frame = 0;
+        lost_frame = 0;
         task_state.is_catch_target = 1;
     }
     else {
@@ -764,6 +774,7 @@ void follow_target(float target_yaw, int16_t target_x, int16_t target_y)
     float x_out = x_pid.output;
     float y_out = y_pid.output;
     // 输出
+    chassis_odom_hold();   // 速度跟随期间关闭航迹推算
     car_speed_move((int16_t)(-y_out), (int16_t)(-x_out), (int16_t)(omega_out));
 }
 
@@ -771,8 +782,24 @@ void follow_target(float target_yaw, int16_t target_x, int16_t target_y)
 void follow_stretch_target(int16_t target_y)
 {
     Positional_PID_Cal(&follow_pid, target_y, task_state.follow_y); // 解算
-    float follow_out = follow_pid.output;    // 赋值
-    catch_stretch_send((int16_t)(-follow_out));    // 输出
+    float follow_out = -follow_pid.output;    // 赋值 follow_out为负时伸出
+
+    // 目标附近设置死区，避免视觉噪声让电机来回抽搐，导致稳定帧一直凑不齐
+    if (follow_pid.error < 2.0f && follow_pid.error > -2.0f) {
+        follow_out = 0.0f;
+    }
+
+    // 超限保护
+    // 只有读到过有效位置，才做超限保护
+    if (stretch_pos_valid) {
+        if ((task_state.cur_stretch >= STRETCH_MAX_CM && follow_out < 0.0f) ||  // 伸到头 只让缩
+        (task_state.cur_stretch <= 0.0f && follow_out > 0.0f)) {                // 缩到头 只让伸
+            follow_out = 0.0f;
+        }
+    }
+
+    chassis_odom_hold();   // 伸缩跟随期间关闭航迹推算
+    catch_stretch_send((int16_t)(follow_out));    // 输出 加负号与实际现象符合
 }
 
 
@@ -849,8 +876,8 @@ void catch_material(void)
     static uint8_t servo_reset_step = 0;    // 舵机复位步骤
     static uint8_t catch_num = 0;           // 当前抓取个数
     static float temp_yaw = 0.0f;
-    static uint8_t catch_y_ok = 0;
-    static uint8_t clear_zero_time = 0;
+    static uint8_t catch_y_ok = 0;          // 与转盘距离确定好后
+    static uint8_t clear_zero_time = 0;     // 编码器清零计时
     static uint8_t find_meta = 0;           // 是否发现过物料
 
     // 不在原料区 退出
@@ -933,8 +960,12 @@ void catch_material(void)
                 motor_encoder_clear(Motor_4);
             }
             else if (clear_zero_time == 90) {
-                clear_zero_time = 0;
                 catch_y_ok = 1; // 小车锁定完成
+                Emm_V5_Read_Sys_Params(6, S_CPOS);  // 获取伸缩编码器
+            }
+            else if (clear_zero_time == 100) {
+                clear_zero_time = 0;
+                chassis_odom_reset();      // 重置航迹基准
                 catch_step = 7;
             }
             break;
@@ -947,10 +978,13 @@ void catch_material(void)
                 find_meta = 1;
             }
             else {
-                car_stop();
-                catch_stretch_stop();
+                clear_zero_time++;
+                if (clear_zero_time >= 5) {
+                    car_stop();
+                    catch_stretch_stop();
+                }
                 if (find_meta == 1) {   // 发现过物料 但是丢失
-                    if (++clear_zero_time < 100) {
+                    if (clear_zero_time >= 100) {     // 连续丢失 100 帧再回零
                         clear_zero_time = 0;
                         catch_step = 8; // 丢失目标 底盘回零
                     }
@@ -1086,6 +1120,7 @@ void put_material(void)
     static uint16_t lose_time = 0;          // 等待超时时间
     static uint8_t temp_index = 0;          // 暂存索引
     static uint8_t find_cir_ok = 0;         // 是否发现二号圆环
+    static uint8_t clear_zero_time = 0;     // 编码器清零计时
     uint8_t slot = 0;
 
     // 不在粗加工区或暂存区 退出
@@ -1184,9 +1219,31 @@ void put_material(void)
             break;
         case 6:     // 上升夹爪准备放物料
             catch_lift_to_height(LIFT_CATCH);
-            put_step = 7;   // 控制转盘
+            put_step = 7;   // 底盘电机编码器清零
             break;
-        case 7:     // 控制转盘
+        case 7:     // 底盘电机编码器清零
+            clear_zero_time ++;
+            if (clear_zero_time == 10) {
+                motor_encoder_clear(Motor_1);
+            }
+            else if (clear_zero_time == 30) {
+                motor_encoder_clear(Motor_2);
+            }
+            else if (clear_zero_time == 50) {
+                motor_encoder_clear(Motor_3);
+            }
+            else if (clear_zero_time == 70) {
+                motor_encoder_clear(Motor_4);
+            }
+            else if (clear_zero_time == 90) {
+                chassis_odom_reset();      // 重置航迹基准
+            }
+            else if (clear_zero_time == 100) {
+                clear_zero_time = 0;
+                catch_step = 8; // 控制转盘
+            }
+            break;
+        case 8:     // 控制转盘
             // 第一组按顺序放，第二组按"颜色匹配的位置"放
             if (task_state.one_finish && task_state.two_finish) {
                 slot = task_state.turntable_seq[put_num];   // 第二批：查映射表
@@ -1200,35 +1257,35 @@ void put_material(void)
                 case 2: turntable_rotate(THREE_LOCATION); break;
                 default: turntable_rotate(SAFE_LOCATION); break;
             }
-            put_step = 8;   // 开始放置
+            put_step = 9;   // 开始放置
             break;
-        case 8:     // 开始放置 从一号位开始放
+        case 9:     // 开始放置 从一号位开始放
             holder_rotate(HOLDER_PUT); // 转到车上拿物料
             servo_wait_ms(HOLDER_WAIT);     // 等待云台完成转向
-            put_step = 9;   // 伸缩到放物料的长度
+            put_step = 10;   // 伸缩到放物料的长度
             break;
-        case 9:     // 伸缩到放物料的长度
+        case 10:     // 伸缩到放物料的长度
             if (!servo_is_busy()) {
                 catch_stretch_distance(STRETCH_PUT);  // 伸缩到放置位置
-                put_step = 10;
+                put_step = 11;
             }
             break;
-        case 10:     // 下放夹爪拿物料
+        case 11:     // 下放夹爪拿物料
             catch_lift_to_height(LIFT_PUT);
-            put_step = 11;
-            break;
-        case 11:     // 夹爪夹紧 抓物料
-            claw_ctrl(CLAW_CATCH);  // 夹爪夹紧
-            servo_wait_ms(CLAW_WAIT); // 等待夹爪完全夹住
             put_step = 12;
             break;
-        case 12:     // 等待夹爪夹紧 升起
+        case 12:     // 夹爪夹紧 抓物料
+            claw_ctrl(CLAW_CATCH);  // 夹爪夹紧
+            servo_wait_ms(CLAW_WAIT); // 等待夹爪完全夹住
+            put_step = 13;
+            break;
+        case 13:     // 等待夹爪夹紧 升起
             if (!servo_is_busy()) {
                 catch_lift_to_height(LIFT_NORMAL);
-                put_step = 13;
+                put_step = 14;
             }
             break;
-        case 13:    // 根据已经放置的个数决定云台位置
+        case 14:    // 根据已经放置的个数决定云台位置
             switch (put_num) {
                 case 0:     // 1号圆环
                     holder_rotate(HOLDER_LEFT);
@@ -1248,9 +1305,9 @@ void put_material(void)
                     break;
             }
             servo_wait_ms(HOLDER_WAIT); // 等云台转到目标位置
-            put_step = 14;
+            put_step = 15;
             break;
-        case 14:    // 云台转到位置 下放夹爪放置
+        case 15:    // 云台转到位置 下放夹爪放置
             if (!servo_is_busy()) {
                 if (task_state.one_finish && task_state.two_finish) {
                     catch_lift_to_height(LIFT_PUT_TWO); // 放置第二组
@@ -1258,35 +1315,35 @@ void put_material(void)
                 else {
                     catch_lift_to_height(LIFT_PUT_ONE); // 放置第一组
                 }
-                put_step = 15;
+                put_step = 16;
             }
             break;
-        case 15:    // 夹爪松开
+        case 16:    // 夹爪松开
             claw_ctrl(CLAW_LOOSE);  // 夹爪松开
             servo_wait_ms(CLAW_WAIT); // 等待夹爪完全松开
-            put_step = 16;
+            put_step = 17;
             break;
-        case 16:    // 夹爪松开完全后
+        case 17:    // 夹爪松开完全后
             if (!servo_is_busy()) {
                 catch_lift_to_height(LIFT_NORMAL);
                 put_num += 1;
                 put_pos_num = put_num;
-                put_step = 17;
+                put_step = 18;
             }
             break;
-        case 17:    // 判断是否放完
+        case 18:    // 判断是否放完
             if (put_num < 3) {
                 if (!car_is_busy()) {                       // 确认上一动作结束
-                    put_step = 7;   // 回到转盘控制
+                    put_step = 8;   // 回到转盘控制
                 }
             }
             else if (put_num >= 3) {
                 if (!car_is_busy()) {
-                    put_step = 18;  // 结束放置
+                    put_step = 19;  // 结束放置
                 }
             }
             break;
-        case 18:    // 结束放置
+        case 19:    // 结束放置
             maix_stop();    // maix停止视觉任务
             put_num = 0;
             put_pos_num = put_num;
@@ -1338,6 +1395,7 @@ void pick_material(void)
     static uint8_t temp_index = 0;          // 临时存放当前索引
     static uint16_t lose_time = 0;          // 等待超时时间
     static uint16_t lock_time = 0;          // 等待超时时间
+    static uint8_t clear_zero_time = 0;     // 编码器清零计时
 
     // 不在粗加工区 退出
     if (task_state.task_location != PROCESS) {
@@ -1400,7 +1458,7 @@ void pick_material(void)
                     task_state.remindState = GREEN_REMIND;   // 闪灯提示
                     light_off();     // 关灯
                     lock_time = 0;
-                    pick_step = 5;
+                    pick_step = 5;   // 底盘电机编码器清零
                 }
                 else {
                     if (++lock_time >= 800) {  // 超时直接抓
@@ -1409,7 +1467,7 @@ void pick_material(void)
                         task_state.remindState = RED_REMIND;   // 闪灯提示
                         light_off();     // 关灯
                         lock_time = 0;
-                        pick_step = 5;
+                        pick_step = 5;   // 底盘电机编码器清零
                     }
                 }
             }
@@ -1422,7 +1480,29 @@ void pick_material(void)
                 }
             }
             break;
-        case 5:   // 根据已抓物料数量控制云台和转盘角度
+        case 5:     // 底盘电机编码器清零
+            clear_zero_time ++;
+            if (clear_zero_time == 10) {
+                motor_encoder_clear(Motor_1);
+            }
+            else if (clear_zero_time == 30) {
+                motor_encoder_clear(Motor_2);
+            }
+            else if (clear_zero_time == 50) {
+                motor_encoder_clear(Motor_3);
+            }
+            else if (clear_zero_time == 70) {
+                motor_encoder_clear(Motor_4);
+            }
+            else if (clear_zero_time == 90) {
+                chassis_odom_reset();      // 重置航迹基准
+            }
+            else if (clear_zero_time == 100) {
+                clear_zero_time = 0;
+                catch_step = 6; // 控制转盘和云台
+            }
+            break;
+        case 6:   // 根据已抓物料数量控制云台和转盘角度
             switch (pick_num) {
                 case 0:     // 1号圆环
                     holder_rotate(HOLDER_LEFT);
@@ -1446,61 +1526,61 @@ void pick_material(void)
                     break;
             }
             servo_wait_ms(HOLDER_WAIT); // 等云台转到目标位置
-            put_step = 6;   // 下放夹爪抓取
+            put_step = 7;   // 下放夹爪抓取
             break;
-        case 6:     // 下放夹爪抓取
+        case 7:     // 下放夹爪抓取
             if (!servo_is_busy()) {     // 等云台稳定
                 if (!lift_is_busy()) {
                     catch_lift_to_height(LIFT_PUT_ONE); // 下降抓取
-                    pick_step = 7;
+                    pick_step = 8;  // 夹爪抓取
                 }
             }
             break;
-        case 7:     // 夹爪抓取
+        case 8:     // 夹爪抓取
             claw_ctrl(CLAW_CATCH);
             servo_wait_ms(CLAW_WAIT); // 等待夹爪完全夹住
-            pick_step = 8;
+            pick_step = 9;  // 夹爪夹紧后 升高
             break;
-        case 8:     // 夹爪夹紧后 升高
+        case 9:     // 夹爪夹紧后 升高
             if (!servo_is_busy()) {
                 catch_lift_to_height(LIFT_NORMAL);
-                pick_step = 9;
+                pick_step = 10;
             }
             break;
-        case 9:     // 伸缩到放置位置 云台转到放置位置
+        case 10:     // 伸缩到放置位置 云台转到放置位置
             catch_stretch_distance(STRETCH_PUT);
             holder_rotate(HOLDER_PUT);
             servo_wait_ms(HOLDER_WAIT); // 等待云台转到目标位置
-            pick_step = 10;
+            pick_step = 11;
             break;
-        case 10:     // 待位置稳定
+        case 11:     // 待位置稳定
             if (!servo_is_busy()) {
                 catch_lift_to_height(LIFT_PUT); // 下降放置
-                pick_step = 11;
+                pick_step = 12;
             }
             break;
-        case 11:     // 夹爪松开放置
+        case 12:     // 夹爪松开放置
             pick_num += 1;
             claw_ctrl(CLAW_LOOSE);
             servo_wait_ms(CLAW_WAIT);
-            pick_step = 12;
+            pick_step = 13;
             break;
-        case 12:    // 夹爪松开后 上升
+        case 13:    // 夹爪松开后 上升
             if (!servo_is_busy()) {
                 catch_lift_to_height(LIFT_NORMAL);
-                pick_step = 13;
+                pick_step = 14;
             }
             break;
-        case 13:    // 根据已经放好的物料数决定是否结束
+        case 14:    // 根据已经放好的物料数决定是否结束
             if (pick_num < 3) {
-                pick_step = 5;  // 继续控制转盘和云台
+                pick_step = 6;  // 继续控制转盘和云台
             }
             else if (pick_num >= 3) {
-                pick_step = 14; // 结束
+                pick_step = 15; // 结束
             }
             task_state.index = temp_index;  // 恢复当前索引
             break;
-        case 14:
+        case 15:
             maix_stop();    // maix停止视觉任务
             pick_num = 0;
             serve_wait_time = 0;
@@ -1509,7 +1589,7 @@ void pick_material(void)
             catch_stretch_distance(STRETCH_SAFE);   // 伸缩到安全位置
             if (task_state.task_location == PROCESS) {    // 在粗加工区
                 task_state.car_work = RUNNING; // 小车结束拿起状态 去往下一个点位
-                my_control.step = CALIBRATE_YAW_STEP;   // 跳到校准角度步骤 校准完再离开
+                my_control.step = CALIBRATE_YAW_STEP;     // 跳到校准角度步骤 校准完再离开
                 if (task_state.one_finish && !task_state.two_finish) {
                     task_state.two_finish = 1;
                 }

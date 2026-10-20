@@ -40,6 +40,6 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
     }
     else if (htim ->Instance == TIM2) {    // 10ms中断
         system_control();
-        // car_stretch_follow_material_test();
+        // car_catch_three_material_test();
     }
 }

@@ -226,17 +226,20 @@ void Emm_V5_Rx_Start(void)
 // 电机串口接收回调
 void Emm_V5_rx_callback(UART_HandleTypeDef *huart, uint16_t Size)
 {
-  // 回复格式：addr(1) + 0x36(1) + pos(4,大端) + status(1) + 0x6B(1) = 8 字节
+  // 回复格式：addr(1) + 0x36(1) + dir(1) + pos(3,大端) + status(1) + 0x6B(1)
   for (uint16_t i = 0; i + 8 <= Size; i++) {
     uint8_t addr = emm_v5_rx_buf[i];
     if (addr >= 1 && addr <= 6 &&
         emm_v5_rx_buf[i + 1] == 0x36 &&
         emm_v5_rx_buf[i + 7] == 0x6B) {
 
-      int32_t pos = (int32_t)((uint32_t)emm_v5_rx_buf[i + 2] << 24 |
-                              (uint32_t)emm_v5_rx_buf[i + 3] << 16 |
-                              (uint32_t)emm_v5_rx_buf[i + 4] << 8  |
-                              (uint32_t)emm_v5_rx_buf[i + 5]);
+      uint32_t pos_raw = ((uint32_t)emm_v5_rx_buf[i + 3] << 16) |
+                         ((uint32_t)emm_v5_rx_buf[i + 4] << 8)  |
+                         ((uint32_t)emm_v5_rx_buf[i + 5]);
+      if (pos_raw & 0x800000UL) {
+          pos_raw |= 0xFF000000UL;   // 24 位有符号位置扩展到 32 位
+      }
+      int32_t pos = (int32_t)pos_raw;
       emm_v5_pos[addr] = pos;
       emm_v5_pos_valid[addr] = 1;
         }

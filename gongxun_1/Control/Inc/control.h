@@ -116,7 +116,7 @@ void pick_material(void);
 void control_process(void);
 
 
-#endif //GONGXUN_1_CONTROL_H
+#endif // GONGXUN_1_CONTROL_H
 
 /* 指示灯颜色：
  * 红色：扫码失败

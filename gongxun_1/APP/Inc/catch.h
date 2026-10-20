@@ -1,6 +1,9 @@
 #ifndef GONGXUN_1_CATCH_H
 #define GONGXUN_1_CATCH_H
 
+// 伸缩运行的最大距离
+#define STRETCH_MAX_CM   15.0f    // 伸缩最大允许伸出距离
+
 // 夹爪舵机角度定义
 #define CLAW_CATCH  3.0f     // 夹爪夹取角度
 #define CLAW_LOOSE  80.0f    // 夹爪松开角度
@@ -64,6 +67,8 @@ void catch_stretch_send(int16_t speed);
 void catch_stretch_distance(float distance);
 // 获取当前伸缩距离 编码器值转化
 uint8_t catch_stretch_get_dist(float *dist_cm);
+// 获取伸缩电机编码器
+void get_stretch_distance(void);
 
 // ======== 伸缩丝杆 ======== //
 // 抓取装置夹爪伸缩一定距离 单位：cm
@@ -77,6 +82,8 @@ void catch_stretch_to_pos(float dist);
 void catch_lift(float delta_cm);
 // 抓取装置夹爪升降至固定高度
 void catch_lift_to_height(float height);
+// 获取升降电机编码器
+void get_lift_distance(void);
 
 // ======== 舵机 ======== //
 // 夹爪舵机控制角度

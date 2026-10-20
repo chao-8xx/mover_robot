@@ -19,6 +19,8 @@ void car_stretch_follow_material_test(void);
 void catch_color_send(void);
 // 物料识别跟踪并抓取测试
 void car_follow_catch_material_test(void);
+// 只识别并抓取三个物料放到车上，然后结束
+void car_catch_three_material_test(void);
 
 // 放置圆环指令 主循环调用
 void put_circle_send(void);

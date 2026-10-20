@@ -7,6 +7,7 @@ void system_init(void)
     HAL_Delay(100);             // 等待一会儿
     car_reset = false;          // 未完成初始化/复位
 
+    debug_uart_init(&huart6);   // 串口调试
     task_init();                // 任务初始化
     timer_init();               // 定时器初始化
     my_hwt101_init();           // 陀螺仪
@@ -20,10 +21,10 @@ void system_init(void)
     cam_init(&huart1);          // OpenMV maix摄像头
     lidar_init(&huart4);        // 雷达
     HAL_Delay(100);             // 等待一会儿
-    debug_uart_init(&huart6);   // 串口调试
     remind_init();              // 提示装置
     bfs_init();                 // 路径规划初始化
     HAL_Delay(100);             // 等待一会儿
+    maix_stop();                // maix停止视觉任务
 
     init_ok_remind();           // 初始化完成提醒
 

@@ -6,12 +6,18 @@
 // 丝杆控制相关参数
 #define S_MM_PER_CIRCLE     2         // 一圈伸缩的距离mm
 #define MM_PER_CIRCLE       8         // 一圈升降的距离mm
+#define LIFT_CMD_PULSE_PER_CM (PULSE_PER_CIRCLE / (MM_PER_CIRCLE / 10.0f))  // 绝对命令：4000 脉冲/cm
+#define LIFT_FEEDBACK_PER_CM  320.0f  // S_CPOS 反馈实测：约 320 单位/cm
+#define LIFT_TOL_CM           0.05f   // 升降到位容差 cm
 
 // 齿轮齿条控制相关参数
-#define GEAR_DIAMETER       30.0f      // 齿轮直径cm
+#define GEAR_DIAMETER       31.1f      // 齿轮直径mm，卡尺实测
+#define STRETCH_FEEDBACK_PER_CM 24.5f  // S_CPOS 原始读数：伸出 1cm 对应多少单位
+#define STRETCH_CMD_PULSE_PER_CM \
+    (PULSE_PER_CIRCLE / (3.14159265f * GEAR_DIAMETER / 10.0f))  // 绝对位置命令的脉冲/cm
 
 // 电机速度
-#define STEP_MOVE_SPEED     1500      // 丝杆电机位置模式移动速度
+#define STEP_MOVE_SPEED     1650      // 丝杆电机位置模式移动速度
 #define STEP_SPEED          90        // 齿轮齿条电机位置模式移动速度
 
 // 伸缩齿轮齿条速度模式
@@ -21,13 +27,30 @@ int8_t  stretch_state = 0;            // 用于替代线程锁 防止伸缩停�
 
 // 升降非阻塞计时：预计完成时刻 + busy 标志
 static volatile uint8_t lift_busy = 0;      // 升降装置
+static volatile uint8_t lift_use_deadline = 0;  // 相对模式按时间结束，不做编码器到位判断
 static volatile uint32_t lift_deadline = 0;
 static volatile uint8_t stretch_busy = 0;   // 伸缩装置
 static volatile uint32_t stretch_deadline = 0;
 static volatile uint8_t servo_busy = 0;      // 夹取装置
 static volatile uint32_t servo_deadline = 0;
 
-static volatile int32_t lift_pos_cmd = 0;   // 记录上一次发给驱动器的绝对目标位置
+// 升降装置编码器判断是否到位
+static volatile int32_t  lift_target_pos  = 0;   // 本次目标（脉冲）
+static volatile uint32_t lift_read_tick   = 0;   // 上次发读请求的时刻
+static volatile uint32_t lift_start_tick  = 0;   // 本次动作开始时刻
+static volatile uint32_t lift_retry_times  = 0;  // 当前重发次数
+#define LIFT_POS_TOL          200                // 到位容差（脉冲），200/4000=0.05cm
+#define LIFT_READ_PERIOD_MS   20                 // 读位置周期
+#define LIFT_TIMEOUT_MS       5500               // 超时保护（防卡死）
+#define LIFT_RETRY_MAX        3                  // 最多重发几次
+
+volatile uint8_t stretch_pos_valid = 0;   // 是否读到过有效位置
+
+static volatile int32_t stretch_raw_pos = 0;    // 1ms 中断读取 Motor_6 位置时保存的原始编码器值，供初始化阶段取作零点
+static volatile uint8_t stretch_raw_ready = 0;  // 有新原始位置可用时置 1，初始化读取后由 catch_init 清零
+static int32_t stretch_zero_pos = 0;            // 完全缩回时的原始编码器值
+static uint8_t stretch_home_ok = 0;             // 是否已完成零点标定
+static int32_t stretch_cmd_zero_pos = 0;        // 绝对位置命令的零点
 
 // PID参数
 #define X_KP            0.7f    // x轴坐标与麦轮闭环
@@ -38,8 +61,8 @@ static volatile int32_t lift_pos_cmd = 0;   // 记录上一次发给驱动器的
 #define Y_KD            0.2f
 #define Y_MAX_I         50.0f
 #define Y_MAX_OUT       180
-#define FOLLOW_KP       0.8f    // 物料y轴坐标与齿轮齿条伸缩闭环
-#define FOLLOW_KD       0.3f
+#define FOLLOW_KP       1.0f    // 物料y轴坐标与齿轮齿条伸缩闭环
+#define FOLLOW_KD       0.5f
 #define FOLLOW_MAX_I    10.0f
 #define FOLLOW_MAX_OUT  50
 
@@ -56,35 +79,55 @@ void catch_init(void)
     // 处理升降电机
     motor_encoder_clear(Motor_5);   // 升降，清零点为绝对零点
     HAL_Delay(20);                  // 等清零帧真正发出去，再允许后面的位置命令
-    lift_pos_cmd = 0;
     lift_busy = 0;
     lift_deadline = 0;
     motor_pos_set(Motor_5, 0);
     HAL_Delay(20);
+    get_lift_distance();
+    HAL_Delay(20);
 
     // 夹爪初始高度
     task_state.cur_lift_height = LIFT_ZERO_CM;
+    task_state.cur_height = LIFT_ZERO_CM;
     // 夹爪初始伸出距离0.0cm
     task_state.cur_stretch_dist = STRETCH_NORMAL;
+    task_state.cur_stretch = STRETCH_NORMAL;
+
+    stretch_pos_valid = 0;
 
     // 处理伸缩电机
     motor_encoder_clear(Motor_6);   // 清零6号电机编码器 齿轮齿条
     HAL_Delay(20);
-    motor_pos_set(Motor_6, 0);  // 账本同步归零
-    task_state.cur_stretch_dist = 0.0f;
+    motor_pos_set(Motor_6, stretch_cmd_zero_pos);  // 账本同步归零
+    HAL_Delay(20);
+    get_stretch_distance();
+    HAL_Delay(20);
+
+    // 位置回复会由 1ms catch_tick 取走，这里只等待它记录到的原始值
+    stretch_raw_ready = 0;
+    get_stretch_distance();
+
+    uint32_t stretch_home_start = HAL_GetTick();
+    while ((HAL_GetTick() - stretch_home_start) < 100) {
+        if (stretch_raw_ready) {
+            stretch_zero_pos = stretch_raw_pos;
+            stretch_home_ok = 1;
+            break;
+        }
+    }
+    motor_pos_set(Motor_6, stretch_zero_pos);
 
     // 舵机初始化
     servo_init();
 
     // 舵机复位
-    holder_rotate(HOLDER_SAFE);     // 云台舵机
+    // holder_rotate(HOLDER_SAFE);     // 云台舵机
+    holder_rotate(HOLDER_CATCH);     // 云台舵机
     turntable_rotate(ONE_LOCATION); // 转盘舵机
     claw_ctrl(CLAW_LOOSE);          // 夹爪舵机
     HAL_Delay(500);
 
-    // 伸缩电机停止运动（为了安全）
-    catch_stretch(0);   // 伸缩电机停止
-    HAL_Delay(10);
+    // 伸缩到合规位置
     // catch_stretch_distance(STRETCH_SAFE);
 
     // 初始化PID参数 定位物料
@@ -126,8 +169,8 @@ void catch_stretch_send(int16_t speed)
 // 齿轮齿条：一圈走的距离 = π × 齿轮直径
 static int32_t stretch_dist_to_pos(float dist_cm)
 {
-    float cm_per_circle = 3.14159265f * GEAR_DIAMETER / 10.0f;   // mm → cm
-    float p = dist_cm * (float)PULSE_PER_CIRCLE / cm_per_circle; // 伸出为正
+    float p = (float)stretch_cmd_zero_pos
+            + dist_cm * STRETCH_CMD_PULSE_PER_CM; // 伸出为正
     return (int32_t)(p + (p >= 0.0f ? 0.5f : -0.5f));
 }
 // 抓取装置夹爪伸缩一定距离 齿轮齿条 pos:编码器绝对位置
@@ -149,9 +192,8 @@ void catch_stretch_distance(float distance)
     // 直接发绝对位置，驱动器自己走过去
     motor_set_speed_Pos(Motor_6, STEP_SPEED, pos);
 
-    // 距离 → 脉冲数
-    float cm_per_circle = 3.14159265f * GEAR_DIAMETER / 10.0f;
-    float f_pulses = distance * (float)PULSE_PER_CIRCLE / cm_per_circle;
+    // 距离 → 绝对位置命令脉冲
+    float f_pulses = distance * STRETCH_CMD_PULSE_PER_CM;
     pulses = (uint32_t)(f_pulses >= 0.0f ? f_pulses + 0.5f : -f_pulses + 0.5f);
 
     // 时间估算：匀速 + 加减速
@@ -188,9 +230,13 @@ uint8_t catch_stretch_get_dist(float *dist_cm)
     }
 
     // 编码器位置 → 距离（cm）
-    float cm_per_circle = 3.14159265f * GEAR_DIAMETER / 10.0f;
-    *dist_cm = (float)pos * cm_per_circle / (float)PULSE_PER_CIRCLE;
+    *dist_cm = (float)(pos - stretch_zero_pos) / STRETCH_FEEDBACK_PER_CM;
     return 1;
+}
+// 获取伸缩电机编码器 发送指令
+void get_stretch_distance(void)
+{
+    Emm_V5_Read_Sys_Params(6, S_CPOS);
 }
 
 // ======== 伸缩丝杆 ======== //
@@ -301,6 +347,7 @@ void catch_lift(float delta_cm)
     lift_deadline = HAL_GetTick()
                      + (uint32_t)(t_ms)
                      + 1400;   // 1400ms 余量
+    lift_use_deadline = 1;
     lift_busy = 1;
     task_state.cur_lift_height += delta_cm;
 }
@@ -314,46 +361,26 @@ void catch_lift_to_height(float height)
 
     // 绝对模式
     int32_t pos;
-    int32_t diff;
-    uint32_t pulses;
-    float pulses_per_ms;
-    uint32_t t_ms = 0;
-    static float acc = (float)STEP_MOTOR_CATCH_ACC;
-
     pos  = lift_height_to_pos(height);
-    diff = pos - lift_pos_cmd;                       // 本次要走的绝对位置差
-    pulses = (diff < 0) ? (uint32_t)(-diff) : (uint32_t)diff;
 
     // 绝对位置命令：覆盖重发同目标也是安全的
     motor_set_speed_Pos(Motor_5, STEP_MOVE_SPEED, pos);
-    lift_pos_cmd = pos;
 
-    // ---- 沿用原来的时间估算 ----
-    pulses_per_ms = (float)STEP_MOVE_SPEED * PULSE_PER_CIRCLE / 60000.0f;
-    if (pulses_per_ms < 0.01f) {
-        pulses_per_ms = 0.01f;
-    }
-
-    if (acc < 1.0f) {
-        t_ms = (uint32_t)((float)pulses / pulses_per_ms);
-    }
-    else {
-        float t_ramp_s = my_absf((float)STEP_MOVE_SPEED)
-                       * (256.0f - (float)STEP_MOTOR_CATCH_ACC) * 50e-6f;
-        t_ms = (uint32_t)((float)pulses / pulses_per_ms + t_ramp_s);
-    }
-
-
-    if (task_state.cur_lift_height < 5) {
-        lift_deadline = HAL_GetTick() + t_ms + 3000;   // 从低到高比较吃力 多留些余量
-    }
-    else {
-        lift_deadline = HAL_GetTick() + t_ms + 1500;   // 余量
-    }
+    // 记录本次目标，启动"持续读位置"的到位判断
+    lift_target_pos = pos;
+    lift_start_tick = HAL_GetTick();
+    lift_read_tick  = lift_start_tick;
+    lift_retry_times = 0;          // 每次新动作重置重试次数
+    lift_use_deadline = 0;
     lift_busy = 1;
 
     task_state.cur_lift_height = height;
     my_control.lift_state = 1;
+}
+// 获取升降电机编码器 发送指令
+void get_lift_distance(void)
+{
+    Emm_V5_Read_Sys_Params(5, S_CPOS);
 }
 
 // ======== 舵机 ======== //
@@ -401,25 +428,99 @@ uint8_t stretch_is_busy(void)
 void catch_tick(void)
 {
     static uint8_t send_time = 0;   // 发送指令时间间隔
+
     // 伸缩齿轮齿条速度模式
     if (stretch_speed_on) {
         // 上一帧还没发完就等下一拍
         if (Emm_V5_Tx_Count() == 0) {
             send_time ++;
             stretch_state = 0;  // 0表示等待中
-            if (send_time > 4) {
+            if (send_time == 4) {
                 stretch_state = 1;  // 1表示准备发送指令
-                send_time = 0;
                 catch_stretch(stretch_speed);
                 stretch_state = 2;  // 2表示发送完指令
             }
+            else if (send_time == 8) {  // 隔 4ms 再发读位置请求，避免两帧粘连
+                stretch_state = 1;  // 1表示准备发送指令
+                if (Emm_V5_Tx_Count() < 2) {           // 队列空闲才发
+                    Emm_V5_Read_Sys_Params(6, S_CPOS);
+                }
+                stretch_state = 2;  // 2表示发送完指令
+            }
+            else if (send_time >= 10) {
+                send_time = 0;                        // 一轮结束
+                stretch_state = 0;                    // 回到等待状态
+            }
         }
     }
-    else {send_time = 0;}
+    else {
+        send_time = 0;
+        stretch_state = 0;
+    }
+    // 读伸缩编码器 将脉冲数转化为实际距离cm
+    {
+        int32_t pos;
+        if (Emm_V5_Get_Pos(6, &pos)) {
+            stretch_raw_pos = pos;
+            stretch_raw_ready = 1;
+            float dist = (float)(pos - stretch_zero_pos)
+                       / STRETCH_FEEDBACK_PER_CM; // 相对零点
+            task_state.cur_stretch = dist;        // 齿轮齿条实时位置
+            task_state.cur_stretch_dist = dist;   // 丝杆字段也同步（绝对定位在用）
+            stretch_pos_valid = stretch_home_ok;  // 零点标定完成才启用保护
+        }
+    }
+    // 读升降编码器 将脉冲数转化为实际高度cm
+    {
+        int32_t pos;
+        if (Emm_V5_Get_Pos(5, &pos)) {
+            float height = LIFT_ZERO_CM - (float)pos / LIFT_FEEDBACK_PER_CM;
+            task_state.cur_height = height;        // 齿轮齿条实时位置
+            task_state.cur_lift_height = height;   // 丝杆字段也同步（绝对定位在用）
 
-    // 升降计时
-    if (lift_busy && (int32_t)(HAL_GetTick() - lift_deadline) >= 0) {
-        lift_busy = 0;
+            // 如果升降正在执行，判断是否到位
+            if (lift_busy) {
+                float target_height = LIFT_ZERO_CM
+                                    - (float)lift_target_pos / LIFT_CMD_PULSE_PER_CM;
+                float err = my_absf(height - target_height);
+                if (err <= LIFT_TOL_CM) {
+                    lift_retry_times = 0;
+                    lift_busy = 0;      // 真到位
+                }
+            }
+        }
+    }
+
+    // 升降判断 持续读取编码器数据判断是否到达
+    if (lift_busy) {
+        if (lift_use_deadline) {
+            // 串口屏相对升降：到达估算时间即结束，避免误触发绝对位置判断
+            if ((int32_t)(HAL_GetTick() - lift_deadline) >= 0) {
+                lift_busy = 0;
+            }
+        }
+        else {
+            // 绝对模式：每 20ms 发一次读位置请求
+            if ((int32_t)(HAL_GetTick() - lift_read_tick) >= LIFT_READ_PERIOD_MS) {
+                lift_read_tick = HAL_GetTick();
+                if (Emm_V5_Tx_Count() < 2) {
+                    Emm_V5_Read_Sys_Params(5, S_CPOS);
+                }
+            }
+            // 超时保护：规定时间没到位，说明驱动器丢失指令，再次发送
+            if ((int32_t)(HAL_GetTick() - lift_start_tick) >= LIFT_TIMEOUT_MS && lift_retry_times < LIFT_RETRY_MAX) {
+                motor_set_speed_Pos(Motor_5, STEP_MOVE_SPEED, lift_target_pos);
+                lift_start_tick = HAL_GetTick();
+                lift_read_tick  = lift_start_tick;
+                lift_busy = 1;
+                my_control.lift_state = 1;
+                lift_retry_times += 1;
+            }
+            else if ((int32_t)(HAL_GetTick() - lift_start_tick) >= LIFT_TIMEOUT_MS && lift_retry_times >= LIFT_RETRY_MAX) {
+                lift_retry_times = 0;
+                lift_busy = 0;  // 放行
+            }
+        }
     }
 
     // 伸缩计时

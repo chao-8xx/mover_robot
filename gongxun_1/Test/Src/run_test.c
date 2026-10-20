@@ -507,7 +507,6 @@ void bfs_multi_track_test(void)
 }
 
 // 小车麦轮跟踪锁定物料测试
-static uint16_t i = 0;
 void car_follow_material_test(void)
 {
     // 用于主循环和中断外 即初始化部分
@@ -525,9 +524,6 @@ void car_follow_material_test(void)
     // 追踪物料
     if (task_state.is_find_target == 1) {
         follow_target(0.0f,(int16_t)0,(int16_t)0);
-        if (++i > 50) {
-            printf("DX=%d,DY=%d\n",task_state.follow_x,task_state.follow_y);
-        }
     }
     else {
         car_stop();
@@ -543,6 +539,7 @@ void car_stretch_follow_material_test(void)
     // 用于主循环和中断外 即初始化部分
     // cam_init(&huart1);          // OpenMV maixcam 摄像头
     // HAL_Delay(1000);
+    // light_on();
     // holder_rotate(HOLDER_CATCH);
     // HAL_Delay(1000);
     // maix_start_blob(MAIX_COLOR_RED);
@@ -556,9 +553,6 @@ void car_stretch_follow_material_test(void)
     if (task_state.is_find_target == 1) {
         follow_target(0.0f,(int16_t)0,task_state.follow_y);
         follow_stretch_target((int16_t)0);
-        if (++i > 50) {
-            printf("DX=%d,DY=%d\n",task_state.follow_x,task_state.follow_y);
-        }
     }
     else {
         car_stop();
@@ -764,6 +758,188 @@ void car_follow_catch_material_test(void)
             car_run = false;
             break;
         default:
+            break;
+    }
+}
+
+// 只识别并抓取三个物料放到车上，然后结束
+void car_catch_three_material_test(void)
+{
+    // 初始化部分
+    // system_init();
+    // light_on();
+    // holder_rotate(HOLDER_CATCH);
+    // maix_start_blob(MAIX_COLOR_RED);
+
+    // 放入 10ms 中断
+    // catch_color_send();  // 主循环或单独任务中发送颜色指令
+
+    static uint8_t test_step = 100;
+    static uint8_t catch_num = 0;
+
+    // TIM2 启动早于 step_motor_init，初始化未完成前不发任何命令
+    if (!car_reset) {
+        return;
+    }
+
+    // 位移/升降/伸缩还在执行时，先等它们结束
+    if (my_control.move_state == 1) {
+        if (!car_is_busy()) my_control.move_state = 0;
+        else return;
+    }
+    if (my_control.lift_state == 1) {
+        if (!lift_is_busy()) my_control.lift_state = 0;
+        else return;
+    }
+    if (my_control.stretch_state == 1) {
+        if (!stretch_is_busy()) my_control.stretch_state = 0;
+        else return;
+    }
+
+    switch (test_step)
+    {
+        case 100:   // 测试前先下降一次
+            if (!lift_is_busy()) {
+                catch_lift_to_height(LIFT_CATCH);
+                test_step = 101;
+            }
+            break;
+        case 101:   // 再升回正常高度
+            if (!lift_is_busy()) {
+                catch_lift_to_height(LIFT_NORMAL);
+                test_step = 0;
+            }
+            break;
+
+        case 0:     // 复位升降、夹爪、云台、转盘，并伸到抓取位置
+            catch_lift_to_height(LIFT_NORMAL);
+            holder_rotate(HOLDER_CATCH);
+            claw_ctrl(CLAW_LOOSE);
+            turntable_rotate(ONE_LOCATION);
+            catch_stretch_to_pos(STRETCH_CATCH);
+
+            color_num++;
+            color_send = 1;
+            test_step = 1;
+            break;
+        case 1:     // 等升降和伸缩完成
+            if (!lift_is_busy() && !stretch_is_busy()) {
+                test_step = 2;
+            }
+            break;
+        case 2:     // 识别并跟踪物料，目标与 catch_is_ok 判断一致
+            target_state_get();
+
+            static uint32_t last_catch_dbg = 0;
+            if ((int32_t)(HAL_GetTick() - last_catch_dbg) >= 500) {
+                last_catch_dbg = HAL_GetTick();
+                printf("C step=%u find=%u x=%d y=%d ok=%u mv=%u valid=%u stable=%u\r\n",
+                       test_step,
+                       task_state.is_find_target,
+                       task_state.follow_x,
+                       task_state.follow_y,
+                       task_state.is_catch_target,
+                       maix_vision.ok,
+                       maix_result.valid,
+                       maix_result.stable);
+            }
+
+            if (task_state.is_find_target == 1) {
+                follow_target(0.0f, (int16_t)0, task_state.follow_y);
+                follow_stretch_target((int16_t)0);
+            }
+            else {
+                car_stop();
+                catch_stretch_stop();
+                PID_Clear();
+            }
+            if (catch_is_ok() == 1) {
+                car_stop();
+                catch_stretch_stop();
+                PID_Clear();
+                test_step = 3;
+            }
+            break;
+        case 3:     // 下降到抓取高度
+            if (!lift_is_busy()) {
+                catch_lift_to_height(LIFT_CATCH);
+                test_step = 4;
+            }
+            break;
+        case 4:     // 夹住物料
+            claw_ctrl(CLAW_CATCH);
+            servo_wait_ms(700);
+            catch_num++;
+            test_step = 5;
+            break;
+        case 5:     // 升起，转盘转到当前物料位置
+            if (!servo_is_busy()) {
+                catch_lift_to_height(LIFT_NORMAL);
+
+                if (catch_num == 1) turntable_rotate(ONE_LOCATION);
+                else if (catch_num == 2) turntable_rotate(TWO_LOCATION);
+                else turntable_rotate(THREE_LOCATION);
+
+                test_step = 6;
+            }
+            break;
+        case 6:     // 缩回到放置位置
+            catch_stretch_to_pos(STRETCH_PUT);
+            test_step = 7;
+            break;
+        case 7:     // 云台转到放置位置
+            if (!stretch_is_busy()) {
+                holder_rotate(HOLDER_PUT);
+                servo_wait_ms(1000);
+                test_step = 8;
+            }
+            break;
+        case 8:     // 下降到放置高度
+            if (!servo_is_busy()) {
+                catch_lift_to_height(LIFT_PUT);
+                test_step = 9;
+            }
+            break;
+        case 9:     // 松开夹爪
+            claw_ctrl(CLAW_LOOSE);
+            servo_wait_ms(700);
+            test_step = 10;
+            break;
+        case 10:    // 松开后升回正常高度
+            if (!servo_is_busy()) {
+                catch_lift_to_height(LIFT_NORMAL);
+                test_step = 11;
+            }
+            break;
+        case 11:    // 云台回到抓取方向
+            holder_rotate(HOLDER_CATCH);
+            servo_wait_ms(1000);
+            test_step = 12;
+            break;
+        case 12:    // 未抓完则准备抓下一个，抓完则结束
+            if (!servo_is_busy()) {
+                if (catch_num < 3) {
+                    color_num++;
+                    color_send = 1;
+                    catch_stretch_to_pos(STRETCH_CATCH);
+                    test_step = 1;
+                }
+                else {
+                    catch_stretch_to_pos(STRETCH_SAFE);
+                    test_step = 13;
+                }
+            }
+            break;
+        case 13:    // 测试结束
+            if (!stretch_is_busy()) {
+                car_stop();
+                car_run = false;
+                test_step = 99;
+            }
+            break;
+        case 99:
+        default:
+            car_stop();
             break;
     }
 }
