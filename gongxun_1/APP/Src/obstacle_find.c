@@ -25,10 +25,10 @@ static uint8_t get_angle_right(uint16_t angle, uint16_t start, uint16_t end) {
     return (angle >= start || angle <= end);
 }
 
-// 判断当前角度是否被小车四个轮子占用的角度范围内
+// 判断雷达原始角度是否落在实测车体/车轮遮挡范围内
 static uint8_t get_wheel_blocked(uint16_t angle) {
 
-    // 未标定时四组0~0只是占位值 不能把真正的0度回波误删
+    // 关闭屏蔽时保留所有原始角度  方便安装改变后重新测量
     if (!LIDAR_WHEEL_MASK_ENABLE)
         return 0;
 
@@ -39,6 +39,8 @@ static uint8_t get_wheel_blocked(uint16_t angle) {
     if (get_angle_right(angle, LEFT_REAR_WHEEL_START, LEFT_REAR_WHEEL_END))
         return 1;
     if (get_angle_right(angle, RIGHT_REAR_WHEEL_START, RIGHT_REAR_WHEEL_END))
+        return 1;
+    if (get_angle_right(angle, LIDAR_BODY_MASK_START, LIDAR_BODY_MASK_END))
         return 1;
 
     return 0;
@@ -78,7 +80,7 @@ uint8_t point_cloud_update(const lidar_scan_t *scan, float car_x, float car_y, f
         point->map_point.x = 0.0f;
         point->map_point.y = 0.0f;
 
-        // 跳过被小车四个轮子遮挡的角度
+        // 只在点云层跳过实测遮挡角度；原始scan保留，遮挡测试仍可读取
         if (get_wheel_blocked(angle))
             continue;
 

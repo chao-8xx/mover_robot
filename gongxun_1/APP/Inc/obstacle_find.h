@@ -15,23 +15,27 @@
 #define CLUSTER_MAX_POINT_GAP       100.0f    // 相邻两点最大连接距离 mm
 
 
-// 四车轮遮挡参数  待调
-
+// 2026-10-19 整车垫高、轮子相对雷达不变时测得的车体/车轮遮挡范围
+// 全部使用雷达原始角度、包含首尾  更换碳板或改变安装位置后重新测量
 #ifndef LIDAR_WHEEL_MASK_ENABLE
-#define LIDAR_WHEEL_MASK_ENABLE    0    // 实车四轮遮挡范围确定后改为1  0表示关闭屏蔽
+#define LIDAR_WHEEL_MASK_ENABLE    1    // 1 启用当前实测角度屏蔽
 #endif
 
-#define LEFT_FORNT_WHEEL_START     0    // 左前轮遮挡起始角度
-#define LEFT_FORNT_WHEEL_END       0    // 左前轮遮挡结束角度
+#define LEFT_FORNT_WHEEL_START     36   // 左前方向遮挡起始角度
+#define LEFT_FORNT_WHEEL_END       62   // 左前方向遮挡结束角度
 
-#define RIGHT_FORNT_WHEEL_START    0    // 右前轮遮挡起始角度
-#define RIGHT_FORNT_WHEEL_END      0    // 右前轮遮挡结束角度
+#define RIGHT_FORNT_WHEEL_START    302  // 右前方向遮挡起始角度
+#define RIGHT_FORNT_WHEEL_END      314  // 右前方向遮挡结束角度
 
-#define LEFT_REAR_WHEEL_START      0    // 左后轮遮挡起始角度
-#define LEFT_REAR_WHEEL_END        0    // 左后轮遮挡结束角度
+#define LEFT_REAR_WHEEL_START      125  // 左后方向遮挡起始角度
+#define LEFT_REAR_WHEEL_END        140  // 左后方向遮挡结束角度
 
-#define RIGHT_REAR_WHEEL_START     0    // 右后轮遮挡起始角度
-#define RIGHT_REAR_WHEEL_END       0    // 右后轮遮挡结束角度
+#define RIGHT_REAR_WHEEL_START     218  // 右后方向遮挡起始角度
+#define RIGHT_REAR_WHEEL_END       236  // 右后方向遮挡结束角度
+
+// 单独保留实测的短段回波
+#define LIDAR_BODY_MASK_START      315
+#define LIDAR_BODY_MASK_END        325
 
 
 // 雷达点结构体

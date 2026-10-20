@@ -281,6 +281,10 @@ static void lidar_data_handle(void)
 //////////////////////////////////////////// 雷达对外函数 //////////////////////////////////
 // 雷达初始化
 void lidar_init(UART_HandleTypeDef *huart) {
+    // 重新初始化也算扫描中断  让上层清掉连续确认次数；累计扫描编号不回退
+    if (scan_num != 0 || scan_collect_flag)
+        lidar_scan_drop_cnt++;
+
     lidar_uart = huart;
 
     // 初始化接收状态
@@ -299,11 +303,10 @@ void lidar_init(UART_HandleTypeDef *huart) {
 
     lidar_xor_ok_cnt = 0;
     lidar_xor_err_cnt = 0;
-    lidar_scan_drop_cnt = 0;
 
     scan_ok_flag = 0;
     scan_collect_flag = 0;
-    scan_num =0;
+    // scan_num和lidar_scan_drop_cnt只在单片机上电时从0开始 重新初始化时保留
 
     // 开启DMA循环接收
     if (lidar_uart != NULL && lidar_uart->hdmarx != NULL &&

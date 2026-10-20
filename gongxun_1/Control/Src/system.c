@@ -14,7 +14,7 @@ void system_init(void)
     tf_init();                  // 坐标变换初始化
     HAL_Delay(100);             // 等待一会儿
 
-    led_board_on();             // 开启补光板
+    // led_board_on();             // 开启补光板
 
     lidar_start();              // 启动雷达
 

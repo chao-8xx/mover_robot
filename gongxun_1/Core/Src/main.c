@@ -133,26 +133,27 @@ int main(void)
     // lidar_install_test();
     // wheel_mask_test();  // 四车轮遮挡测试，需要时切换回来
 
-    // // 雷达测试
+    // // 雷达测试 完成
     // lidar_test();
 
 
-    // // 遮挡测试
+    // // 遮挡测试 完成
     // wheel_mask_test();
 
-    // // 坐标标定测试
+    // 坐标标定测试   暂缓 后续按实际尺寸复测
     // lidar_install_test();
 
-    // 坐标变换测试
+    // 坐标变换测试 完成
     // // tf2d_test();
 
-    // // 雷达点云和障碍物扫描测试
+    // 点云 聚类静止测试    暂用雷达原点、零朝向作为局部测试坐标 不代表小车实际全局位姿
     // if (obstacle_find_task(0.0f, 0.0f, 0.0f)) {
-    //   point_cloud_test();        // 雷达点云测试
-    //   obstacle_cluster_test();   // 雷达障碍物扫描测试
+    //   point_cloud_test();        // 打印点云摘要
+    //   obstacle_cluster_test();   // 打印候选物体的角度、位置和尺寸
     // }
 
-    // 真实雷达桌面地图联调 固定测试位姿，只观察R8中间的测试区域
+    // 真实雷达到地图的静止联调：固定测试位姿，只观察原始0度前方400~600mm
+    // 验证R8确认封锁和候选绕行路径；本测试不发送底盘运动指令
     map_lidar_test();
 
     /* USER CODE END WHILE */

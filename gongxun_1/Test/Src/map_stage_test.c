@@ -253,7 +253,55 @@ uint8_t map_stage_test(void) {
     map_test_check(map_road_get(0, &state) && state == road_blocked,
                    "rotated square safety radius");
 
-    ///////////////////////////////////// 9 输出最终结果 //////////////////////////////////
+    ///////////////////////////////////// 9 边缘障碍与显式放行 ////////////////////////////
+    // 中心虽然在禁区，但障碍框加上车体范围后会影响R8，不能直接过滤
+    box = (map_scan_obs_t){990.0f, 1625.0f, 980.0f, 1615.0f, 1000.0f, 1635.0f};
+    map_update_init(300.0f, 50.0f);
+    map_update_scan(&box, 1, 1, 100);
+    map_update_scan(&box, 1, 2, 200);
+    map_test_check(map_road_get(8, &state) && state == road_blocked,
+                   "forbidden center still affects road");
+
+    // 此点距R0中心线274mm，大于300mm正方形半对角线加50mm余量的262mm，不应封路
+    box = (map_scan_obs_t){775.0f, 1851.0f, 775.0f, 1851.0f, 775.0f, 1851.0f};
+    map_update_init(300.0f, 50.0f);
+    map_update_scan(&box, 1, 1, 100);
+    map_update_scan(&box, 1, 2, 200);
+    map_test_check(map_road_get(0, &state) && state == road_unknown,
+                   "square envelope does not overexpand");
+
+    // 空扫描仍不能自动放行；这里用预设数据模拟上层已经确认R8整段观察有效
+    // confirm_free参数：待进入道路编号、本次扫描编号、当前时间ms
+    map_update_init(300.0f, 50.0f);
+    map_test_check(!map_update_confirm_free(8, 1, 100) &&
+                   map_update_scan(0, 0, 1, 100) &&
+                   map_road_get(8, &state) && state == road_unknown &&
+                   !map_update_confirm_free(8, 0, 101) &&
+                   !map_update_confirm_free(8, 1, 1101),
+                   "free needs latest fresh observation");
+    map_test_check(map_update_confirm_free(8, 1, 101) &&
+                   map_update_confirm_free(8, 1, 102) &&
+                   map_update_change_get() == 1 &&
+                   map_plan_find(1, 4, map_unknown_stop, &new_path) &&
+                   map_plan_road_state(&new_path, 0) == map_step_go,
+                   "explicit free allows GO once");
+    map_update_clear_candidates();
+    map_test_check(!map_update_confirm_free(0, 1, 103),
+                   "interruption rejects old free observation");
+
+    // 已放行道路后来连续两圈受影响，仍应封锁；移走障碍也不能用放行接口直接解封
+    box = (map_scan_obs_t){1200.0f, 1625.0f, 1190.0f, 1615.0f, 1210.0f, 1635.0f};
+    map_update_scan(&box, 1, 2, 200);
+    map_test_check(!map_update_confirm_free(8, 2, 201),
+                   "one hit rejects free confirmation");
+    map_update_scan(&box, 1, 3, 300);
+    map_update_scan(0, 0, 4, 400);
+    map_test_check(!map_update_confirm_free(8, 4, 401) &&
+                   map_road_get(8, &state) && state == road_blocked &&
+                   map_update_change_get() == 2,
+                   "explicit free cannot reopen blocked road");
+
+    ///////////////////////////////////// 10 输出最终结果 /////////////////////////////////
     // ALL PASS：全部检查通过；FAILED：至少一项失败，向上查对应的FAIL名称
     // 测试结束后保留最后一组测试地图 正式接雷达前应重新按实际参数初始化地图
     printf("[MAP TEST] %s\r\n", map_test_fail ? "FAILED" : "ALL PASS");

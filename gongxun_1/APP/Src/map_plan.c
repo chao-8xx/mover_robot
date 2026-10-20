@@ -2,6 +2,9 @@
 
 /**
  * 根据新观测更新障碍物和道路状态
+ * 将新观测的障碍物和道路状态更新到地图中
+ * 重新规划路径时 使用最新的地图状态进行搜索
+ * 使用的是 Dijkstra 最短路径算法
  */
 
 
@@ -55,6 +58,7 @@ uint8_t map_plan_find(uint8_t start, uint8_t goal, map_unknown_mode_t mode, map_
     if (start >= MAP_NODE_COUNT || goal >= MAP_NODE_COUNT || (mode != map_unknown_allow && mode != map_unknown_stop))
         return 0;
 
+    // 遍历节点 初始化 将所有节点置为阻塞
     for (uint8_t i = 0; i < MAP_NODE_COUNT; i++) {
         cost[i] = MAP_COST_INF;
         prev_node[i] = MAP_NO_ID;
@@ -62,26 +66,41 @@ uint8_t map_plan_find(uint8_t start, uint8_t goal, map_unknown_mode_t mode, map_
     }
     cost[start] = 0;
 
-    // 只有九个节点，直接逐轮选择代价最小的节点
+    // 只有九个节点  直接逐轮选择代价最小的节点
     for (uint8_t step = 0; step < MAP_NODE_COUNT; step++) {
         uint8_t node = MAP_NO_ID;
+
+        // 遍历选择当前代价最小的 还未确定最短的节点
         for (uint8_t i = 0; i < MAP_NODE_COUNT; i++) {
             if (!done[i] && cost[i] != MAP_COST_INF &&
-                (node == MAP_NO_ID || cost[i] < cost[node])) node = i;
+                (node == MAP_NO_ID || cost[i] < cost[node]))
+                node = i;
         }
         if (node == MAP_NO_ID || node == goal) break;
         done[node] = 1;
 
+        // 遍历所有道路  找到与当前节点相连的道路
         for (uint8_t road_id = 0; road_id < MAP_ROAD_COUNT; road_id++) {
             map_road_t road;
             uint8_t next;
             uint16_t road_cost;
+
+            // 道路不存在 或 道路不允许通行  跳过
             if (!map_road_info_get(road_id, &road) ||
-                !map_road_cost(road_id, mode, &road_cost)) continue;
-            if (road.node_a == node) next = road.node_b;
-            else if (road.node_b == node) next = road.node_a;
-            else continue;
-            if (done[next]) continue;
+                !map_road_cost(road_id, mode, &road_cost))
+                continue;
+
+            // 找到与当前节点相连的道路  获取下一个节点
+            if (road.node_a == node)
+                next = road.node_b;
+            else if (road.node_b == node)
+                next = road.node_a;
+            else
+                continue;
+            if (done[next])
+                continue;
+
+            // 更新到下一个节点的代价  如果当前节点到下一个节点的代价小于之前记录的代价  则更新
             if (cost[node] + road_cost < cost[next]) {
                 cost[next] = cost[node] + road_cost;
                 prev_node[next] = node;
@@ -90,56 +109,80 @@ uint8_t map_plan_find(uint8_t start, uint8_t goal, map_unknown_mode_t mode, map_
         }
     }
 
-    if (cost[goal] == MAP_COST_INF) return 0;
+    if (cost[goal] == MAP_COST_INF)
+        return 0;
 
-    // 从终点倒推，再反转成起点到终点
+    // 从终点倒推 再反转成起点到终点
     for (uint8_t node = goal; count < MAP_NODE_COUNT; node = prev_node[node]) {
         reverse_node[count] = node;
-        if (node == start) break;
-        if (prev_node[node] == MAP_NO_ID) return 0;
+
+        if (node == start)
+            break;
+
+        if (prev_node[node] == MAP_NO_ID)
+            return 0;
+
         reverse_road[count] = prev_road[node];
         count++;
     }
     path->node_count = count + 1;
     path->road_count = count;
+
+    // 反转路径写入
     for (uint8_t i = 0; i < path->node_count; i++)
         path->nodes[i] = reverse_node[count - i];
+
     for (uint8_t i = 0; i < path->road_count; i++)
         path->roads[i] = reverse_road[count - 1 - i];
+
     return 1;
 }
 
+// 检查路径的合法性  包括节点和道路是否存在  道路是否允许通行
 uint8_t map_plan_check(const map_path_t *path, map_unknown_mode_t mode) {
     if (path == 0 || path->node_count == 0 ||
         path->node_count > MAP_NODE_COUNT ||
         path->road_count + 1 != path->node_count ||
-        (mode != map_unknown_allow && mode != map_unknown_stop)) return 0;
+        (mode != map_unknown_allow && mode != map_unknown_stop))
+        return 0;
 
-    // 单节点路径没有道路可供下面的循环检查，也必须保证节点编号有效。
+    // 单节点路径没有道路可供下面的循环检查  也必须保证节点编号有效
     for (uint8_t i = 0; i < path->node_count; i++) {
-        if (path->nodes[i] >= MAP_NODE_COUNT) return 0;
+        if (path->nodes[i] >= MAP_NODE_COUNT)
+            return 0;
     }
 
+    // 检查每条道路是否存在  是否允许通行  道路编号是否与路径中的道路编号一致
     for (uint8_t i = 0; i < path->road_count; i++) {
         uint8_t road_id;
         uint16_t cost;
         if (!map_road_find(path->nodes[i], path->nodes[i + 1], &road_id) ||
-            road_id != path->roads[i] || !map_road_cost(road_id, mode, &cost)) return 0;
+            road_id != path->roads[i] || !map_road_cost(road_id, mode, &cost))
+            return 0;
     }
+
     return 1;
 }
 
+// 进入某条道路前的决策   根据路径和道路索引 返回该道路的状态
 map_step_t map_plan_road_state(const map_path_t *path, uint8_t road_index) {
     uint8_t road_id;
     road_state_t state;
+
+    // 检查路径和道路索引的合法性  道路是否存在  道路状态是否可用
     if (path == 0 || road_index >= path->road_count ||
         path->node_count > MAP_NODE_COUNT ||
         path->road_count + 1 != path->node_count ||
         !map_road_find(path->nodes[road_index], path->nodes[road_index + 1], &road_id) ||
         road_id != path->roads[road_index] ||
-        !map_road_get(road_id, &state)) return map_step_stop;
+        !map_road_get(road_id, &state))
+        return map_step_stop;
 
-    if (state == road_unknown) return map_step_scan;
-    if (state == road_free) return map_step_go;
+    if (state == road_unknown)
+        return map_step_scan;
+
+    if (state == road_free)
+        return map_step_go;
+
     return map_step_stop;
 }

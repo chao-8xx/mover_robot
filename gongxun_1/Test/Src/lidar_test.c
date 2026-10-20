@@ -368,6 +368,7 @@ static void wheel_test_print_group(uint8_t type) {
         }
     }
 }
+
 // 四车轮遮挡雷达角度测试
 void wheel_mask_test(void) {
     static uint8_t test_started = 0;
@@ -408,7 +409,7 @@ void wheel_mask_test(void) {
     last_scan_num = scan->scan_num;
 
     // 统计当前完整圈的360度原始数据
-    for (uint16_t angle = 0; angle < 360U; angle++)
+    for (uint16_t angle = 0; angle < 360; angle++)
     {
         wheel_mask_t *stat =
             &wheel_mask[angle];
@@ -447,7 +448,7 @@ void wheel_mask_test(void) {
     scan_count++;
 
     // 每20圈提示一次进度
-    if ((scan_count % 20U) == 0U)
+    if ((scan_count % 20) == 0)
     {
         printf("WHEEL collect=%u/%u\r\n",
                (unsigned int)scan_count,
