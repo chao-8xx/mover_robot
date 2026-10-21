@@ -7,7 +7,7 @@
 
 
 #define MAP_ROAD_COUNT      12              // 12 条道路
-#define MAP_OBS_MAX         3               // 与一圈雷达最多保存的聚类数相同
+#define MAP_OBS_MAX         3               // 旧障碍物记录容量，不限制每圈扫描输入数量
 
 
 // 道路状态

@@ -58,6 +58,7 @@ typedef struct {
 map_area_t map_check_area(float x, float y);
 uint8_t map_xy_to_cell(float x, float y, uint8_t *cell_x, uint8_t *cell_y);
 uint8_t map_cell_get(uint8_t cell_x, uint8_t cell_y, map_cell_t *cell);
+uint8_t map_cell_rect_get(uint8_t cell_x, uint8_t cell_y, map_rect_t *rect);
 uint8_t map_node_get(uint8_t node_id, map_node_t *node);
 uint8_t map_road_info_get(uint8_t road_id, map_road_t *road);
 uint8_t map_road_find(uint8_t node_a, uint8_t node_b, uint8_t *road_id);

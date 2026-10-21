@@ -24,13 +24,8 @@ static const map_road_t map_roads_info[12] = {
 
 
 
-// 4禁入区枚举    无ID
-static const map_rect_t map_notgo_areas[MAP_FORBIDDEN_COUNT] = {
-    { 550.0f, 1000.0f, 550.0f, 1000.0f },   // 左下禁入区
-    { 1400.0f, 1850.0f, 550.0f, 1000.0f },  // 右下禁入区
-    { 550.0f, 1000.0f, 1400.0f, 1850.0f },  // 左上禁入区
-    { 1400.0f, 1850.0f, 1400.0f, 1850.0f }, // 右上禁入区
-};
+// X、Y使用同一组区域边界  坐标查询和障碍框归属都按这组边界判断
+static const float map_axis_edges[6] = {0.0f, 550.0f, 1000.0f, 1400.0f, 1850.0f, 2400.0f};
 
 // 5 * 5 栅格枚举  以左下角为原点      第一行对应赛场下方 第一列对应赛场左侧
 static const map_cell_t map_cells[MAP_CELL_HEIGHT][MAP_CELL_WIDTH] =
@@ -62,25 +57,11 @@ static const map_cell_t map_cells[MAP_CELL_HEIGHT][MAP_CELL_WIDTH] =
 // 单个轴上的毫米坐标转区域编号  调用前需检查坐标是否位于场地范围内
 static uint8_t map_axis_to_cell(float value)
 {
-    if (value < 550.0f)  return 0;
-    if (value < 1000.0f) return 1;
-    if (value < 1400.0f) return 2;
-    if (value < 1850.0f) return 3;
-
-    return 4;
+    for (uint8_t i = 0; i < MAP_CELL_WIDTH; i++) {
+        if (value < map_axis_edges[i + 1]) return i;
+    }
+    return MAP_CELL_WIDTH - 1;
 }
-
-// 是否在静态地图内
-static uint8_t map_can_in(float x, float y, const map_rect_t *map) {
-    if (map == 0) return 0;
-
-    return (x >= map->min_x && x <= map->max_x && y >= map->min_y && y <= map->max_y);
-}
-
-
-
-
-
 
 // 将毫米坐标映射到栅格编号  调用前需检查坐标是否位于场地范围内
 uint8_t map_xy_to_cell(float x, float y,
@@ -113,21 +94,28 @@ uint8_t map_cell_get(uint8_t cell_x, uint8_t cell_y,
 }
 
 
-// 地图区域判定函数
+// 读取一个区域的矩形边界
+uint8_t map_cell_rect_get(uint8_t cell_x, uint8_t cell_y, map_rect_t *rect) {
+    if (rect == 0 || cell_x >= MAP_CELL_WIDTH || cell_y >= MAP_CELL_HEIGHT)
+        return 0;
+
+    rect->min_x = map_axis_edges[cell_x];
+    rect->max_x = map_axis_edges[cell_x + 1];
+    rect->min_y = map_axis_edges[cell_y];
+    rect->max_y = map_axis_edges[cell_y + 1];
+    return 1;
+}
+
+// 地图区域判定与格子查询使用同一张表  避免边界一边算道路、一边算禁区
 map_area_t map_check_area(float x, float y) {
-    // 出界区域判定
-    if (!(x >= 0.0f && x < MAP_WIDTH && y >= 0.0f && y < MAP_HEIGHT)) {
+    uint8_t cell_x, cell_y;
+    map_cell_t cell;
+
+    // 检查坐标是否在地图范围内
+    if (!map_xy_to_cell(x, y, &cell_x, &cell_y) || !map_cell_get(cell_x, cell_y, &cell))
         return map_outside;
-    }
 
-    // 禁止进入区域判定
-    for (uint8_t area_index = 0; area_index < MAP_FORBIDDEN_COUNT; area_index++) {
-        if (map_can_in(x, y, &map_notgo_areas[area_index])) {
-            return map_forbidden;
-        }
-    }
-
-    return map_normal;
+    return cell.cell_type == cell_forbidden ? map_forbidden : map_normal;
 }
 
 // 读取节点的全局坐标

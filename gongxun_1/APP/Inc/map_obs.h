@@ -4,7 +4,7 @@
 
 // 雷达点云参数 待调
 #define LIDAR_ANGLE_COUNT          360        // 雷达整数角度数量 0~359度
-#define LIDAR_MAX_DISTANCE         4000.0f    // 雷达最大有效测距距离 mm
+#define LIDAR_MAX_DISTANCE         2200.0f    // 雷达最大有效测距距离 mm
 #define LIDAR_MIN_DISTANCE         50.0f      // 雷达最小有效测距距离 mm
 
 
@@ -13,6 +13,11 @@
 #define CLUSTER_MAX_COUNT            20       // 单帧最多保存的候选聚类数量
 #define CLUSTER_MIN_POINT_COUNT       3       // 少于3个点的聚类作为噪声丢弃
 #define CLUSTER_MAX_POINT_GAP       100.0f    // 相邻两点最大连接距离 mm
+
+// 障碍物小圆柱候选参数: 赛题圆柱直径50mm  先用 100mm 作为测距误差、缺点情况下的宽松试验值
+// 只检查平面跨度  距离先沿用点云范围  可靠距离等实测后收紧
+#define LIDAR_PILLAR_MAX_SIZE       100.0f
+#define LIDAR_PILLAR_MAX_DISTANCE   LIDAR_MAX_DISTANCE
 
 
 // 2026-10-19 整车垫高、轮子相对雷达不变时测得的车体/车轮遮挡范围
@@ -60,25 +65,26 @@ typedef struct
     float car_angle;  // 生成点云时的小车偏航角 degree
 
     uint32_t scan_num;    // 点云对应的雷达扫描编号
+    uint32_t scan_tick;   // 雷达采集结束时间  不能用处理时间冒充新数据
     uint32_t update_flag; // 每完成一次点云更新加1
     uint32_t update_tick; // 点云更新时刻 ms
 } point_cloud_t;
 
 
-// 雷达聚类结构体   (雷达坐标系下)
+// 雷达聚类结构体   (点和包围框使用map坐标系)
 // 一组相互连接的雷达点形成一个候选物体
 typedef struct
 {
-    uint16_t start_angle; // 聚类起始角度
-    uint16_t end_angle;   // 聚类结束角度，跨0度时可能小于start_angle
-    uint16_t point_count; // 聚类包含的有效点数量
+    uint16_t start_angle;   // 聚类起始角度
+    uint16_t end_angle;     // 聚类结束角度，跨0度时可能小于start_angle
+    uint16_t point_count;   // 聚类包含的有效点数量
 
     point2d_t center_point; // 聚类中心的map坐标
 
-    float min_x; // 聚类包围框最小X坐标
-    float max_x; // 聚类包围框最大X坐标
-    float min_y; // 聚类包围框最小Y坐标
-    float max_y; // 聚类包围框最大Y坐标
+    float min_x;            // 聚类包围框最小X坐标
+    float max_x;            // 聚类包围框最大X坐标
+    float min_y;            // 聚类包围框最小Y坐标
+    float max_y;            // 聚类包围框最大Y坐标
 
     float width;            // 聚类包围框宽度 mm
     float height;           // 聚类包围框高度 mm
@@ -94,6 +100,7 @@ typedef struct
 {
     lidar_cluster_t clusters[CLUSTER_MAX_COUNT];
     uint16_t cluster_count;     // 当前有效聚类数量
+    uint8_t truncated;          // 1表示合格聚类超过容量被截断  本圈不能用于道路放行
     uint32_t cloud_flag;        // 本结果使用的点云更新序号
     uint32_t update_flag;       // 每完成一次聚类更新加1
     uint32_t update_tick;       // 聚类结果更新时间 ms
@@ -107,5 +114,7 @@ extern obstacle_result_t obstacle_result;
 uint8_t point_cloud_update(const lidar_scan_t *scan, float car_x, float car_y, float car_yaw, uint32_t tick);
 // 相邻点聚类
 void obstacle_cluster_update(const point_cloud_t *cloud, uint32_t tick);
+// 简单小柱候选筛选：保留原有最少3点要求，不按最大点数过滤，也不代表已识别颜色或圆柱形状
+uint8_t obstacle_cluster_is_pillar(const lidar_cluster_t *cluster);
 
 #endif // GONGXUN_1_LIDAR_OBSTACLE_H

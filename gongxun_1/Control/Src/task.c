@@ -416,6 +416,13 @@ void hmi_get_car_state_task(void)
     }
 }
 
+// 读取实际位姿并更新雷达地图  位姿无效时仍接收雷达并清除待确认次数
+uint8_t map_obstacle_pose_task(void) {
+    map_pose_t pose;
+    uint8_t valid = map_pose_get(HAL_GetTick(), &pose);
+    return map_obstacle_task(pose.x_mm, pose.y_mm, pose.yaw_deg, valid);
+}
+
 // 从完整雷达扫描到道路状态的入口。当前安装标定测试不调用这个函数
 uint8_t map_obstacle_task(float car_x, float car_y, float car_yaw, uint8_t pose_valid) {
     static uint8_t wait_new_scan = 2;  // 2: 记录旧圈；1: 丢弃跨越恢复时刻的圈

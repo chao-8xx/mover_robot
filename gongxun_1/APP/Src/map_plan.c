@@ -1,13 +1,13 @@
 #include "headfile.h"
 
 /**
- * 根据新观测更新障碍物和道路状态
- * 将新观测的障碍物和道路状态更新到地图中
- * 重新规划路径时 使用最新的地图状态进行搜索
- * 使用的是 Dijkstra 最短路径算法
+ * 9节点12道路的 Dijkstra 路径搜索
+ * 读取已有道路状态  已知路代价1  未知道路代价2  封锁道路不参与搜索
+ * 只输出路径  不更新地图、不控制车辆  候选路径进入前仍需检查通行许可
  */
 
 
+///////////////////////////////////// 内部调用函数 ////////////////////////////////////////
 // 判断道路是否允许搜索  并给出道路代价
 static uint8_t map_road_cost(uint8_t road_id, map_unknown_mode_t mode, uint16_t *cost) {
     road_state_t state;
@@ -38,7 +38,8 @@ static uint8_t map_road_cost(uint8_t road_id, map_unknown_mode_t mode, uint16_t 
 }
 
 
-// 根据起点和终点搜索最短路径  允许或不允许未知道路   Dijkstra 最短路径
+///////////////////////////////////// Dijkstra路径搜索 ////////////////////////////////////////
+// 根据起点、终点和未知路策略搜索最小代价路径
 uint8_t map_plan_find(uint8_t start, uint8_t goal, map_unknown_mode_t mode, map_path_t *path) {
     uint16_t cost[MAP_NODE_COUNT];              // 到每个节点的当前最短代价
     uint8_t  done[MAP_NODE_COUNT] = {0};        // 是否已确定最短
@@ -48,7 +49,7 @@ uint8_t map_plan_find(uint8_t start, uint8_t goal, map_unknown_mode_t mode, map_
     uint8_t reverse_road[MAP_NODE_COUNT - 1];   // 反向存储路径道路
     uint8_t count = 0;
 
-    // 参数检查
+    // 参数检查  先清空输出 防止本次失败后继续使用旧路径
     if (path == 0)
         return 0;
 
@@ -58,7 +59,7 @@ uint8_t map_plan_find(uint8_t start, uint8_t goal, map_unknown_mode_t mode, map_
     if (start >= MAP_NODE_COUNT || goal >= MAP_NODE_COUNT || (mode != map_unknown_allow && mode != map_unknown_stop))
         return 0;
 
-    // 遍历节点 初始化 将所有节点置为阻塞
+    // 初始化代价和前驱  INF表示暂时不可达  不代表道路被封锁
     for (uint8_t i = 0; i < MAP_NODE_COUNT; i++) {
         cost[i] = MAP_COST_INF;
         prev_node[i] = MAP_NO_ID;
@@ -66,17 +67,19 @@ uint8_t map_plan_find(uint8_t start, uint8_t goal, map_unknown_mode_t mode, map_
     }
     cost[start] = 0;
 
-    // 只有九个节点  直接逐轮选择代价最小的节点
+    // 逐轮确定一个节点的最小代价  只有9个节点  直接遍历选点
     for (uint8_t step = 0; step < MAP_NODE_COUNT; step++) {
         uint8_t node = MAP_NO_ID;
 
-        // 遍历选择当前代价最小的 还未确定最短的节点
+        // 选择尚未确定且代价最小的节点  代价相同时保留先找到的小编号节点
         for (uint8_t i = 0; i < MAP_NODE_COUNT; i++) {
             if (!done[i] && cost[i] != MAP_COST_INF &&
                 (node == MAP_NO_ID || cost[i] < cost[node]))
                 node = i;
         }
-        if (node == MAP_NO_ID || node == goal) break;
+        // 没有剩余可达节点 或终点已是当前最小代价时 结束搜索
+        if (node == MAP_NO_ID || node == goal)
+            break;
         done[node] = 1;
 
         // 遍历所有道路  找到与当前节点相连的道路
@@ -97,10 +100,10 @@ uint8_t map_plan_find(uint8_t start, uint8_t goal, map_unknown_mode_t mode, map_
                 next = road.node_a;
             else
                 continue;
-            if (done[next])
+            if (next >= MAP_NODE_COUNT || done[next])
                 continue;
 
-            // 更新到下一个节点的代价  如果当前节点到下一个节点的代价小于之前记录的代价  则更新
+            // 松弛相邻节点  经当前节点绕过去更便宜时 更新代价和前驱
             if (cost[node] + road_cost < cost[next]) {
                 cost[next] = cost[node] + road_cost;
                 prev_node[next] = node;
@@ -112,14 +115,16 @@ uint8_t map_plan_find(uint8_t start, uint8_t goal, map_unknown_mode_t mode, map_
     if (cost[goal] == MAP_COST_INF)
         return 0;
 
-    // 从终点倒推 再反转成起点到终点
+    // 从终点按前驱倒推  起点没有前驱 所以先检查是否已回到起点
     for (uint8_t node = goal; count < MAP_NODE_COUNT; node = prev_node[node]) {
         reverse_node[count] = node;
 
         if (node == start)
             break;
 
-        if (prev_node[node] == MAP_NO_ID)
+        // 最多保存9个节点和8条道路  前驱异常或容量耗尽时不能继续写入
+        if (count >= MAP_NODE_COUNT - 1 ||
+            prev_node[node] >= MAP_NODE_COUNT || prev_road[node] >= MAP_ROAD_COUNT)
             return 0;
 
         reverse_road[count] = prev_road[node];
@@ -128,7 +133,7 @@ uint8_t map_plan_find(uint8_t start, uint8_t goal, map_unknown_mode_t mode, map_
     path->node_count = count + 1;
     path->road_count = count;
 
-    // 反转路径写入
+    // 反向结果写入输出  变成起点到终点的节点和道路顺序
     for (uint8_t i = 0; i < path->node_count; i++)
         path->nodes[i] = reverse_node[count - i];
 
@@ -138,7 +143,8 @@ uint8_t map_plan_find(uint8_t start, uint8_t goal, map_unknown_mode_t mode, map_
     return 1;
 }
 
-// 检查路径的合法性  包括节点和道路是否存在  道路是否允许通行
+///////////////////////////////////// 路径检查与进路决策 ////////////////////////////////////////
+// 检查路径连接和道路状态  不重新搜索最优路径
 uint8_t map_plan_check(const map_path_t *path, map_unknown_mode_t mode) {
     if (path == 0 || path->node_count == 0 ||
         path->node_count > MAP_NODE_COUNT ||
@@ -165,7 +171,7 @@ uint8_t map_plan_check(const map_path_t *path, map_unknown_mode_t mode) {
 }
 
 // 进入某条道路前的决策   根据路径和道路索引 返回该道路的状态
-map_step_t map_plan_road_state(const map_path_t *path, uint8_t road_index) {
+map_step_t map_plan_road_state(const map_path_t *path, uint8_t road_index, uint32_t tick) {
     uint8_t road_id;
     road_state_t state;
 
@@ -182,7 +188,7 @@ map_step_t map_plan_road_state(const map_path_t *path, uint8_t road_index) {
         return map_step_scan;
 
     if (state == road_free)
-        return map_step_go;
+        return map_update_road_ready(road_id, tick) ? map_step_go : map_step_scan;
 
     return map_step_stop;
 }

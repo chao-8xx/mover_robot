@@ -12,9 +12,10 @@ void system_init(void)
     uart_init();                // 串口初始化   陀螺仪 串口屏 摄像头 串口调试 雷达
 
     tf_init();                  // 坐标变换初始化
+    map_pose_init();            // 等定位模块发布真实位姿 复位时清除上次结果
     HAL_Delay(100);             // 等待一会儿
 
-    // led_board_on();             // 开启补光板
+    led_board_on();             // 开启补光板
 
     lidar_start();              // 启动雷达
 
@@ -26,7 +27,7 @@ void system_init(void)
 
     remind_init();              // 提示装置
     bfs_init();                 // 路径规划
-    bfs_base_obstacle();
+    bfs_base_obstacle();        // 预设障碍物
     HAL_Delay(100);             // 等待一会儿
 
     init_ok_remind();           // 初始化完成提醒

@@ -108,6 +108,7 @@ uint8_t point_cloud_update(const lidar_scan_t *scan, float car_x, float car_y, f
 
     cloud.update_flag++;
     cloud.scan_num = scan->scan_num;
+    cloud.scan_tick = scan->end_time;
     cloud.update_tick = tick;
 
     return 1;
@@ -115,6 +116,23 @@ uint8_t point_cloud_update(const lidar_scan_t *scan, float car_x, float car_y, f
 
 
 ///////////////////////////////////// 相邻点聚类 //////////////////////////////////////
+// 普通聚类全部保留供调试  地图入口单独调用本函数筛选小尺寸候选
+uint8_t obstacle_cluster_is_pillar(const lidar_cluster_t *cluster) {
+    if (cluster == NULL || !cluster->valid || cluster->point_count < CLUSTER_MIN_POINT_COUNT)
+        return 0;
+
+    // width/height都是平面跨度  不设严格尺寸下限  避免只看到部分表面时漏掉小柱
+    if (!isfinite(cluster->width) || !isfinite(cluster->height) ||
+        !isfinite(cluster->nearest_distance) ||
+        cluster->width < 0.0f || cluster->height < 0.0f ||
+        cluster->width > LIDAR_PILLAR_MAX_SIZE || cluster->height > LIDAR_PILLAR_MAX_SIZE ||
+        cluster->nearest_distance < LIDAR_MIN_DISTANCE ||
+        cluster->nearest_distance > LIDAR_PILLAR_MAX_DISTANCE)
+        return 0;
+
+    return 1;
+}
+
 // 清空一个聚类对象
 static void cluster_clear(lidar_cluster_t *cluster)
 {
@@ -203,6 +221,10 @@ static void cluster_finish(lidar_cluster_t *cluster)
 
     if (cluster == NULL || cluster->point_count == 0)
         return;
+
+    // 合格聚类放不下时明确标记截断  不能拿不完整结果证明道路无障碍
+    if (cluster->point_count >= CLUSTER_MIN_POINT_COUNT && obstacle_result.cluster_count >= CLUSTER_MAX_COUNT)
+        obstacle_result.truncated = 1;
 
     // 仅当聚类点数达到阈值且结果数组未满时才保存
     if (cluster->point_count >= CLUSTER_MIN_POINT_COUNT && obstacle_result.cluster_count < CLUSTER_MAX_COUNT) {

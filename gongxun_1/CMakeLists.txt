@@ -76,14 +76,14 @@ add_executable(${CMAKE_PROJECT_NAME}
         Control/Src/system.c
         APP/Src/map_track.c
         APP/Inc/map_track.h
-        APP/Src/obstacle_find.c
-        APP/Inc/obstacle_find.h
+        APP/Src/map_obs.c
+        APP/Inc/map_obs.h
         Test/Src/map_test.c
         Test/Inc/map_test.h
         Test/Src/map_stage_test.c
         Test/Inc/map_stage_test.h
-        APP/Src/tf2d.c
-        APP/Inc/tf2d.h
+        APP/Src/map_tf2d.c
+        APP/Inc/map_tf2d.h
         Test/Src/cam_test.c
         Test/Inc/cam_test.h
         Test/Src/lidar_test.c
@@ -106,6 +106,10 @@ add_executable(${CMAKE_PROJECT_NAME}
         APP/Inc/map_plan.h
         APP/Src/map_lidar.c
         APP/Inc/map_lidar.h
+        APP/Src/map_pose.c
+        APP/Inc/map_pose.h
+        APP/Src/map_nav.c
+        APP/Inc/map_nav.h
         APP/Src/map_plan.c
 
 )

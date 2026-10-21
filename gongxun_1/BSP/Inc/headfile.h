@@ -43,16 +43,16 @@
 
 // 应用、算法
 #include "bfs.h"        // BFS广度优先搜索算法
-// #include "grid.h"       // 旧栅格接口，本版道路地图不使用
-#include "map_track.h"  // 5x5赛道拓扑
+// #include "grid.h"       // 旧栅格接口  本版道路地图不使用
+#include "map_track.h"  // 5x5赛道静态拓扑
 #include "map_data.h"   // 道路状态和已确认障碍物
 #include "map_update.h" // 跨圈障碍确认与道路更新
 #include "map_plan.h"   // 9节点12道路路径搜索
 #include "map_lidar.h"  // 雷达聚类到地图
-// #include "planner.h"    // BFS与动态重规划
-#include "tf2d.h"       // 2D坐标变换
-// #include "obstacle_map.h" // 障碍物地图投影
-#include "obstacle_find.h" // 雷达障碍物扫描与道路阻塞
+#include "map_pose.h"   // 定位模块发布的实际地图位姿
+#include "map_nav.h"    // 道路分段导航与实际到位确认
+#include "map_tf2d.h"   // 2D坐标变换
+#include "map_obs.h"    // 雷达障碍物扫描与道路阻塞
 #include "pid.h"        // PID控制算法
 #include "chassis.h"    // 底盘控制
 #include "catch.h"      // 抓取装置

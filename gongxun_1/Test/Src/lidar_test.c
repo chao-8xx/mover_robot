@@ -1038,9 +1038,10 @@ void obstacle_cluster_test(void)
         // angle是原始雷达角度范围 如307~57表示跨过359度/0度，不是角度顺序错误
         // center是聚类里全部有效点map坐标的平均值，不是物体真实几何中心
         // size是map坐标下包围框沿X、Y的尺寸 height不是物体竖直高度
+        // span是X/Y跨度较大值；pillar=YES表示通过当前简单筛选，不代表识别出了黑色或圆柱形状
         // 桌面测试的位姿和安装变换都为0时，map数值等同于局部坐标
         printf("C%u angle=%u~%u points=%u center=(%.1f,%.1f) "
-               "size=(%.1f,%.1f) near=%.0f\r\n",
+               "size=(%.1f,%.1f) near=%.0f span=%.1f pillar=%s\r\n",
                (unsigned int)i,                          // C编号 从0开始 只表示当前数组顺序  不保证仍对应同一个物体
                (unsigned int)cluster->start_angle,        // 本组第一个点的原始雷达角度
                (unsigned int)cluster->end_angle,          // 本组最后一个点的原始雷达角度
@@ -1049,6 +1050,8 @@ void obstacle_cluster_test(void)
                cluster->center_point.y,                  // 全部点的平均Y坐标 mm
                cluster->width,                           // X方向跨度 max_x-min_x，单位mm
                cluster->height,                          // Y方向跨度 max_y-min_y，单位mm
-               cluster->nearest_distance);               // 本组最近有效点到雷达的原始测距 mm
+               cluster->nearest_distance,                // 本组最近有效点到雷达的原始测距 mm
+               fmaxf(cluster->width, cluster->height),    // 本组较大的平面跨度 mm
+               obstacle_cluster_is_pillar(cluster) ? "YES" : "NO");
     }
 }

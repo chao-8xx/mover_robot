@@ -107,6 +107,8 @@ uint8_t obstacle_find_task(float car_x, float car_y, float car_yaw);
 void hmi_get_car_state_task(void);
 // 已有可信的地图位姿并配置车体宽度时，调用这一层完成雷达到道路地图更新
 uint8_t map_obstacle_task(float car_x, float car_y, float car_yaw, uint8_t pose_valid);
+// 主循环调用：读取定位模块通过map_pose_update发布的位姿，再更新真实雷达地图。
+uint8_t map_obstacle_pose_task(void);
 
 
 #endif //GONGXUN_1_TASK_H

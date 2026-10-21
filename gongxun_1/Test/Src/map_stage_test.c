@@ -97,18 +97,16 @@ uint8_t map_stage_test(void) {
                    "clear one obstacle only");
 
     ///////////////////////////////////// 4 地图初始化与未知道路 //////////////////////////
-    // width must be configured：宽度为0时必须拒绝初始化
-    // 300mm车体外接正方形边长、50mm安全余量仅用于本测试，不是实车标定值
-    // 有效的map_update_init会清空地图、扫描记录和道路变化计数
-    map_test_check(!map_update_init(0.0f, 50.0f) &&
-                   !map_update_is_ready() &&
-                   map_update_init(300.0f, 50.0f),
-                   "width must be configured");
+    // 按区域封路不再填写膨胀参数；初始化清空道路、扫描历史和变更次数
+    map_update_init();
+    map_test_check(map_update_is_ready() && map_update_change_get() == 0 &&
+                   map_road_get(8, &state) && state == road_unknown,
+                   "map initialization clears state");
     // unknown road policy：N1到N4的直达道路是R8，此时R8还是未知
     // allow允许把未知路纳入候选路径，但进路决策仍须扫描；stop禁止搜索未知路
     map_test_check(map_plan_find(1, 4, map_unknown_allow, &old_path) &&
                    old_path.road_count == 1 && old_path.roads[0] == 8 &&
-                   map_plan_road_state(&old_path, 0) == map_step_scan &&
+                   map_plan_road_state(&old_path, 0, 102) == map_step_scan &&
                    !map_plan_find(1, 4, map_unknown_stop, &new_path),
                    "unknown road policy");
     // start equals goal：起点终点都是N1时，只需要1个节点，不需要经过任何道路
@@ -117,38 +115,38 @@ uint8_t map_stage_test(void) {
                    new_path.nodes[0] == 1,
                    "start equals goal");
     map_road_set(8, road_free);  // 手动模拟已经确认R8可通行 不是根据无障碍自动判断
-    // confirmed free can go：R8标为可通行后，严格策略也能找到直达路径并允许进入
+    // 手动FREE可参与搜索，但没有本次有效观察许可时仍需扫描
     map_test_check(map_plan_find(1, 4, map_unknown_stop, &new_path) &&
                    new_path.road_count == 1 &&
-                   map_plan_road_state(&new_path, 0) == map_step_go,
-                   "confirmed free can go");
+                   map_plan_road_state(&new_path, 0, 102) == map_step_scan,
+                   "stored free still needs observation");
     map_road_set(8, road_unknown);  // 恢复未知状态 给后续跨圈确认测试使用
 
     ///////////////////////////////////// 5 跨圈确认并封路 ////////////////////////////////
     // map_update_scan参数依次为：障碍框数组、框数量、扫描编号、时间戳ms
     // 下面的1、2、3、4是模拟扫描编号；100、200等是模拟时间，不会等待真实时间
     // first scan and duplicate scan：第1圈只给R8累计一次；重复提交第1圈必须拒绝
-    map_test_check(map_update_scan(&box, 1, 1, 100) &&
+    map_test_check(map_update_scan(&box, 1, 1, 100, 1) &&
                    map_road_get(8, &state) && state == road_unknown &&
-                   !map_update_scan(&box, 1, 1, 101),
+                   !map_update_scan(&box, 1, 1, 101, 1),
                    "first scan and duplicate scan");
     // miss resets road confirmation：第2圈没有障碍，R8的连续次数清零
     // 第3圈重新看到只算第一次，不能把不连续的两圈凑成确认
     // 参数(0,0,2,200)表示第2圈有效但没有障碍框，不表示雷达断流
-    map_test_check(map_update_scan(0, 0, 2, 200) &&
+    map_test_check(map_update_scan(0, 0, 2, 200, 1) &&
                    map_road_get(8, &state) && state == road_unknown &&
-                   map_update_scan(&box, 1, 3, 300) &&
+                   map_update_scan(&box, 1, 3, 300, 1) &&
                    map_road_get(8, &state) && state == road_unknown &&
                    map_update_change_get() == 0,
                    "miss resets road confirmation");
     // consecutive scans block R8：第3、4圈连续看到才封路，只记录一次道路变化
-    map_test_check(map_update_scan(&box, 1, 4, 400) &&
+    map_test_check(map_update_scan(&box, 1, 4, 400, 1) &&
                    map_road_get(8, &state) && state == road_blocked &&
                    map_update_change_get() == 1,
                    "consecutive scans block R8");
     // other roads and blocked persistence：R0保持未知；第5圈没看到障碍也不自动解封R8
     map_test_check(map_road_get(0, &state) && state == road_unknown &&
-                   map_update_scan(0, 0, 5, 500) &&
+                   map_update_scan(0, 0, 5, 500, 1) &&
                    map_road_get(8, &state) && state == road_blocked &&
                    map_update_change_get() == 1,
                    "other roads and blocked persistence");
@@ -156,7 +154,7 @@ uint8_t map_stage_test(void) {
     // 允许未知路参与搜索时应能绕行；新路径经过多条道路且检查有效
     // 找到候选绕行路径不代表未知道路已获准通行 进入前仍需扫描确认
     map_test_check(!map_plan_check(&old_path, map_unknown_allow) &&
-                   map_plan_road_state(&old_path, 0) == map_step_stop &&
+                   map_plan_road_state(&old_path, 0, 102) == map_step_stop &&
                    map_plan_find(1, 4, map_unknown_allow, &new_path) &&
                    new_path.road_count > 1 &&
                    map_plan_check(&new_path, map_unknown_allow),
@@ -164,12 +162,12 @@ uint8_t map_stage_test(void) {
 
     ///////////////////////////////////// 6 同圈去重与漏圈 ////////////////////////////////
     // 同一圈里有几个框都只给道路累计一次，不要求这些框彼此接近
-    map_update_init(300.0f, 50.0f);  // 重置地图 这一组测试从空地图开始
+    map_update_init();  // 重置地图 这一组测试从空地图开始
     map_scan_obs_t same_scan[2] = {box, box};
     same_scan[1].center_y += 150.0f; // 第二个框也在R8上，与第一个框相隔150mm
     same_scan[1].min_y += 150.0f;
     same_scan[1].max_y += 150.0f;
-    map_update_scan(same_scan, 2, 1, 100);
+    map_update_scan(same_scan, 2, 1, 100, 1);
     // one scan cannot confirm twice：单圈两个框也只能累计一次，R8保持未知
     map_test_check(map_road_get(8, &state) && state == road_unknown &&
                    map_update_change_get() == 0,
@@ -180,35 +178,35 @@ uint8_t map_stage_test(void) {
     shifted_box.center_y -= 150.0f;
     shifted_box.min_y -= 150.0f;
     shifted_box.max_y -= 150.0f;
-    map_test_check(map_update_scan(&shifted_box, 1, 2, 200) &&
+    map_test_check(map_update_scan(&shifted_box, 1, 2, 200, 1) &&
                    map_road_get(8, &state) && state == road_blocked,
                    "road confirmation needs no object matching");
 
     // skipped scan resets confirmation：第1圈直接跳到第3圈，也必须重新累计
-    map_update_init(300.0f, 50.0f);
-    map_update_scan(&box, 1, 1, 100);
-    map_test_check(map_update_scan(&box, 1, 3, 300) &&
+    map_update_init();
+    map_update_scan(&box, 1, 1, 100, 1);
+    map_test_check(map_update_scan(&box, 1, 3, 300, 1) &&
                    map_road_get(8, &state) && state == road_unknown &&
-                   map_update_scan(&box, 1, 4, 400) &&
+                   map_update_scan(&box, 1, 4, 400, 1) &&
                    map_road_get(8, &state) && state == road_blocked,
                    "skipped scan resets confirmation");
 
     // long pause resets confirmation：编号相邻但间隔超过1秒，也不能沿用上次次数
-    map_update_init(300.0f, 50.0f);
-    map_update_scan(&box, 1, 1, 100);
-    map_test_check(map_update_scan(&box, 1, 2, 1200) &&
+    map_update_init();
+    map_update_scan(&box, 1, 1, 100, 1);
+    map_test_check(map_update_scan(&box, 1, 2, 1200, 1) &&
                    map_road_get(8, &state) && state == road_unknown &&
-                   map_update_scan(&box, 1, 3, 1300) &&
+                   map_update_scan(&box, 1, 3, 1300, 1) &&
                    map_road_get(8, &state) && state == road_blocked,
                    "long pause resets confirmation");
 
     // clear restarts confirmation and keeps blocked：接收/位姿中断时清零；已经封路则保留
-    map_update_init(300.0f, 50.0f);
-    map_update_scan(&box, 1, 1, 100);
+    map_update_init();
+    map_update_scan(&box, 1, 1, 100, 1);
     map_update_clear_candidates();
-    map_test_check(map_update_scan(&box, 1, 2, 200) &&
+    map_test_check(map_update_scan(&box, 1, 2, 200, 1) &&
                    map_road_get(8, &state) && state == road_unknown &&
-                   map_update_scan(&box, 1, 3, 300) &&
+                   map_update_scan(&box, 1, 3, 300, 1) &&
                    map_road_get(8, &state) && state == road_blocked,
                    "clear restarts road confirmation");
     map_update_clear_candidates();
@@ -217,16 +215,16 @@ uint8_t map_stage_test(void) {
                    "clear keeps blocked roads");
 
     ///////////////////////////////////// 7 节点堵塞与无路可走 ////////////////////////////
-    // 把模拟障碍移到中心节点N4 车体安全膨胀后会影响它连接的四个出口
+    // 把模拟障碍移到中心节点N4，该节点区域的障碍会封锁相连的四个出口
     box.center_x = 1200.0f;
     box.center_y = 1200.0f;
     box.min_x = 1190.0f;
     box.max_x = 1210.0f;
     box.min_y = 1190.0f;
     box.max_y = 1210.0f;
-    map_update_init(300.0f, 50.0f);  // 清除上一组的障碍和道路状态
-    map_update_scan(&box, 1, 1, 100);
-    map_update_scan(&box, 1, 2, 200);
+    map_update_init();  // 清除上一组的障碍和道路状态
+    map_update_scan(&box, 1, 1, 100, 1);
+    map_update_scan(&box, 1, 2, 200, 1);
     uint8_t center_blocked = 1;  // 四条道路是否全部封锁
     const uint8_t center_roads[4] = {2, 3, 8, 9};  // N4左、右、上、下连接的道路编号
     for (uint8_t i = 0; i < 4; i++) {
@@ -241,40 +239,38 @@ uint8_t map_stage_test(void) {
                    new_path.node_count == 0,
                    "N4 has no path");
 
-    ///////////////////////////////////// 8 车体旋转后的安全膨胀 //////////////////////////
-    // 300mm正方形从中心到角点约212mm 旋转时不能只按半宽150mm考虑碰撞
-    // R0中心线Y=2125，测试障碍Y=1915，两者相距210mm
-    // 即使额外安全余量设为0，也应因车体外接半径覆盖到障碍而封锁R0
+    ///////////////////////////////////// 8 道路区域整体封锁 //////////////////////////////
+    // 此点偏离R0中心线，但仍位于R0区域；本版不尝试从障碍旁边挤过去
     box.center_x = box.min_x = box.max_x = 775.0f;
     box.center_y = box.min_y = box.max_y = 1915.0f;
-    map_update_init(300.0f, 0.0f);
-    map_update_scan(&box, 1, 1, 100);
-    map_update_scan(&box, 1, 2, 200);
+    map_update_init();
+    map_update_scan(&box, 1, 1, 100, 1);
+    map_update_scan(&box, 1, 2, 200, 1);
     map_test_check(map_road_get(0, &state) && state == road_blocked,
-                   "rotated square safety radius");
+                   "off-center road obstacle blocks whole road");
 
     ///////////////////////////////////// 9 边缘障碍与显式放行 ////////////////////////////
-    // 中心虽然在禁区，但障碍框加上车体范围后会影响R8，不能直接过滤
-    box = (map_scan_obs_t){990.0f, 1625.0f, 980.0f, 1615.0f, 1000.0f, 1635.0f};
-    map_update_init(300.0f, 50.0f);
-    map_update_scan(&box, 1, 1, 100);
-    map_update_scan(&box, 1, 2, 200);
+    // 中心虽然在禁区，但框本身已经伸入R8区域，不能只凭中心位置过滤
+    box = (map_scan_obs_t){990.0f, 1625.0f, 980.0f, 1615.0f, 1010.0f, 1635.0f};
+    map_update_init();
+    map_update_scan(&box, 1, 1, 100, 1);
+    map_update_scan(&box, 1, 2, 200, 1);
     map_test_check(map_road_get(8, &state) && state == road_blocked,
                    "forbidden center still affects road");
 
-    // 此点距R0中心线274mm，大于300mm正方形半对角线加50mm余量的262mm，不应封路
-    box = (map_scan_obs_t){775.0f, 1851.0f, 775.0f, 1851.0f, 775.0f, 1851.0f};
-    map_update_init(300.0f, 50.0f);
-    map_update_scan(&box, 1, 1, 100);
-    map_update_scan(&box, 1, 2, 200);
+    // 完全在禁区内、没有伸入道路或节点的框，不再通过膨胀影响旁边道路
+    box = (map_scan_obs_t){775.0f, 1840.0f, 775.0f, 1840.0f, 775.0f, 1840.0f};
+    map_update_init();
+    map_update_scan(&box, 1, 1, 100, 1);
+    map_update_scan(&box, 1, 2, 200, 1);
     map_test_check(map_road_get(0, &state) && state == road_unknown,
-                   "square envelope does not overexpand");
+                   "forbidden-only obstacle does not block road");
 
     // 空扫描仍不能自动放行；这里用预设数据模拟上层已经确认R8整段观察有效
     // confirm_free参数：待进入道路编号、本次扫描编号、当前时间ms
-    map_update_init(300.0f, 50.0f);
+    map_update_init();
     map_test_check(!map_update_confirm_free(8, 1, 100) &&
-                   map_update_scan(0, 0, 1, 100) &&
+                   map_update_scan(0, 0, 1, 100, 1) &&
                    map_road_get(8, &state) && state == road_unknown &&
                    !map_update_confirm_free(8, 0, 101) &&
                    !map_update_confirm_free(8, 1, 1101),
@@ -283,7 +279,7 @@ uint8_t map_stage_test(void) {
                    map_update_confirm_free(8, 1, 102) &&
                    map_update_change_get() == 1 &&
                    map_plan_find(1, 4, map_unknown_stop, &new_path) &&
-                   map_plan_road_state(&new_path, 0) == map_step_go,
+                   map_plan_road_state(&new_path, 0, 102) == map_step_go,
                    "explicit free allows GO once");
     map_update_clear_candidates();
     map_test_check(!map_update_confirm_free(0, 1, 103),
@@ -291,17 +287,53 @@ uint8_t map_stage_test(void) {
 
     // 已放行道路后来连续两圈受影响，仍应封锁；移走障碍也不能用放行接口直接解封
     box = (map_scan_obs_t){1200.0f, 1625.0f, 1190.0f, 1615.0f, 1210.0f, 1635.0f};
-    map_update_scan(&box, 1, 2, 200);
-    map_test_check(!map_update_confirm_free(8, 2, 201),
+    map_update_scan(&box, 1, 2, 200, 1);
+    map_test_check(!map_update_confirm_free(8, 2, 201) &&
+                   map_plan_road_state(&new_path, 0, 201) == map_step_scan,
                    "one hit rejects free confirmation");
-    map_update_scan(&box, 1, 3, 300);
-    map_update_scan(0, 0, 4, 400);
+    map_update_scan(&box, 1, 3, 300, 1);
+    map_update_scan(0, 0, 4, 400, 1);
     map_test_check(!map_update_confirm_free(8, 4, 401) &&
                    map_road_get(8, &state) && state == road_blocked &&
                    map_update_change_get() == 2,
                    "explicit free cannot reopen blocked road");
 
-    ///////////////////////////////////// 10 输出最终结果 /////////////////////////////////
+    ///////////////////////////////////// 10 输入容量、边界和结果完整性 ////////////////////
+    map_scan_obs_t many_boxes[MAP_SCAN_OBS_MAX];
+    for (uint8_t i = 0; i < MAP_SCAN_OBS_MAX; i++) many_boxes[i] = box;
+    map_update_init();
+    map_test_check(map_update_scan(many_boxes, MAP_SCAN_OBS_MAX, 1, 100, 1) &&
+                   map_update_scan(many_boxes, MAP_SCAN_OBS_MAX, 2, 200, 1) &&
+                   map_road_get(8, &state) && state == road_blocked,
+                   "scan capacity independent of old records");
+    map_test_check(map_xy_to_cell(1000.0f, 750.0f, &cell_x, &cell_y) &&
+                   map_cell_get(cell_x, cell_y, &cell) && cell.cell_type == cell_road &&
+                   cell.cell_id == 9 && map_check_area(1000.0f, 750.0f) == map_normal,
+                   "boundary queries agree");
+
+    // complete=0仍可累计看到的障碍，但没有框也不能证明道路畅通
+    map_update_init();
+    map_test_check(map_update_scan(0, 0, 1, 100, 0) &&
+                   !map_update_confirm_free(8, 1, 101) &&
+                   map_update_scan(&box, 1, 2, 200, 0) &&
+                   map_update_scan(&box, 1, 3, 300, 0) &&
+                   map_road_get(8, &state) && state == road_blocked,
+                   "incomplete result blocks but cannot free");
+
+    // 旧FREE只用于保存地图；进入前必须使用未过期、且与最新扫描对应的许可
+    map_update_init();
+    map_update_scan(0, 0, 1, 100, 1);
+    map_update_confirm_free(8, 1, 101);
+    map_plan_find(1, 4, map_unknown_stop, &new_path);
+    map_test_check(map_plan_road_state(&new_path, 0, 102) == map_step_go &&
+                   map_plan_road_state(&new_path, 0, 1101) == map_step_scan &&
+                   map_update_scan(0, 0, 2, 200, 1) &&
+                   map_plan_road_state(&new_path, 0, 201) == map_step_scan &&
+                   map_update_confirm_free(8, 2, 201) &&
+                   map_plan_road_state(&new_path, 0, 202) == map_step_go,
+                   "GO needs fresh observation approval");
+
+    ///////////////////////////////////// 11 输出最终结果 /////////////////////////////////
     // ALL PASS：全部检查通过；FAILED：至少一项失败，向上查对应的FAIL名称
     // 测试结束后保留最后一组测试地图 正式接雷达前应重新按实际参数初始化地图
     printf("[MAP TEST] %s\r\n", map_test_fail ? "FAILED" : "ALL PASS");
@@ -310,7 +342,7 @@ uint8_t map_stage_test(void) {
 
 
 ///////////////////////////////////// 真实雷达桌面联调 ////////////////////////////////////
-// 本测试使用真实扫描和聚类，但位姿、车体尺寸都是人为设置的测试值
+// 本测试使用真实扫描和聚类，但位姿是人为设置的测试值
 // 临时把雷达原点当作测试车体原点，0度射线当作车头方向，不使用实际安装标定参数
 // 测试位姿设在N1=(1200,2125)，转180度后，雷达0度方向指向地图中心N4
 // 这样雷达前方500mm的物体会落在地图(1200,1625)，即刚才自检用的R8中间
@@ -318,8 +350,6 @@ uint8_t map_stage_test(void) {
 #define MAP_LIDAR_TEST_X         1200.0f
 #define MAP_LIDAR_TEST_Y         2125.0f
 #define MAP_LIDAR_TEST_YAW         180.0f
-#define MAP_LIDAR_TEST_WIDTH       300.0f  // 仅用于桌面软件联调，不是实测车宽
-#define MAP_LIDAR_TEST_SAFETY       50.0f  // 测试安全余量 mm
 
 // 桌面测试观察框：原始雷达0度方向前方400~600mm，左右各200mm
 // 映射到上述固定测试位姿后，对应地图X=1000~1400、Y=1525~1725
@@ -343,13 +373,47 @@ static void map_lidar_test_print_path(const map_path_t *path) {
         printf(" -R%u-> N%u", (unsigned int)path->roads[i],
                (unsigned int)path->nodes[i + 1]);
     }
-    map_step_t step = map_plan_road_state(path, 0);
+    map_step_t step = map_plan_road_state(path, 0, HAL_GetTick());
     printf(" entry=%s\r\n", step == map_step_go ? "GO" :
                             step == map_step_scan ? "SCAN" : "STOP");
 }
 
+// 未选中小柱时每2秒打印一次筛选前数据，只诊断，不改变阈值、点云或地图
+static void map_lidar_test_diagnose(uint32_t tick) {
+    static uint32_t last_tick = 0;
+    if (tick - last_tick < 2000U) return;
+    last_tick = tick;
+
+    const lidar_scan_t *scan = lidar_get_scan();
+    if (scan != NULL) {
+        // 每项为 角度=距离/原始有效/点云有效；355~359、0~5覆盖原始0度两侧
+        // 原始有效但点云无效时检查屏蔽和距离过滤；少于3个有效点时不会生成聚类
+        printf("[PILLAR RAW] raw_scan=%lu cloud_scan=%lu",
+               (unsigned long)scan->scan_num, (unsigned long)cloud.scan_num);
+        for (int16_t offset = -5; offset <= 5; offset++) {
+            uint16_t angle = (uint16_t)((offset + LIDAR_ANGLE_COUNT) % LIDAR_ANGLE_COUNT);
+            printf(" %u=%u/%u/%u", (unsigned int)angle, (unsigned int)scan->distance[angle],
+                   (unsigned int)scan->valid[angle], (unsigned int)cloud.points[angle].valid);
+        }
+        printf("\r\n");
+    }
+
+    // 打印全部普通聚类，包含未通过筛选的组，避免目标恰好排在第8组以后而看不到
+    // pillar=尺寸/点数/距离筛选是否通过；area=整个包围框是否在桌面观察区内
+    for (uint16_t i = 0; i < obstacle_result.cluster_count; i++) {
+        const lidar_cluster_t *cluster = &obstacle_result.clusters[i];
+        uint8_t in_area = cluster->min_x >= MAP_LIDAR_TEST_MIN_X && cluster->max_x <= MAP_LIDAR_TEST_MAX_X &&
+                          cluster->min_y >= MAP_LIDAR_TEST_MIN_Y && cluster->max_y <= MAP_LIDAR_TEST_MAX_Y;
+        printf("[PILLAR CHECK] C%u a=%u~%u p=%u span=%.1f near=%.0f center=(%.0f,%.0f) pillar=%u area=%u\r\n",
+               (unsigned int)i, (unsigned int)cluster->start_angle, (unsigned int)cluster->end_angle,
+               (unsigned int)cluster->point_count, fmaxf(cluster->width, cluster->height),
+               cluster->nearest_distance, cluster->center_point.x, cluster->center_point.y,
+               (unsigned int)obstacle_cluster_is_pillar(cluster), (unsigned int)in_area);
+    }
+}
+
 // 主循环持续调用 本函数不发送底盘运动指令，不把未知道路直接标为可通行
-// 上电先清空测试地图，再连续执行：真实点云与聚类 -> 观察框筛选 -> 跨圈确认 -> 封路重规划
+// 上电先清空测试地图，再连续执行：小柱候选及观察框筛选 -> 实际点判路 -> 跨圈确认 -> 封路重规划
 // 已确认的封锁不会因移走挡板自动解除 要重新做一轮完整实验，请复位开发板
 void map_lidar_test(void) {
     static uint8_t test_started = 0;
@@ -357,7 +421,14 @@ void map_lidar_test(void) {
     static uint32_t last_change = 0;
     static uint32_t last_drop = 0;  // 接收错误打断扫描后，清零道路连续确认次数
     static map_path_t path;
-    map_scan_obs_t boxes[CLUSTER_MAX_COUNT];
+    static uint16_t stat_scans = 0, stat_hits = 0; // 每100个接受的新扫描统计一次选区内候选出现情况
+    static uint16_t stat_min_points = UINT16_MAX, stat_max_points = 0;
+    static float stat_max_size = 0.0f;
+    static const map_rect_t test_area = {
+        .min_x = MAP_LIDAR_TEST_MIN_X, .max_x = MAP_LIDAR_TEST_MAX_X,
+        .min_y = MAP_LIDAR_TEST_MIN_Y, .max_y = MAP_LIDAR_TEST_MAX_Y
+    };
+    const lidar_cluster_t *selected[CLUSTER_MAX_COUNT]; // 只保存打印用的指针，不复制点云
     uint8_t count = 0;
     uint32_t tick, change;
     road_state_t road_state = road_unknown;
@@ -366,12 +437,13 @@ void map_lidar_test(void) {
     if (!test_started) {
         // 独立测试使用零安装变换，不把本次桌面参数作为正式安装标定结果
         tf_transform_set(&tf_base, 0.0f, 0.0f, 0.0f);
-        if (!map_update_init(MAP_LIDAR_TEST_WIDTH, MAP_LIDAR_TEST_SAFETY)) return;
+        map_update_init();
         test_started = 1;
         printf("===== LIDAR MAP DESK TEST START =====\r\n");
         printf("固定测试位姿=(1200,2125,180)，临时零安装偏移；不是实际全局定位\r\n");
-        printf("观察原始0度方向前方400~600mm、左右各200mm；先移走挡板，再放到约500mm处\r\n");
-        printf("只收观察框内的完整聚类；道路连续两圈有障碍才封锁，移走不自动解封\r\n");
+        printf("观察原始0度方向前方400~600mm、左右各200mm；先移走小柱，再放到约500mm处\r\n");
+        printf("只收观察框内的小柱候选，跨度上限=%.0fmm（试验值）；不再使用大挡板封路\r\n", LIDAR_PILLAR_MAX_SIZE);
+        printf("按候选实际点判路，连续两圈确认后封锁，移走不自动解封\r\n");
         // 允许搜索未知路只用于观察候选绕行结果 进入未知路的决策仍为SCAN
         map_plan_find(1, 4, map_unknown_allow, &path);
         map_lidar_test_print_path(&path);
@@ -383,6 +455,9 @@ void map_lidar_test(void) {
     if (drop != last_drop) {
         last_drop = drop;
         map_update_clear_candidates();
+        stat_scans = stat_hits = stat_max_points = 0;
+        stat_min_points = UINT16_MAX;
+        stat_max_size = 0.0f;
         printf("[LIDAR MAP] SCAN INTERRUPTED, reset road confirmation\r\n");
         return;  // 受影响的这次更新不写地图 已确认的封锁道路保留
     }
@@ -390,23 +465,40 @@ void map_lidar_test(void) {
 
     for (uint16_t i = 0; i < obstacle_result.cluster_count; i++) {
         const lidar_cluster_t *cluster = &obstacle_result.clusters[i];
-        if (!cluster->valid ||
+        if (!obstacle_cluster_is_pillar(cluster) ||
             cluster->min_x < MAP_LIDAR_TEST_MIN_X || cluster->max_x > MAP_LIDAR_TEST_MAX_X ||
             cluster->min_y < MAP_LIDAR_TEST_MIN_Y || cluster->max_y > MAP_LIDAR_TEST_MAX_Y) continue;
 
-        // 只把选区内的真实聚类转成地图输入框 不注入预设障碍
-        boxes[count].center_x = cluster->center_point.x;
-        boxes[count].center_y = cluster->center_point.y;
-        boxes[count].min_x = cluster->min_x;
-        boxes[count].min_y = cluster->min_y;
-        boxes[count].max_x = cluster->max_x;
-        boxes[count].max_y = cluster->max_y;
-        count++;
+        selected[count++] = cluster;
     }
 
     tick = obstacle_result.update_tick;
-    // count=0表示本圈观察框内没有完整聚类 仍提交，让道路连续确认次数清零
-    if (!map_update_scan(boxes, count, cloud.scan_num, tick)) return;
+    // 和正式入口使用同一套实际点判路；没有小柱候选也提交，让未确认道路的连续次数清零
+    if (!map_lidar_handle_area(1, &test_area)) return;
+
+    // hit表示选区里出现过候选的扫描数，不是已确认物体数；选区内应只放待测小柱
+    // 截断圈不作为测量样本，重新统计100圈；已确认道路仍按地图策略保留
+    if (obstacle_result.truncated) {
+        stat_scans = stat_hits = stat_max_points = 0;
+        stat_min_points = UINT16_MAX;
+        stat_max_size = 0.0f;
+    } else {
+        stat_scans++;
+        if (count != 0) stat_hits++;
+        for (uint8_t i = 0; i < count; i++) {
+            if (selected[i]->point_count < stat_min_points) stat_min_points = selected[i]->point_count;
+            if (selected[i]->point_count > stat_max_points) stat_max_points = selected[i]->point_count;
+            stat_max_size = fmaxf(stat_max_size, fmaxf(selected[i]->width, selected[i]->height));
+        }
+        if (stat_scans == 100) {
+            printf("[PILLAR 100] hit=%u/100 points=%u~%u span_max=%.1fmm\r\n",
+                   (unsigned int)stat_hits, (unsigned int)(stat_hits ? stat_min_points : 0),
+                   (unsigned int)stat_max_points, stat_max_size);
+            stat_scans = stat_hits = stat_max_points = 0;
+            stat_min_points = UINT16_MAX;
+            stat_max_size = 0.0f;
+        }
+    }
     change = map_update_change_get();
     if (change != last_change) {
         last_change = change;
@@ -418,19 +510,23 @@ void map_lidar_test(void) {
         }
     }
 
-    // 每500ms打印一次摘要 selected=本圈入选框数；本版不再统计单个障碍物的候选/确认数量
+    // 每500ms打印一次摘要 selected=选区内小柱候选数；不是所有普通聚类数量
+    // truncated=1表示聚类被截断；age使用采集结束时间，不能拿处理时间冒充新鲜扫描
     // R8=UNKNOWN表示尚未确认封锁，不能解释为可通行；changes=累计道路状态变化次数
     if (tick - last_print_tick < 500U) return;
     last_print_tick = tick;
     map_road_get(8, &road_state);
-    printf("[LIDAR MAP] scan=%lu clusters=%u selected=%u R8=%s changes=%lu\r\n",
+    printf("[LIDAR MAP] scan=%lu clusters=%u selected=%u truncated=%u age=%lums R8=%s changes=%lu\r\n",
            (unsigned long)cloud.scan_num, (unsigned int)obstacle_result.cluster_count,
-           (unsigned int)count,
+           (unsigned int)count, (unsigned int)obstacle_result.truncated,
+           (unsigned long)(tick - cloud.scan_tick),
            road_state == road_blocked ? "BLOCKED" : road_state == road_free ? "FREE" : "UNKNOWN",
            (unsigned long)change);
+    if (count == 0) map_lidar_test_diagnose(tick);
     for (uint8_t i = 0; i < count; i++) {
-        printf("[LIDAR MAP] BOX%u center=(%.1f,%.1f) size=(%.1f,%.1f)mm\r\n",
-               (unsigned int)i, boxes[i].center_x, boxes[i].center_y,
-               boxes[i].max_x - boxes[i].min_x, boxes[i].max_y - boxes[i].min_y);
+        printf("[LIDAR MAP] PILLAR%u points=%u center=(%.1f,%.1f) size=(%.1f,%.1f) near=%.0fmm\r\n",
+               (unsigned int)i, (unsigned int)selected[i]->point_count,
+               selected[i]->center_point.x, selected[i]->center_point.y,
+               selected[i]->width, selected[i]->height, selected[i]->nearest_distance);
     }
 }
