@@ -2,7 +2,7 @@
 #define GONGXUN_1_CATCH_H
 
 // 伸缩运行的最大距离
-#define STRETCH_MAX_CM   15.0f    // 伸缩最大允许伸出距离
+#define STRETCH_MAX_CM   16.5f    // 伸缩最大允许伸出距离
 
 // 夹爪舵机角度定义
 #define CLAW_CATCH  3.0f     // 夹爪夹取角度
@@ -15,8 +15,8 @@
 #define SAFE_LOCATION   60.0f   // 安全位置，不超尺寸
 
 // 云台舵机角度定义
-#define HOLDER_SAFE     186.0f   // 云台安全角度
-#define HOLDER_PUT      236.0f   // 云台放置物料角度
+#define HOLDER_SAFE     185.0f   // 云台安全角度
+#define HOLDER_PUT      238.5f   // 云台放置物料角度
 #define HOLDER_CATCH    92.0f    // 云台抓取中间物料角度
 #define HOLDER_RIGHT    60.0f    // 云台抓取右侧物料角度
 #define HOLDER_LEFT     136.0f   // 云台抓取左侧物料角度
@@ -31,8 +31,8 @@
 
 // 伸缩装置目标位置
 #define STRETCH_NORMAL   0.0f   // 默认位置
-#define STRETCH_CATCH    8.5f   // 抓取位置 从原料区
-#define STRETCH_PUT      1.5f   // 放置位置 放入转盘
+#define STRETCH_CATCH    12.5f   // 抓取位置 从原料区
+#define STRETCH_PUT      2.5f   // 放置位置 放入转盘
 #define STRETCH_PUT_MID  5.0f   // 放置中心圆环位置
 #define STRETCH_PUT_SIDE 8.8f   // 放置两边圆环位置
 #define STRETCH_SAFE     3.0f   // 安全长度

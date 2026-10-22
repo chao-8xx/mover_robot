@@ -1,5 +1,6 @@
 #include "headfile.h"
 
+// 全部初始化
 void all_init(void)
 {
     timer_init();
@@ -40,6 +41,6 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
     }
     else if (htim ->Instance == TIM2) {    // 10ms中断
         system_control();
-        // car_catch_three_material_test();
+        // lift_test();
     }
 }

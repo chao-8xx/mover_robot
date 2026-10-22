@@ -27,4 +27,7 @@ void put_circle_send(void);
 // 物料放置测试
 void car_follow_put_material_test(void);
 
+// 反复升降测试 没办法总出问题，只能测试
+void lift_test(void);
+
 #endif //GONGXUN_1_CHASSIS_TEST_H

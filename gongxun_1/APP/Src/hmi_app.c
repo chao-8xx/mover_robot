@@ -35,8 +35,7 @@ void hmi_start(void)
     car_run = true;
     hmi_lift_state = 0;
     hmi_stretch_state = 0;
-    chassis_odom_reset();      // 复位全局位姿
-    task_state.odom_on = 0;    // 发车时先不开启
+    chassis_odom_hold();    // 发车时先不开启全局位姿
 }
 
 // 触摸串口屏停车事件

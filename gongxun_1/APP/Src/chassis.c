@@ -111,6 +111,8 @@ void car_stop(void)
 {
     chassis_clear();
     chassis_solve();
+    chassis_send_index = 0; // 强制从 0 号轮重新发送四轮停止命令，避免旧速度命令残留
+    chassis_sending = 1;
     chassis_mode = CHASSIS_IDLE;
 }
 
@@ -223,8 +225,7 @@ void car_rotate_yaw(float target_yaw)
     }
     else {
         // 误差小：先停住，连续稳定 100 帧（1000ms）才算到位
-        // car_rotate(0);
-        car_stop();
+        car_rotate(0);   // 只发 0 速度，保持 CHASSIS_ROTATE，直到稳定计数满
         chassis_settle++;
         if (chassis_settle >= CHASSIS_YAW_SETTLE) {
             car_stop();
@@ -336,6 +337,7 @@ Chassis_Mode car_get_state(void)
 void chassis_odom_hold(void)
 {
     odom_hold_tick = HAL_GetTick();
+    chassis_odom_reset();      // 暂停前重置基准，避免恢复时把暂停期间的位移跳进去
     task_state.odom_on = 0;
 }
 // 1ms 调用：轮流给四个电机发读位置请求
@@ -344,8 +346,10 @@ void chassis_odom_poll(void)
     static uint8_t idx = 0;
     static uint32_t last_tick = 0;
 
-    // 队列非空就完全不发，给运动命令让路
-    if (Emm_V5_Tx_Count() != 0) return;
+    // 只在底盘位置移动、发送队列完全空闲时读，避免和运动命令抢串口
+    if (Emm_V5_Tx_Count() != 0 || chassis_sending || chassis_mode != CHASSIS_MOVE) {
+        return;
+    }
 
     if ((int32_t)(HAL_GetTick() - last_tick) < 100) return;
     last_tick = HAL_GetTick();

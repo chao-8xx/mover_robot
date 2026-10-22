@@ -112,13 +112,16 @@ void motor_set_speedPos(Motor_Num motor_num,int16_t speed,int32_t pulse)
     clk = (pulse < 0) ? (uint32_t)(-(int32_t)pulse) : (uint32_t)pulse;
 
     if (motor_num != Motor_5 && motor_num != Motor_6) {
-        Emm_V5_Pos_Control(addr, dir, vel, STEP_MOTOR_CHASSIS_ACC, clk, false, false);
+        if (Emm_V5_Pos_Control(addr, dir, vel, STEP_MOTOR_CHASSIS_ACC, clk, false, false)) {
+            step_motor_pos[motor_num] += pulse;    // 只有入队成功才更新账本
+        }
     }
     else {
-        Emm_V5_Pos_Control(addr, dir, vel, STEP_MOTOR_CATCH_ACC, clk, false, false);   // 5、6号电机不需要加速度，需要及时性
+        if (Emm_V5_Pos_Control(addr, dir, vel, STEP_MOTOR_CATCH_ACC, clk, false, false)) {
+            step_motor_pos[motor_num] += pulse;    // 只有入队成功才更新账本
+        }
     }
     step_motor_update_speed(motor_num, speed);
-    step_motor_pos[motor_num] += pulse;    // pulse 正=下降方向=位置增大，符号一致
 }
 
 // 电机定速定位置控制 绝对（非阻塞，可在主循环或定时器中断中调用）
@@ -146,10 +149,18 @@ void motor_set_speed_Pos(Motor_Num motor_num,int16_t speed,int32_t pos)
     }
     clk = (pos < 0) ? (uint32_t)(-(int32_t)pos) : (uint32_t)pos;
 
-    Emm_V5_Pos_Control(addr, dir, vel, STEP_MOTOR_CATCH_ACC, clk, true, false);
+    // 打印5号升降电机数据！
+    if (motor_num == Motor_5) {
+        printf("M5 pos=%ld cur=%ld dir=%u clk=%lu tx=%u\r\n",
+               (long)pos, (long)cur, dir, (unsigned long)clk,
+               Emm_V5_Tx_Count());
+    }
+
+    if (Emm_V5_Pos_Control(addr, dir, vel, STEP_MOTOR_CATCH_ACC, clk, true, false)) {
+        step_motor_pos[motor_num] = pos;   // 只有命令成功入队才更新账本
+    }
 
     step_motor_update_speed(motor_num, speed);
-    step_motor_pos[motor_num] = pos;   // 更新绝对位置账本
 }
 
 void motor_pos_set(Motor_Num motor_num, int32_t pos)

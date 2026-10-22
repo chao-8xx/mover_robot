@@ -1156,3 +1156,134 @@ void car_follow_put_material_test(void)
             break;
     }
 }
+
+// 反复升降测试 没办法总出问题，只能测试
+void lift_test(void)
+{
+    static uint8_t test_step = 0;
+    static uint32_t wait_tick = 0;
+
+    if (!car_reset) {
+        return;
+    }
+
+    switch (test_step)
+    {
+        case 0:     // 升降自检：下降到抓取高度
+            if (!lift_is_busy()) {
+                printf("SIM STEP 0 DOWN start H=%.2f\r\n",
+                       (double)task_state.cur_height);
+                catch_lift_to_height(LIFT_CATCH);
+                test_step = 1;
+            }
+            break;
+
+        case 1:     // 升降自检：升回正常高度
+            if (!lift_is_busy()) {
+                printf("SIM STEP 1 DOWN done H=%.2f\r\n",
+                       (double)task_state.cur_height);
+                catch_lift_to_height(LIFT_NORMAL);
+                test_step = 2;
+            }
+            break;
+
+        case 2:     // 自检完成，进入模拟抓取准备
+            if (!lift_is_busy()) {
+                printf("SIM STEP 2 LIFT OK H=%.2f\r\n",
+                       (double)task_state.cur_height);
+                holder_rotate(HOLDER_CATCH);
+                claw_ctrl(CLAW_LOOSE);
+                turntable_rotate(ONE_LOCATION);
+                servo_wait_ms(700);
+                test_step = 10;
+            }
+            break;
+
+        case 10:    // 模拟锁住物料：下降到抓取高度
+            if (!servo_is_busy() && !lift_is_busy()) {
+                printf("SIM STEP 10 LOWER CLAW H=%.2f\r\n",
+                       (double)task_state.cur_height);
+                catch_lift_to_height(LIFT_CATCH);
+                test_step = 11;
+            }
+            break;
+
+        case 11:    // 等下降完成，夹爪闭合
+            if (!lift_is_busy()) {
+                printf("SIM STEP 11 CATCH H=%.2f\r\n",
+                       (double)task_state.cur_height);
+                claw_ctrl(CLAW_CATCH);
+                servo_wait_ms(400);
+                test_step = 12;
+            }
+            break;
+
+        case 12:    // 升起物料
+            if (!servo_is_busy()) {
+                catch_lift_to_height(LIFT_NORMAL);
+                test_step = 13;
+            }
+            break;
+
+        case 13:    // 云台转到放置位置
+            if (!lift_is_busy()) {
+                printf("SIM STEP 13 RAISE DONE H=%.2f\r\n",
+                       (double)task_state.cur_height);
+                holder_rotate(HOLDER_PUT);
+                servo_wait_ms(700);
+                test_step = 14;
+            }
+            break;
+
+        case 14:    // 下降到放置高度
+            if (!servo_is_busy()) {
+                catch_lift_to_height(LIFT_PUT);
+                test_step = 15;
+            }
+            break;
+
+        case 15:    // 松开夹爪
+            if (!lift_is_busy()) {
+                printf("SIM STEP 15 PUT H=%.2f\r\n",
+                       (double)task_state.cur_height);
+                claw_ctrl(CLAW_LOOSE);
+                servo_wait_ms(400);
+                test_step = 16;
+            }
+            break;
+
+        case 16:    // 升起，云台回抓取位置
+            if (!servo_is_busy()) {
+                catch_lift_to_height(LIFT_NORMAL);
+                test_step = 17;
+            }
+            break;
+
+        case 17:
+            if (!lift_is_busy()) {
+                holder_rotate(HOLDER_CATCH);
+                servo_wait_ms(700);
+                printf("SIM STEP 17 DONE H=%.2f\r\n",
+                       (double)task_state.cur_height);
+                test_step = 18;
+            }
+            break;
+
+        case 18:
+            if (!servo_is_busy()) {
+                wait_tick = HAL_GetTick() + 300;
+                test_step = 19;
+            }
+            break;
+
+        case 19:
+            if ((int32_t)(HAL_GetTick() - wait_tick) >= 0) {
+                test_step = 10;
+            }
+            break;
+
+        default:
+            test_step = 0;
+            break;
+    }
+}

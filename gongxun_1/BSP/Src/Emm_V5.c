@@ -34,7 +34,7 @@ static volatile uint8_t emm_v5_pos_valid[7];
   * @note     命令先入队，由 DMA + USART2 中断逐帧发送；
   *           主循环和定时器中断中均可安全调用，不会忙等。
   */
-static void Emm_V5_Send(const uint8_t *cmd, uint8_t len)
+static uint8_t Emm_V5_Send(const uint8_t *cmd, uint8_t len)
 {
   uint8_t next_tail;
   uint32_t primask;
@@ -42,7 +42,7 @@ static void Emm_V5_Send(const uint8_t *cmd, uint8_t len)
   // 非法长度直接丢弃，不参与入队
   if (len == 0 || len > EMM_V5_TX_FRAME_MAX)
   {
-    return;
+    return 0;
   }
 
   // 保存当前中断屏蔽状态，然后关中断，防止主循环和中断同时改队列导致错乱
@@ -53,7 +53,7 @@ static void Emm_V5_Send(const uint8_t *cmd, uint8_t len)
   if (emm_v5_tx_count >= EMM_V5_TX_QUEUE_SIZE)
   {
     __set_PRIMASK(primask);
-    return;
+    return 0;
   }
 
   // 把命令帧复制到队尾的空闲位置，DMA 后续会从这个全局缓冲读数据
@@ -76,11 +76,14 @@ static void Emm_V5_Send(const uint8_t *cmd, uint8_t len)
       emm_v5_tx_head = 0;
       emm_v5_tx_tail = 0;
       emm_v5_tx_count = 0;
+      __set_PRIMASK(primask);
+      return 0;
     }
   }
 
   // 恢复之前的中断屏蔽状态（之前没关就不开，之前关了仍保持关闭）
   __set_PRIMASK(primask);
+  return 1;
 }
 
 /**
@@ -441,7 +444,7 @@ void Emm_V5_Vel_Control(uint8_t addr, uint8_t dir, uint16_t vel, uint8_t acc, bo
   * @param    snF  同步运动标志，false为不启用，true为启用
   * @retval   地址 + 命令码 + 命令状态 + 校验字节
   */
-void Emm_V5_Pos_Control(uint8_t addr, uint8_t dir, uint16_t vel, uint16_t acc, uint32_t clk, bool raF, bool snF)
+uint8_t Emm_V5_Pos_Control(uint8_t addr, uint8_t dir, uint16_t vel, uint16_t acc, uint32_t clk, bool raF, bool snF)
 {
   uint8_t cmd[16] = {0};
 
@@ -459,7 +462,7 @@ void Emm_V5_Pos_Control(uint8_t addr, uint8_t dir, uint16_t vel, uint16_t acc, u
   cmd[11] =  snF;                       // 同步运动标志
   cmd[12] =  0x6B;                      // 校验字节
 
-  Emm_V5_Send(cmd, 13);
+  return Emm_V5_Send(cmd, 13);
 }
 
 /**
