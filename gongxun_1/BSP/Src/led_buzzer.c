@@ -5,26 +5,26 @@
 #define BUZZER_PIN        GPIO_PIN_2
 
 // 拓展板板载LED与蜂鸣器初始化
-void led_buzzer_init(void)
+void light_buzzer_init(void)
 {
-    led_off();
+    light_off();
     buzzer_off();
 }
 
-// LED亮灯
-void led_on(void)
+// 补光板亮灯
+void light_on(void)
 {
     HAL_GPIO_WritePin(LED_BUZZER_PORT,LED_PIN,GPIO_PIN_SET);
 }
 
-// LED灭灯
-void led_off(void)
+// 补光板灭灯
+void light_off(void)
 {
     HAL_GPIO_WritePin(LED_BUZZER_PORT,LED_PIN,GPIO_PIN_RESET);
 }
 
-// LED翻转
-void led_toggle(void)
+// 补光板翻转
+void light_toggle(void)
 {
     HAL_GPIO_TogglePin(LED_BUZZER_PORT,LED_PIN);
 }

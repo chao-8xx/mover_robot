@@ -15,7 +15,8 @@ void system_init(void)
     map_pose_init();            // 等定位模块发布真实位姿 复位时清除上次结果
     HAL_Delay(100);             // 等待一会儿
 
-    led_board_on();             // 开启补光板
+    // led_board_on();             // 开启补光板
+    light_on();                 // 开启补光灯
 
     lidar_start();              // 启动雷达
 
@@ -24,7 +25,10 @@ void system_init(void)
 
     chassis_init();             // 底盘装置
     catch_init();               // 抓取装置
-
+    cam_init(&huart1);          // OpenMV maix摄像头
+    lidar_init(&huart4);        // 雷达
+    HAL_Delay(100);             // 等待一会儿
+    debug_uart_init(&huart6);   // 串口调试
     remind_init();              // 提示装置
     bfs_init();                 // 路径规划
     bfs_base_obstacle();        // 预设障碍物

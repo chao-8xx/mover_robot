@@ -272,7 +272,6 @@ void openmv_test(void)
     openmv_send_stop_scan();
     service_for(STOP_GUARD_MS);
     cam_empty_rx();
-    led_off();
 
     printf("[OpenMV] 单项测试：%s\r\n", pass ? "通过" : "失败");
     printf("=============================================\r\n");
@@ -299,7 +298,6 @@ void maix_b2_test(void)
     maix_stop();
     service_for(STOP_GUARD_MS);
     cam_empty_rx();
-    led_off();
 
     printf("[Maix B2] 单项测试：%s\r\n", pass ? "通过" : "失败");
     printf("=============================================\r\n");
@@ -345,7 +343,6 @@ void cam_all_test(void)
     printf("[步骤7] 超时复位测试\n");
     uint8_t timeout_pass = test_timeout();
 
-    led_off();
     printf("\n========== 测试汇总 ==========\n");
     printf("二维码: %s\n", qr_pass ? "通过" : "失败");
     printf("B2色块: %s\n", b2_pass ? "通过" : "失败");

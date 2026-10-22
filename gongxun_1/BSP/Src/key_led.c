@@ -117,7 +117,6 @@ void key_handle(void)
 		switch(shortpress)
 		{
 			case 1:
-				led_on();
 				// lidar_test();
 				// maix_blob_test();
 				openmv_qr_test();
@@ -143,7 +142,6 @@ void key_handle(void)
 		switch(longpress )
 		{
 			case 1:
-				led_off();
 				// lidar_stop();
 		}
 	}

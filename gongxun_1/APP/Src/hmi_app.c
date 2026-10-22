@@ -35,6 +35,7 @@ void hmi_start(void)
     car_run = true;
     hmi_lift_state = 0;
     hmi_stretch_state = 0;
+    chassis_odom_hold();    // 发车时先不开启全局位姿
 }
 
 // 触摸串口屏停车事件
@@ -92,12 +93,16 @@ void hmi_solve(UART_HandleTypeDef *huart, uint16_t Size)
             if (hmi_rxbuffer[1] == 0x00) {  // 启停区2
                 hmi_start_x = 0;
                 hmi_start_y = 0;
+                task_state.x_cm= 15.0f;
+                task_state.y_cm= 15.0f;
                 task_state.task_location = PARKING_2;
                 start_location = 0; // 0:启停区2发车
             }
             else if (hmi_rxbuffer[1] == 0x01) { // 启停区1
                 hmi_start_x = 4;
                 hmi_start_y = 0;
+                task_state.x_cm= 240.0f - 15.0f;
+                task_state.y_cm= 15.0f;
                 task_state.task_location = PARKING_1;
                 start_location = 1; // 1:启停区1发车
             }
@@ -214,7 +219,10 @@ void hmi_control_send_tick(void)
         // 伸缩每条指令隔3ms
         stretch_time_gap ++;
         if (stretch_time_gap >= 3) {
-            catch_stretch_dist((float)hmi_stretch_mm/10.0f);
+            // catch_stretch_dist((float)hmi_stretch_mm/10.0f);    // 丝杆
+            if (hmi_stretch_mm > 0 && hmi_stretch_mm < 350) {
+                catch_stretch_distance((float)hmi_stretch_mm/10.0f);        // 齿轮齿条
+            }
             stretch_time_gap = 0;
             hmi_stretch_state = 0;
         }

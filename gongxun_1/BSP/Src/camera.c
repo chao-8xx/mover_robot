@@ -160,7 +160,7 @@ void cam_rx_handle(void) {
         cam_error_flag = 0;
         HAL_UART_DMAStop(cam_uart); // 停止DMA
 
-        cam_state = cam_wait_aa;    // 重置变量 
+        cam_state = cam_wait_aa;    // 重置变量
         cam_cmd = 0;
         cam_len = 0;
         cam_idx = 0;
@@ -569,8 +569,6 @@ void openmv_qr_task(void)
     qr_result_t result;
 
     if (!openmv_get_qr_result(&result)) return;
-
-    led_on();    // 亮灯提示收到码
     printf("OpenMV 扫码结果: %s\r\n", result.qr_data);
 }
 

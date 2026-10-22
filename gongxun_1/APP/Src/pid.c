@@ -76,6 +76,16 @@ void PID_Reset(PID *pid)
     pid->output = 0.0f;
 }
 
+// 清除已有PID环的任何时刻误差和积分
+void PID_Clear(void)
+{
+	PID_Reset(&yaw_pid);    // 清除误差和积分
+	PID_Reset(&x_pid);
+	PID_Reset(&y_pid);
+	PID_Reset(&follow_pid);
+}
+
 PID yaw_pid;	// 偏航角PID，用于转向
 PID x_pid;		// 物料x坐标PID，用于麦轮和物料x坐标闭环
 PID y_pid;		// 物料y坐标PID，用于麦轮和物料y坐标闭环
+PID follow_pid;	// 物料y坐标PID，用于齿轮齿条和物料y坐标闭环

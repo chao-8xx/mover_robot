@@ -1,10 +1,11 @@
 #include "headfile.h"
 
+// 全部初始化
 void all_init(void)
 {
     timer_init();
     uart_init();
-    led_buzzer_init();
+    light_buzzer_init();
 
     tf_init();
 }
@@ -43,5 +44,6 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
         system_control();
         debug_printf_task();    // DMA启动失败时重试已存在的数据   缓冲区仍由 debug_printf 模块统一管理
         // hmi_rx_task();          // 串口屏常规模式DMA接收失败后重试 不等待
+        // lift_test();
     }
 }

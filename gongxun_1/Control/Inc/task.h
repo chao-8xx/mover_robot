@@ -56,15 +56,23 @@ typedef struct {
     Car_Work car_work;              // 车辆工作状态
     Task_Location task_location;    // 正在执行任务的位置
     Remind_State remindState;       // 提示装置状态
-    float cur_stretch_dist;         // 伸缩装置当前伸缩的距离
-    float cur_lift_height;          // 升降装置当前的高度
     uint8_t cur_x, cur_y;           // 车辆当前坐标
-    float catch_cur_angle;          // 齿轮齿条电机当前旋转角度
     int16_t follow_x, follow_y;     // 当前所追踪的目标的坐标
     uint8_t is_find_target;         // 车辆是否发现目标 0:未发现 1:已发现
     uint8_t is_stable_target;       // 目标是否稳定 0:不稳定 1:稳定
     uint8_t is_catch_target;        // 是否可以抓取目标 0:不可抓取 1:可抓取
+
+    // ==== 使能状态 ==== //
     uint8_t send_task_hmi_ok;       // 是否把任务发送给串口屏显示 1:发送
+    uint8_t chassis_clear;          // 底盘清零标志
+    uint8_t odom_on;                // 是否启动全局位姿解算
+
+    // ==== 电机状态 ==== //
+    float cur_stretch;              // 伸缩装置当前伸出的长度  齿轮齿条
+    float cur_height;               // 升降装置当前的高度     升降丝杆(绝对)
+    float cur_stretch_dist;         // 伸缩装置当前伸缩的距离  伸缩丝杆
+    float cur_lift_height;          // 升降装置当前的高度     升降丝杆(相对)
+    float x_cm, y_cm;               // 全局位姿 记录全局准确位置 以车中心为质点
 
     // ==== 任务编码状态 ==== //
     uint8_t openmv_task_get_ok;     // openmv扫码获取数据成功标志
@@ -76,6 +84,7 @@ typedef struct {
     Area_Code  area_buf_one[3];
     Color_Code color_buf_two[3];    // 第二组
     Area_Code  area_buf_two[3];
+    uint8_t turntable_seq[3];       // 堆放码垛时控制转盘
     // 将放置的物料颜色按照任务顺序排列成数组
     Color_Code color_buf[6];        // 总顺序
     uint8_t index;      // 总顺序索引

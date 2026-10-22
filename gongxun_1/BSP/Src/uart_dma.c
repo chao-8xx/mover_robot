@@ -29,6 +29,11 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
     {
         cam_rx_callback(huart,Size);
     }
+    else if (huart->Instance == USART2)
+    {
+        Emm_V5_rx_callback(huart, Size);   // 先解析
+        Emm_V5_Rx_Start();                 // 再重启接收
+    }
     else if (huart->Instance == USART3)
     {
         hwt101_rx_callback(huart,Size);
@@ -61,11 +66,16 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
     }
     else if (huart->Instance == USART2)
     {
-        Emm_V5_Tx_Reset();
+        __HAL_UART_CLEAR_OREFLAG(huart);
+        Emm_V5_Rx_Start();
     }
     else if (huart->Instance == USART3)
     {
         hwt101_error_callback(huart);
+    }
+    else if (huart->Instance == USART6)
+    {
+        debug_error_callback(huart);
     }
     else if (huart->Instance == UART4)
     {

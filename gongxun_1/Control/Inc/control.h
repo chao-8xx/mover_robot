@@ -41,7 +41,7 @@ typedef struct {
 
     uint8_t is_send_color;
     uint8_t is_send_circle;
-    uint8_t is_send_onup;
+    uint8_t is_send_stack;
 
     int16_t speed;            // 底盘运行速度（非任务区）
     float   target_yaw;       // 目标偏航角
@@ -82,8 +82,7 @@ void normal_road_move(void);
 // 到目标点最后一段道路运行 步骤11
 void final_road_move(void);
 
-
-// 目标状态获取 将摄像头所捕获的状态转化成车辆状态机
+// 目标状态获取 将摄像头所捕获的状态转化成车辆状态
 void target_state_get(void);
 // 确认是否稳定可抓取 1:可抓取
 uint8_t catch_is_ok(void);
@@ -94,10 +93,12 @@ void send_color_conduct(void);
 // 将当前锁定的圆环编号发给maix
 void send_circle_conduct(void);
 // 将当前需要抓取的码垛发给maix
-void send_onup_conduct(void);
+void send_stack_conduct(void);
 // 追踪目标 物料 圆环
 // 校准车身姿态 追踪x和y坐标
 void follow_target(float target_yaw, int16_t target_x, int16_t target_y);
+// 伸缩齿轮十条 追踪y坐标
+void follow_stretch_target(int16_t target_y);
 
 // 扫码获取任务
 void scan_get_task(void);
@@ -115,7 +116,7 @@ void pick_material(void);
 void control_process(void);
 
 
-#endif //GONGXUN_1_CONTROL_H
+#endif // GONGXUN_1_CONTROL_H
 
 /* 指示灯颜色：
  * 红色：扫码失败

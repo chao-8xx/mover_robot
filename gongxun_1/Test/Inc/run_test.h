@@ -12,15 +12,22 @@ void bfs_multi_track_test(void);
 
 // 小车麦轮跟踪锁定物料测试
 void car_follow_material_test(void);
+// 小车麦轮和伸缩跟踪锁定物料测试
+void car_stretch_follow_material_test(void);
 
 // 抓取颜色指令 主循环调用
 void catch_color_send(void);
 // 物料识别跟踪并抓取测试
 void car_follow_catch_material_test(void);
+// 只识别并抓取三个物料放到车上，然后结束
+void car_catch_three_material_test(void);
 
 // 放置圆环指令 主循环调用
 void put_circle_send(void);
 // 物料放置测试
 void car_follow_put_material_test(void);
+
+// 反复升降测试 没办法总出问题，只能测试
+void lift_test(void);
 
 #endif //GONGXUN_1_CHASSIS_TEST_H
