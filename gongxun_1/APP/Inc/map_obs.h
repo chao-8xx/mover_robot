@@ -10,9 +10,16 @@
 
 // 相邻点聚类参数
 #define CLUSTER_MAX_MISS_ANGLE        2       // 聚类点间允许连续缺失的角度数 超过该值则认为聚类结束
-#define CLUSTER_MAX_COUNT            20       // 单帧最多保存的候选聚类数量
-#define CLUSTER_MIN_POINT_COUNT       3       // 少于3个点的聚类作为噪声丢弃
+#define CLUSTER_MAX_COUNT            64       // 单帧最多保存的候选聚类数量，满后仍标记截断
+#define CLUSTER_MIN_POINT_COUNT       3       // 近距离最少3点，避免近处单点噪声进入地图
 #define CLUSTER_MAX_POINT_GAP       100.0f    // 相邻两点最大连接距离 mm
+
+// 圆柱近大远小：按最近点距离分级 保存聚类和小柱筛选共用同一要求
+// 小于800mm至少3点  800~1200mm至少2点  1200mm及以上至少1点（试验分界）
+#define CLUSTER_MID_DISTANCE        800.0f
+#define CLUSTER_FAR_DISTANCE       1200.0f
+#define CLUSTER_MID_MIN_POINTS          2
+#define CLUSTER_FAR_MIN_POINTS          1
 
 // 障碍物小圆柱候选参数: 赛题圆柱直径50mm  先用 100mm 作为测距误差、缺点情况下的宽松试验值
 // 只检查平面跨度  距离先沿用点云范围  可靠距离等实测后收紧
@@ -114,7 +121,7 @@ extern obstacle_result_t obstacle_result;
 uint8_t point_cloud_update(const lidar_scan_t *scan, float car_x, float car_y, float car_yaw, uint32_t tick);
 // 相邻点聚类
 void obstacle_cluster_update(const point_cloud_t *cloud, uint32_t tick);
-// 简单小柱候选筛选：保留原有最少3点要求，不按最大点数过滤，也不代表已识别颜色或圆柱形状
+// 简单小柱候选筛选：近3点、中2点、远1点；不代表已识别颜色或圆柱形状
 uint8_t obstacle_cluster_is_pillar(const lidar_cluster_t *cluster);
 
 #endif // GONGXUN_1_LIDAR_OBSTACLE_H

@@ -18,6 +18,31 @@ typedef struct {
     uint32_t end_time;       // 本圈扫描结束时间戳
 } lidar_scan_t;
 
+// 独立小柱测试旁路：按实际采样顺序保存目标角区，不改变原有360格最近距离。
+// angle_q6单位为1/64度；同角度的多个真实采样仍分别保存，distance=0也保留。
+#define LIDAR_RAW_SECTOR_MAX 64
+typedef struct {
+    uint16_t angle_q6;
+    uint16_t distance;
+    uint8_t intensity;
+} lidar_raw_sample_t;
+
+typedef struct {
+    lidar_raw_sample_t samples[LIDAR_RAW_SECTOR_MAX];
+    uint16_t count;
+    uint16_t overflow;       // 超出容量的采样数，非0时本圈不能用于完整测量
+    uint16_t center_deg;
+    uint16_t half_width_deg;
+    uint32_t scan_num;       // 与同圈lidar_scan_t编号相同
+    uint32_t start_time;
+    uint32_t end_time;
+} lidar_raw_sector_t;
+
+// 默认关闭，仅在主循环调用；更换角区后等下一完整扫描分段，不拼接请求前的半圈。
+uint8_t lidar_raw_sector_start(uint16_t center_deg, uint16_t half_width_deg);
+void lidar_raw_sector_stop(void);
+const lidar_raw_sector_t *lidar_raw_sector_get(void);
+
 
 extern uint16_t lidar_data[360];    // 雷达数据数组，存储360度的距离值
 

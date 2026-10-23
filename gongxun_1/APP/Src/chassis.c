@@ -5,6 +5,7 @@
 #define CHASSIS_WHEEL_DIAM_CM        7.9f       // 麦轮直径
 #define CHASSIS_MOTOR_PULSE_PER_REV  3200       // 多少脉冲一圈
 #define CHASSIS_CM_PER_PULSE         ((3.14159265f * CHASSIS_WHEEL_DIAM_CM) / CHASSIS_MOTOR_PULSE_PER_REV)  // cm/脉冲
+#define CHASSIS_CM_PER_FEEDBACK      ((3.14159265f * CHASSIS_WHEEL_DIAM_CM) / 65536.0f)  // 位置反馈与控制脉冲的单位不同
 
 // 偏航 PID：输出是电机速度(RPM)，正负方向按实际转向调整
 #define CHASSIS_YAW_KP         3.8f
@@ -26,8 +27,19 @@ int16_t vel[4] = {0};
 static uint8_t odom_inited = 0;         // 是否已经完成第一次采样(第一次只记录基准，不算位移)
 static float   odom_last_dist[4] = {0}; // 上一次采样时四个轮子的累计位移(cm)，用来算增量
 float cur_wheel_dist[4] = {0.0f};       // 当前底盘四个电机的编码器状态 cm
-static uint32_t odom_hold_tick = 0;     // 最后一次"要求暂停航迹推算"的时间戳(ms)
-#define ODOM_RESUME_DELAY_MS   500      // 跟随停止后，延迟多久恢复航迹推算(ms)
+static uint32_t odom_wheel_tick[4];    // 四轮各自完整反馈的接收时间
+static uint8_t odom_new_mask = 0;      // 本轮已收到新反馈的轮子
+static volatile uint32_t odom_epoch = 0; // 防止中断复位后主循环提交旧结果
+static uint32_t odom_reset_tick = 0;
+static uint32_t odom_pose_tick = 0;
+static uint32_t odom_yaw_epoch = 0;
+static uint8_t odom_origin_valid = 0;  // 已确认实际起点  暂停后必须重新设置
+static float odom_yaw_offset = 0.0f;
+static float odom_last_yaw = 0.0f;
+#define ODOM_POLL_MS            20    // 每20ms读一个电机  一轮约80ms
+#define ODOM_SAMPLE_TIMEOUT_MS  150   // 四轮采样最大年龄
+#define ODOM_SAMPLE_SPAN_MS      80   // 四轮反馈最大时间差
+#define ODOM_RESET_WAIT_MS      100   // 编码器清零后先丢弃在途旧反馈
 
 // 底盘运动状态
 Chassis_Data my_chassis;
@@ -81,6 +93,10 @@ static void chassis_clear(void)
 static void chassis_solve(void)
 {
     int wheel[4];   // 四个轮子的速度（正负表示方向）
+
+    // 起点轮子基准没建立就动了  即使之后停车也不能把当前位置当起点
+    if (!odom_inited && (my_chassis.x || my_chassis.y || my_chassis.omega))
+        odom_origin_valid = 0;
 
     wheel[0] = my_chassis.y + my_chassis.x - my_chassis.omega;
     wheel[1] = -my_chassis.y + my_chassis.x - my_chassis.omega;
@@ -254,6 +270,8 @@ static void car_move_xy(int16_t speed, float x_cm, float y_cm)
     // 距离 -> 脉冲数（四舍五入）
     px = (int32_t)((x_cm * CHASSIS_STRAFE_K) / CHASSIS_CM_PER_PULSE + (x_cm >= 0.0f ? 0.5f : -0.5f));
     py = (int32_t)(y_cm / CHASSIS_CM_PER_PULSE + (y_cm >= 0.0f ? 0.5f : -0.5f));
+    if (!odom_inited && (px || py))
+        odom_origin_valid = 0;
 
     // 麦克纳姆轮运动学
     w[0] =  py + px;
@@ -315,6 +333,8 @@ void car_back_zero(void)
         return;   // 底盘忙时不接受新移动指令
     }
 
+    if (!odom_inited)
+        odom_origin_valid = 0;
     chassis_send_mode = 2;     // 回零模式
     chassis_send_index = 0;
     chassis_sending = 1;
@@ -336,93 +356,184 @@ Chassis_Mode car_get_state(void)
 // 暂停底盘航迹推算（跟随模式下调用）
 void chassis_odom_hold(void)
 {
-    odom_hold_tick = HAL_GetTick();
-    chassis_odom_reset();      // 暂停前重置基准，避免恢复时把暂停期间的位移跳进去
+    uint32_t primask = __get_PRIMASK();
+    __disable_irq();
+    chassis_odom_reset();
+    odom_origin_valid = 0;     // 暂停期间的位置未知  不能延时后沿用旧坐标
     task_state.odom_on = 0;
+    __set_PRIMASK(primask);
 }
-// 1ms 调用：轮流给四个电机发读位置请求
+// 车辆静止在已知位置时调用  坐标使用现有cm单位  不会下发移动命令
+uint8_t chassis_odom_origin_set(float x_cm, float y_cm)
+{
+    uint32_t primask = __get_PRIMASK();
+    __disable_irq();
+    chassis_odom_hold();
+    if (car_is_busy() || my_chassis.x || my_chassis.y || my_chassis.omega ||
+        !isfinite(x_cm) || !isfinite(y_cm) || x_cm < 0.0f || y_cm < 0.0f ||
+        x_cm >= MAP_WIDTH / 10.0f || y_cm >= MAP_HEIGHT / 10.0f) {
+        __set_PRIMASK(primask);
+        return 0;
+    }
+    task_state.x_cm = x_cm;
+    task_state.y_cm = y_cm;
+    odom_yaw_epoch = hwt101.yaw_epoch;
+    odom_yaw_offset = map_pose_yaw_offset_get();
+    odom_origin_valid = 1;
+    task_state.odom_on = 1;
+    __set_PRIMASK(primask);
+    return 1;
+}
+// 主循环调用：轮流给四个电机发读位置请求  静止、旋转时也要采样
 void chassis_odom_poll(void)
 {
     static uint8_t idx = 0;
     static uint32_t last_tick = 0;
 
-    // 只在底盘位置移动、发送队列完全空闲时读，避免和运动命令抢串口
-    if (Emm_V5_Tx_Count() != 0 || chassis_sending || chassis_mode != CHASSIS_MOVE) {
+    // 等当前发送完成再读  保留底盘原有分时发送  不向串口队列连续塞请求
+    if (Emm_V5_Tx_Count() != 0) {
         return;
     }
 
-    if ((int32_t)(HAL_GetTick() - last_tick) < 100) return;
+    if ((uint32_t)(HAL_GetTick() - last_tick) < ODOM_POLL_MS ||
+        (uint32_t)(HAL_GetTick() - odom_reset_tick) < ODOM_RESET_WAIT_MS) return;
     last_tick = HAL_GetTick();
 
     Emm_V5_Read_Sys_Params(idx + 1, S_CPOS);   // 地址 1~4
     idx = (idx + 1) & 0x03;
 }
-// 1ms 调用：把回复进来的位置取走，换算成累计 cm
+// 主循环调用：取完整反馈及其接收时间  四轮独立记录是否收到新数据
 void chassis_odom_fetch(void)
 {
+    uint32_t epoch = odom_epoch;
     for (int i = 0; i < 4; i++) {
         int32_t pos;
-        if (Emm_V5_Get_Pos(i + 1, &pos)) {
-            cur_wheel_dist[i] = (float)pos * CHASSIS_CM_PER_PULSE;
+        uint32_t tick;
+        if (Emm_V5_Get_Pos_Sample(i + 1, &pos, &tick)) {
+            uint32_t primask = __get_PRIMASK();
+            __disable_irq();
+            if (epoch == odom_epoch &&
+                (uint32_t)(tick - odom_reset_tick) >= ODOM_RESET_WAIT_MS &&
+                (uint32_t)(tick - odom_reset_tick) <= (uint32_t)(HAL_GetTick() - odom_reset_tick) &&
+                (uint32_t)(HAL_GetTick() - tick) <= ODOM_SAMPLE_TIMEOUT_MS) {
+                cur_wheel_dist[i] = (float)pos * CHASSIS_CM_PER_FEEDBACK;
+                odom_wheel_tick[i] = tick;
+                odom_new_mask |= (uint8_t)(1U << i);
+            }
+            __set_PRIMASK(primask);
         }
     }
 }
-// 20ms 调用：用四个轮子的增量做航迹推算
+// 主循环调用：四轮都有新反馈才积分  不用重复数据刷新地图位姿时间
 void chassis_odom_update(void)
 {
-    static uint32_t last_tick   = 0;    // 上一次进入本函数的时间戳(ms)，用于 20ms 节流
+    float dist[4], d[4], x_cm, y_cm, yaw, last_yaw;
+    uint32_t now = HAL_GetTick();
+    uint32_t oldest_age = 0, newest_age = UINT32_MAX;
+    uint32_t epoch, pose_tick;
+    uint8_t inited;
+    uint32_t primask = __get_PRIMASK();
+    __disable_irq();
 
-    // 80ms 节流：没到 80ms 直接返回，避免高频重复积分
-    if ((int32_t)(HAL_GetTick() - last_tick) < 400) return;
-    last_tick = HAL_GetTick();
+    // 归零、暂停、反馈中断后不再认为旧坐标可靠  必须重新确认已知起点
+    if (!task_state.odom_on || !hwt101_yaw_valid() || hwt101.yaw_epoch != odom_yaw_epoch ||
+        map_pose_yaw_offset_get() != odom_yaw_offset ||
+        (odom_inited && (uint32_t)(now - odom_pose_tick) > MAP_POSE_TIMEOUT_MS))
+        odom_origin_valid = 0;
 
-    // 第一次调用：只把当前轮子位移记成基准，不算位移
-    // 否则第一次会把"从零点到现在的总位移"当成一帧增量，跳一大步
-    if (!odom_inited) {
-        for (int i = 0; i < 4; i++) odom_last_dist[i] = cur_wheel_dist[i];
-        odom_inited = 1;
+    if (!odom_origin_valid) {
+        map_pose_update(0.0f, 0.0f, 0.0f, now, 0);
+        __set_PRIMASK(primask);
         return;
     }
 
-    // 每个轮子的增量
-    float d[4];
-    for (int i = 0; i < 4; i++) {
-        d[i] = cur_wheel_dist[i] - odom_last_dist[i];
-        odom_last_dist[i] = cur_wheel_dist[i];
+    if (odom_new_mask != 0x0F) {
+        if (!odom_inited)
+            map_pose_update(0.0f, 0.0f, 0.0f, now, 0);
+        __set_PRIMASK(primask);
+        return;
     }
+    for (int i = 0; i < 4; i++) {
+        uint32_t age = now - odom_wheel_tick[i];
+        if (age > oldest_age) oldest_age = age;
+        if (age < newest_age) newest_age = age;
+        dist[i] = cur_wheel_dist[i];
+        d[i] = dist[i] - odom_last_dist[i];
+    }
+    odom_new_mask = 0;
+    if (oldest_age > ODOM_SAMPLE_TIMEOUT_MS || oldest_age - newest_age > ODOM_SAMPLE_SPAN_MS) {
+        __set_PRIMASK(primask);
+        return;
+    }
+    // 位姿时间取四轮和角度中最旧的测量时间  不用主循环时间冒充测量时间
+    if ((uint32_t)(now - hwt101.angle_tick) > oldest_age)
+        oldest_age = now - hwt101.angle_tick;
+    pose_tick = now - oldest_age;
+    epoch = odom_epoch;
+    inited = odom_inited;
+    x_cm = task_state.x_cm;
+    y_cm = task_state.y_cm;
+    yaw = my_yaw;
+    last_yaw = odom_last_yaw;
+    if (!inited && (car_is_busy() || my_chassis.x || my_chassis.y || my_chassis.omega)) {
+        odom_origin_valid = 0;  // 没记录到起点的轮子基准就开始移动  不能补猜这段位移
+        map_pose_update(0.0f, 0.0f, 0.0f, now, 0);
+        __set_PRIMASK(primask);
+        return;
+    }
+    __set_PRIMASK(primask);
 
     // 正运动学：轮子增量 → 车体位移
     // 逆运动学是 w0=y+x-ω, w1=-y+x-ω, w2=y-x-ω, w3=-y-x-ω
     float car_dy = ( d[0] - d[1] + d[2] - d[3]) / 4.0f;
     float car_dx = ((d[0] + d[1] - d[2] - d[3]) / 4.0f) / CHASSIS_STRAFE_K;
 
-    // 车体系 → 全局（用陀螺仪 yaw）
-    // 你的约定：yaw=0 时车头朝 (1,0)，顺时针 yaw 减小
-    float rad = my_yaw * 3.14159265f / 180.0f;  // 陀螺仪偏航角 → 弧度
-    float hx =  cosf(rad);       // 车头方向的全局 x 分量
-    float hy = -sinf(rad);       // 车头方向的全局 y 分量
-    float rx = -hy;              // 车右方向的全局 x 分量
-    float ry =  hx;              // 车右方向的全局 y 分量
+    // 与地图使用相同的变换角  按赛场图朝北归零，默认my_yaw=0朝北、+90朝西
+    // 区间中间朝向近似旋转期间的位移方向  第一次采样只记录轮子基准
+    if (inited) {
+        float rad = ((yaw + last_yaw) * 0.5f + odom_yaw_offset) * 3.14159265f / 180.0f;
+        x_cm += car_dx * cosf(rad) - car_dy * sinf(rad);
+        y_cm += car_dx * sinf(rad) + car_dy * cosf(rad);
+    }
 
-    // 累加到全局位姿
-    task_state.x_cm += car_dy * hx + car_dx * rx;
-    task_state.y_cm += car_dy * hy + car_dx * ry;
+    primask = __get_PRIMASK();
+    __disable_irq();
+    if (epoch == odom_epoch && task_state.odom_on && odom_origin_valid &&
+        hwt101_yaw_valid() && hwt101.yaw_epoch == odom_yaw_epoch) {
+        for (int i = 0; i < 4; i++) odom_last_dist[i] = dist[i];
+        odom_last_yaw = yaw;
+        odom_inited = 1;
+        odom_pose_tick = pose_tick;
+        task_state.x_cm = x_cm;
+        task_state.y_cm = y_cm;
+        map_pose_update(x_cm * 10.0f, y_cm * 10.0f, yaw, pose_tick, 1);
+    }
+    else {
+        map_pose_update(0.0f, 0.0f, 0.0f, now, 0);
+    }
+    __set_PRIMASK(primask);
 }
-// 编码器清零后调用：把航迹推算的累计值和基准一起归零
+// 静止清零编码器后调用：重建轮子基准  保留已确认的全局X/Y
 void chassis_odom_reset(void)
 {
+    uint32_t primask = __get_PRIMASK();
+    __disable_irq();
     for (int i = 0; i < 4; i++) {
         cur_wheel_dist[i] = 0.0f;
     }
-    odom_inited = 0;   // 让 update 下次重新初始化 last_dist
+    odom_new_mask = 0;
+    odom_inited = 0;
+    odom_reset_tick = HAL_GetTick();
+    odom_epoch++;
+    __set_PRIMASK(primask);
 }
 // 底盘全局位姿实时解算tick
 void chassis_odom_tick(void)
 {
     // 航迹推算
-    chassis_odom_poll();     // 轮流发读位置请求（每 1ms 一个电机）
+    chassis_odom_poll();     // 每20ms读一个电机  静止时也轮询
     chassis_odom_fetch();    // 取回已到达的回复，更新 cur_wheel_dist[]
-    chassis_odom_update();   // 内部 20ms 节流，算增量 + 位姿
+    chassis_odom_update();   // 四轮新数据齐全后积分并发布实际位姿
 }
 
 // ======== 非阻塞计时发送 ======== //
@@ -496,17 +607,7 @@ void car_run_tick(void)
     // 1ms周期负责发送指令
     car_move_send_tick();
 
-    // // 航迹推算开关
-    // if (task_state.odom_on == 1) {
-    //     chassis_odom_tick();
-    // }
-    // else {
-    //     // 超过 500ms 没有新的跟随请求 → 认为跟随真正结束
-    //     if ((int32_t)(HAL_GetTick() - odom_hold_tick) >= ODOM_RESUME_DELAY_MS) {
-    //         chassis_odom_reset();
-    //         task_state.odom_on = 1;
-    //     }
-    // }
+    // 反馈轮询和位姿发布由主循环的chassis_odom_tick处理
 }
 
 

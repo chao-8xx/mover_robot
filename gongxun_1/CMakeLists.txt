@@ -88,6 +88,8 @@ add_executable(${CMAKE_PROJECT_NAME}
         Test/Inc/cam_test.h
         Test/Src/lidar_test.c
         Test/Inc/lidar_test.h
+        Test/Src/lidar_pillar_test.c
+        Test/Inc/lidar_pillar_test.h
         Test/Src/run_test.c
         Test/Inc/run_test.h
         Test/Src/bfs_test.c

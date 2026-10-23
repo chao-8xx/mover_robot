@@ -3,13 +3,13 @@
 
 // 位姿参数  超时时间待定位模块接入后按实际周期调整
 #define MAP_POSE_TIMEOUT_MS          500       // 位姿超时时间 ms
-#define MAP_POSE_DEFAULT_YAW_OFFSET  (-90.0f)  // 地图位姿 yaw 默认偏移量  my_yaw=0朝东  地图变换yaw=0朝北
+#define MAP_POSE_DEFAULT_YAW_OFFSET    0.0f    // 按赛场图朝北归零  my_yaw=0和地图yaw=0都朝北
 
 // 地图位姿
 typedef struct
 {
-    float x_mm;         // 车体原点在map_track地图中的实际X坐标 mm
-    float y_mm;         // 车体原点在map_track地图中的实际Y坐标 mm
+    float x_mm;         // 车体原点实际X坐标 mm  地图原点在赛场图左下角 X向右
+    float y_mm;         // 车体原点实际Y坐标 mm  Y向上
     float yaw_deg;      // 地图变换角 北0、东-90、西90、南-180  范围[-180,180)    上北下南 左西右东
     uint32_t tick;      // 本次定位测量时间 与 HAL_GetTick 使用相同时间基准
     uint8_t valid;      // 位姿是否有效

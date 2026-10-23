@@ -9,10 +9,12 @@ void system_init(void)
 
     task_init();                // 任务初始化
     timer_init();               // 定时器初始化
+    light_buzzer_init();        // 灯光蜂鸣器初始化
     uart_init();                // 串口初始化   陀螺仪 串口屏 摄像头 串口调试 雷达
 
     tf_init();                  // 坐标变换初始化
     map_pose_init();            // 等定位模块发布真实位姿 复位时清除上次结果
+    map_update_init();          // 初始化道路状态和扫描确认记录
     HAL_Delay(100);             // 等待一会儿
 
     // led_board_on();             // 开启补光板
@@ -25,10 +27,7 @@ void system_init(void)
 
     chassis_init();             // 底盘装置
     catch_init();               // 抓取装置
-    cam_init(&huart1);          // OpenMV maix摄像头
-    lidar_init(&huart4);        // 雷达
-    HAL_Delay(100);             // 等待一会儿
-    debug_uart_init(&huart6);   // 串口调试
+
     remind_init();              // 提示装置
     bfs_init();                 // 路径规划
     bfs_base_obstacle();        // 预设障碍物

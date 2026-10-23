@@ -67,6 +67,8 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
     else if (huart->Instance == USART2)
     {
         __HAL_UART_CLEAR_OREFLAG(huart);
+        Emm_V5_Rx_Reset();
+        chassis_odom_hold();    // 反馈中断后不继续发布旧全局坐标
         Emm_V5_Rx_Start();
     }
     else if (huart->Instance == USART3)

@@ -23,14 +23,14 @@ int main(void)
 {
     map_pose_t pose;
     const float imu_angles[] = {0.0f, 90.0f, 180.0f, -90.0f, 720.0f};
-    const float map_angles[] = {-90.0f, 0.0f, 90.0f, -180.0f, -90.0f};
+    const float map_angles[] = {0.0f, 90.0f, -180.0f, -90.0f, 0.0f};
 
     map_pose_init();
     CHECK(!map_pose_get(0, &pose));
     CHECK(pose.valid == 0);
     CHECK(!map_pose_get(0, NULL));
 
-    // 对应现有控制：my_yaw=0向东；地图变换yaw=0向北。
+    // 按赛场图朝北归零：my_yaw=0和地图yaw=0都向北。
     for (unsigned i = 0; i < sizeof(imu_angles) / sizeof(imu_angles[0]); i++)
     {
         CHECK(map_pose_update(1200.0f, 2125.0f, imu_angles[i], 100, 1));
@@ -63,15 +63,15 @@ int main(void)
 
     // 启动方向改变时集中修改角度偏移；旧快照随之失效。
     CHECK(map_pose_update(100.0f, 100.0f, 0.0f, 300, 1));
-    CHECK(map_pose_yaw_offset_set(0.0f));
+    CHECK(map_pose_yaw_offset_set(-90.0f));
     CHECK(!map_pose_get(300, &pose));
     CHECK(map_pose_update(100.0f, 100.0f, 450.0f, 301, 1));
-    CHECK(map_pose_get(301, &pose) && near(pose.yaw_deg, 90.0f));
+    CHECK(map_pose_get(301, &pose) && near(pose.yaw_deg, 0.0f));
     CHECK(!map_pose_yaw_offset_set(INFINITY));
     CHECK(!map_pose_get(301, &pose));
     map_pose_init();
     CHECK(map_pose_update(100.0f, 100.0f, 0.0f, 400, 1));
-    CHECK(map_pose_get(400, &pose) && near(pose.yaw_deg, -90.0f));
+    CHECK(map_pose_get(400, &pose) && near(pose.yaw_deg, 0.0f));
 
     printf("map pose: %u checks, %u failures\n", checks, failures);
     return failures ? 1 : 0;

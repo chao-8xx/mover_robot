@@ -27,6 +27,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "headfile.h"
+#include "lidar_pillar_test.h"
 
 /* USER CODE END Includes */
 
@@ -107,7 +108,11 @@ int main(void)
   /* USER CODE BEGIN 2 */
 
   // 系统整体初始化
+#if LIDAR_PILLAR_TEST_ENABLE
+  lidar_pillar_test_init();  // 独立小柱对照，不启动整车设备或运动任务
+#else
   system_init();
+#endif
 
   // maix 任务一测试
   // maix_b2_test();
@@ -152,9 +157,17 @@ int main(void)
     //   obstacle_cluster_test();   // 打印候选物体的角度、位置和尺寸
     // }
 
-    // 真实雷达到地图的静止联调：固定测试位姿，只观察原始0度前方400~600mm
-    // 验证R8确认封锁和候选绕行路径；本测试不发送底盘运动指令
-    map_lidar_test();
+
+    // 雷达正面障碍物测试 测距离  1300mm
+    lidar_pillar_test();
+
+    // 真实位姿静止建图：更新道路并打印位姿、扫描和道路状态 不发送运动指令
+    chassis_odom_tick();       // 实际轮子反馈 -> cm里程计 -> mm地图位姿
+    map_pose_test();
+
+    // 固定测试位姿的R8封路测试
+    // map_lidar_test();
+
 
     /* USER CODE END WHILE */
 

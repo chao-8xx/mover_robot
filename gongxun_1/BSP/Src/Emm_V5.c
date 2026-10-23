@@ -28,6 +28,12 @@ static volatile uint8_t emm_v5_tx_count = 0;
 static uint8_t  emm_v5_rx_buf[EMM_V5_RX_BUF_SIZE];
 static volatile int32_t emm_v5_pos[7];          // 按地址 1~6 存最新位置
 static volatile uint8_t emm_v5_pos_valid[7];
+static volatile int32_t emm_v5_sample_pos[7];  // 完整的带符号位置  65536单位/圈
+static volatile uint32_t emm_v5_sample_tick[7];
+static volatile uint8_t emm_v5_sample_valid[7];
+static uint8_t emm_v5_rx_frame[8];             // 保留跨两次DMA回调的半帧
+static uint8_t emm_v5_rx_count = 0;
+static uint32_t emm_v5_rx_tick = 0;
 
 /**
   * @brief    串口2发送命令帧（非阻塞）
@@ -229,34 +235,93 @@ void Emm_V5_Rx_Start(void)
 // 电机串口接收回调
 void Emm_V5_rx_callback(UART_HandleTypeDef *huart, uint16_t Size)
 {
-  // 回复格式：addr(1) + 0x36(1) + dir(1) + pos(3,大端) + status(1) + 0x6B(1)
-  for (uint16_t i = 0; i + 8 <= Size; i++) {
-    uint8_t addr = emm_v5_rx_buf[i];
-    if (addr >= 1 && addr <= 6 &&
-        emm_v5_rx_buf[i + 1] == 0x36 &&
-        emm_v5_rx_buf[i + 7] == 0x6B) {
+  uint32_t now = HAL_GetTick();
 
-      uint32_t pos_raw = ((uint32_t)emm_v5_rx_buf[i + 3] << 16) |
-                         ((uint32_t)emm_v5_rx_buf[i + 4] << 8)  |
-                         ((uint32_t)emm_v5_rx_buf[i + 5]);
-      if (pos_raw & 0x800000UL) {
-          pos_raw |= 0xFF000000UL;   // 24 位有符号位置扩展到 32 位
-      }
-      int32_t pos = (int32_t)pos_raw;
-      emm_v5_pos[addr] = pos;
+  if (huart == NULL || huart->Instance != USART2 || Size > EMM_V5_RX_BUF_SIZE)
+    return;
+
+  // 半帧间隔过长就重新找帧头  避免断线前后的字节拼成一帧
+  if ((uint32_t)(now - emm_v5_rx_tick) > 20)
+    emm_v5_rx_count = 0;
+  emm_v5_rx_tick = now;
+
+  // 回复：地址 + 0x36 + 符号(00正/01负) + 4字节位置(大端) + 0x6B
+  for (uint16_t i = 0; i < Size; i++) {
+    emm_v5_rx_frame[emm_v5_rx_count++] = emm_v5_rx_buf[i];
+    if (emm_v5_rx_count < sizeof(emm_v5_rx_frame))
+      continue;
+
+    uint8_t addr = emm_v5_rx_frame[0];
+    uint32_t raw = ((uint32_t)emm_v5_rx_frame[3] << 24) |
+                   ((uint32_t)emm_v5_rx_frame[4] << 16) |
+                   ((uint32_t)emm_v5_rx_frame[5] << 8) |
+                   emm_v5_rx_frame[6];
+    if (addr >= 1 && addr <= 6 && emm_v5_rx_frame[1] == 0x36 &&
+        emm_v5_rx_frame[2] <= 1 && emm_v5_rx_frame[7] == 0x6B &&
+        raw <= (emm_v5_rx_frame[2] ? 0x80000000UL : 0x7FFFFFFFUL)) {
+      emm_v5_sample_pos[addr] = (int32_t)(emm_v5_rx_frame[2] ? -(int64_t)raw : (int64_t)raw);
+      emm_v5_sample_tick[addr] = now;
+      emm_v5_sample_valid[addr] = 1;
+
+      // 夹取模块按旧3字节读数做过实测标定  保留原接口数值  底盘改用完整反馈接口
+      uint32_t legacy = raw >> 8;
+      if (legacy & 0x800000UL)
+        legacy |= 0xFF000000UL;
+      emm_v5_pos[addr] = (int32_t)legacy;
       emm_v5_pos_valid[addr] = 1;
-        }
+      emm_v5_rx_count = 0;
+    }
+    else {
+      memmove(emm_v5_rx_frame, emm_v5_rx_frame + 1, sizeof(emm_v5_rx_frame) - 1);
+      emm_v5_rx_count--;
+    }
   }
-  memset(emm_v5_rx_buf, 0, EMM_V5_RX_BUF_SIZE);   // 清缓冲，防重复解析
 }
 
 // 上层拿位置（取走后清 valid）
 uint8_t Emm_V5_Get_Pos(uint8_t addr, int32_t *pos)
 {
-  if (addr < 1 || addr > 6 || !emm_v5_pos_valid[addr]) return 0;
+  if (addr < 1 || addr > 6 || pos == NULL) return 0;
+  uint32_t primask = __get_PRIMASK();
+  __disable_irq();
+  if (!emm_v5_pos_valid[addr]) {
+    __set_PRIMASK(primask);
+    return 0;
+  }
   *pos = emm_v5_pos[addr];
   emm_v5_pos_valid[addr] = 0;
+  __set_PRIMASK(primask);
   return 1;
+}
+
+// 原子取走位置和接收时间  避免读到新位置配旧时间
+uint8_t Emm_V5_Get_Pos_Sample(uint8_t addr, int32_t *pos, uint32_t *tick)
+{
+  if (addr < 1 || addr > 6 || pos == NULL || tick == NULL) return 0;
+  uint32_t primask = __get_PRIMASK();
+  __disable_irq();
+  if (!emm_v5_sample_valid[addr]) {
+    __set_PRIMASK(primask);
+    return 0;
+  }
+  *pos = emm_v5_sample_pos[addr];
+  *tick = emm_v5_sample_tick[addr];
+  emm_v5_sample_valid[addr] = 0;
+  __set_PRIMASK(primask);
+  return 1;
+}
+
+// 串口错误、初始化时调用  正常重开DMA时不能清除半帧
+void Emm_V5_Rx_Reset(void)
+{
+  uint32_t primask = __get_PRIMASK();
+  __disable_irq();
+  emm_v5_rx_count = 0;
+  for (uint8_t i = 1; i <= 6; i++) {
+    emm_v5_pos_valid[i] = 0;
+    emm_v5_sample_valid[i] = 0;
+  }
+  __set_PRIMASK(primask);
 }
 
 /**

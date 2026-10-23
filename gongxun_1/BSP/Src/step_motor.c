@@ -15,10 +15,7 @@ static const uint8_t step_motor_addr[STEP_MOTOR_COUNT] = {1, 2, 3, 4, 5, 6};
 // 获取电机对应驱动器地址，非法编号返回 0
 static uint8_t step_motor_get_addr(Motor_Num motor_num)
 {
-    // if ((int)motor_num < 0 || (int)motor_num > STEP_MOTOR_COUNT) {
-    //     return 0;
-    // }
-    if ((int)motor_num > STEP_MOTOR_COUNT) {
+    if ((unsigned)motor_num >= STEP_MOTOR_COUNT) {
         return 0;
     }
     return step_motor_addr[motor_num];
@@ -42,6 +39,7 @@ static void step_motor_update_speed(Motor_Num motor_num, int16_t speed)
 void step_motor_init()
 {
     Emm_V5_Tx_Reset();  // 清空可能的残留发送队列
+    Emm_V5_Rx_Reset();  // 清空上次运行的反馈和半帧
     HAL_Delay(1);
 
     for (Motor_Num motor_num = Motor_1; motor_num <= Motor_6; motor_num = (Motor_Num)(motor_num + 1)) {
@@ -53,7 +51,7 @@ void step_motor_init()
         HAL_Delay(10);
         Emm_V5_En_Control(addr, true, false);     // 使能电机
         HAL_Delay(10);
-        motor_set_speed(addr,0);    // 电机速度设为0
+        motor_set_speed(motor_num,0);    // 传电机编号  地址由函数内部换算
         HAL_Delay(10);
     }
     Emm_V5_Rx_Start();  // 电机串口接收DMA开启
@@ -165,5 +163,7 @@ void motor_set_speed_Pos(Motor_Num motor_num,int16_t speed,int32_t pos)
 
 void motor_pos_set(Motor_Num motor_num, int32_t pos)
 {
+    if (step_motor_get_addr(motor_num) == 0)
+        return;
     step_motor_pos[motor_num] = pos;
 }

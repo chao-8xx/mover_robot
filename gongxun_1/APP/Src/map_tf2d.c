@@ -21,6 +21,8 @@ tf_transform2d_t tf_lidar; // 雷达坐标系
 tf_transform2d_t tf_base;  // 车身坐标系
 tf_transform2d_t tf_map;   // 地图坐标系
 
+
+// 坐标变换初始化
 void tf_init(void) {
     angle_table_init();
     // tf_base_init(&tf_base, 3.5f, -6.0f, 1.2f);  // 测试

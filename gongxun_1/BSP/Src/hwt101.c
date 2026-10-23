@@ -87,6 +87,8 @@ void hwt101_init(UART_HandleTypeDef *huart)
 
     // 数据状态
     hwt101.valid = 0;
+    hwt101.angle_valid = 0;
+    hwt101.yaw_epoch++;
 
     // 角速度差分
     hwt101_prev_wz = 0.0f;
@@ -119,6 +121,7 @@ void hwt101_rx_handle(void)
         hwt101_state = 0;
         hwt101_idx = 0;
         hwt101.valid = 0; // 下一有效帧到来前 不再沿用断线前的数据有效标志
+        hwt101.angle_valid = 0;
         hwt101_wz_flag = 0;
         hwt101.yaw_accel = 0.0f;
 
@@ -171,7 +174,9 @@ void hwt101_error_callback(UART_HandleTypeDef *huart)
         return;
     }
 
-    // 中断只置位
+    // 中断标记本次角度失效  DMA恢复仍交给接收处理函数
+    hwt101.angle_valid = 0;
+    hwt101.yaw_epoch++;
     hwt101_rx_flag = 1;
     hwt101_error_flag = 1;
 }
@@ -232,6 +237,8 @@ static void hwt101_parse_frame(void)
             hwt101.roll  = (float)hwt101_get_i16(2) / 32768.0f * HWT101_ANGLE_RANGE;
             hwt101.pitch = (float)hwt101_get_i16(4) / 32768.0f * HWT101_ANGLE_RANGE;
             hwt101.yaw   = (float)hwt101_get_i16(6) / 32768.0f * HWT101_ANGLE_RANGE;
+            hwt101.angle_tick = HAL_GetTick();
+            hwt101.angle_valid = 1;
             break;
 
         default:
@@ -313,9 +320,19 @@ static volatile uint8_t hwt101_rst_request = 0;
 static volatile uint8_t hwt101_rst_state = HWT101_RST_IDLE;
 static uint32_t hwt101_rst_tick = 0;
 
+// 地图只使用最近100ms内的角度帧  归零前后的朝向基准不能混用
+uint8_t hwt101_yaw_valid(void)
+{
+    return hwt101.valid && hwt101.angle_valid && !hwt101_error_flag &&
+           !hwt101_rst_request && hwt101_rst_state == HWT101_RST_IDLE &&
+           (uint32_t)(HAL_GetTick() - hwt101.angle_tick) <= 100;
+}
+
 // 中断安全版复位请求：只置标志，不阻塞、不等待
 void hwt101_yaw_reset_request(void)
 {
+    hwt101.angle_valid = 0;
+    hwt101.yaw_epoch++;
     hwt101_rst_request = 1;
 }
 
@@ -373,6 +390,7 @@ void hwt101_tick(void)
             if (hwt101_uart->gState == HAL_UART_STATE_READY &&
                 HAL_UART_Transmit_IT(hwt101_uart, (uint8_t *)hwt101_save_cmd, 5) == HAL_OK) {
                 hwt101_rst_state = HWT101_RST_IDLE;
+                hwt101.angle_valid = 0;  // 等归零结束后的新角度帧
                 hwt101_prev_wz = 0.0f;
                 hwt101_wz_flag = 0;
                 hwt101.yaw_accel = 0.0f;

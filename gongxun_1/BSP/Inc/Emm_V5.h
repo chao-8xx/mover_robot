@@ -60,6 +60,9 @@ uint8_t Emm_V5_Tx_Count(void);
 
 void Emm_V5_Rx_Start(void);	// 电机串口接收DMA开启
 void Emm_V5_rx_callback(UART_HandleTypeDef *huart, uint16_t Size);	// 电机串口接收回调
-uint8_t Emm_V5_Get_Pos(uint8_t addr, int32_t *pos);	// 上层拿位置（取走后清 valid）
+uint8_t Emm_V5_Get_Pos(uint8_t addr, int32_t *pos);	// 夹取沿用旧3字节标定值  底盘不可用
+// 底盘完整位置反馈  带符号 65536单位/圈  tick为串口收到完整帧的时间
+uint8_t Emm_V5_Get_Pos_Sample(uint8_t addr, int32_t *pos, uint32_t *tick);
+void Emm_V5_Rx_Reset(void);     // 串口错误时丢弃半帧和旧反馈
 
 #endif

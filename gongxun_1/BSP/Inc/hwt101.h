@@ -17,6 +17,9 @@ typedef struct {
     float yaw_accel;    // 偏航角加速度（由 wz 差分得到，单位 °/s²）
     uint32_t last_update_ms;  // 最近一次收到有效帧的时间
     uint8_t valid;            // 是否已经收到过有效数据
+    uint32_t angle_tick;      // 最近一次有效角度帧的时间  角速度帧不能刷新
+    uint32_t yaw_epoch;       // 初始化/归零/接收错误次数  用于使旧地图位姿失效
+    uint8_t angle_valid;
 } HWT101_Data_t;
 
 extern HWT101_Data_t hwt101;
@@ -35,6 +38,7 @@ float hwt101_get_yaw(void);         // 获取偏航角（°）
 float hwt101_get_yaw_rate(void);    // 获取偏航角速度（°/s）
 float hwt101_get_yaw_accel(void);   // 获取偏航角加速度（°/s²）
 uint8_t hwt101_data_valid(void);    // 是否已经收到过有效陀螺仪数据
+uint8_t hwt101_yaw_valid(void);     // 角度帧未超时且不在归零过程中
 
 // 陀螺仪 HWT101 非阻塞复位
 void hwt101_yaw_reset(void);        // 复位偏航角（非阻塞，只置标志；实际指令由 hwt101_tick 在 1ms 中断里发送）

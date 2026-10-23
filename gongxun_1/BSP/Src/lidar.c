@@ -36,6 +36,51 @@ static uint8_t scan_ok_flag = 0;        // 扫描完成标志位
 static uint8_t scan_collect_flag = 0;   // 扫描数据收集标志位
 static uint32_t scan_num = 0;           // 扫描数据收集计数
 
+// 目标角区旁路双缓冲；默认不采集，正式360格接口继续使用原来的缓冲。
+static lidar_raw_sector_t raw_sector_buffer[2];
+static lidar_raw_sector_t *raw_work = &raw_sector_buffer[0];
+static lidar_raw_sector_t *raw_ok = &raw_sector_buffer[1];
+static uint8_t raw_sector_enabled = 0, raw_collect = 0;
+static uint16_t raw_center_deg = 0, raw_half_width_deg = 0;
+
+static void lidar_raw_sector_begin(uint32_t tick) {
+    raw_collect = raw_sector_enabled;
+    if (!raw_collect) return;
+    // 只清元数据，不必每圈清空整个点数组；count以外的旧元素不会被读取。
+    raw_work->count = raw_work->overflow = 0;
+    raw_work->scan_num = 0;
+    raw_work->center_deg = raw_center_deg;
+    raw_work->half_width_deg = raw_half_width_deg;
+    raw_work->start_time = tick;
+}
+
+static void lidar_raw_sector_finish(const lidar_scan_t *scan) {
+    if (!raw_collect) return;
+    raw_work->scan_num = scan->scan_num;
+    raw_work->end_time = scan->end_time;
+    lidar_raw_sector_t *published = raw_work;
+    raw_work = raw_ok;
+    raw_ok = published;
+}
+
+static void lidar_raw_sector_append(float angle, uint16_t distance, uint8_t intensity) {
+    uint16_t angle_q6 = (uint16_t)(angle * 64.0f + 0.5f);
+    if (angle_q6 >= 360U * 64U) angle_q6 = 0;
+    int32_t delta = (int32_t)angle_q6 - (int32_t)raw_center_deg * 64;
+    if (delta > 180 * 64) delta -= 360 * 64;
+    if (delta < -180 * 64) delta += 360 * 64;
+    if (delta < -(int32_t)raw_half_width_deg * 64 || delta > (int32_t)raw_half_width_deg * 64)
+        return;
+    if (raw_work->count < LIDAR_RAW_SECTOR_MAX) {
+        lidar_raw_sample_t *sample = &raw_work->samples[raw_work->count++];
+        sample->angle_q6 = angle_q6;
+        sample->distance = distance;
+        sample->intensity = intensity;
+    } else if (raw_work->overflow < UINT16_MAX) {
+        raw_work->overflow++;
+    }
+}
+
 
 /////////////////////////////////////// 内部辅助函数 ///////////////////////////////
 // 读取小端16位数据
@@ -56,6 +101,7 @@ static void lidar_scan_discard(void) {
     if (scan_collect_flag != 0) lidar_scan_drop_cnt++;
     scan_collect_flag = 0;
     lidar_scan_clear(scan_work);
+    raw_collect = 0;   // 坏包后旁路也重新等待完整分段，不能把残留点带入下一圈
 }
 
 // DMA已由HAL错误路径停止，重启失败时保留标志，下次主循环继续尝试。
@@ -83,12 +129,14 @@ static void lidar_scan_start(uint32_t tick) {
         scan_work->start_time = tick;
 
         scan_collect_flag = 1;
+        lidar_raw_sector_begin(tick);
         return;
     }
 
     // 除第一次之外检测到起始包时发布上一段；整包静默丢失尚无角度/圈时长拒绝。
     scan_work->end_time = tick;
     scan_work->scan_num = ++scan_num;
+    lidar_raw_sector_finish(scan_work);
 
     // 保存刚完成扫描的缓冲区地址 scan_work
     now_scan = scan_work;
@@ -103,6 +151,7 @@ static void lidar_scan_start(uint32_t tick) {
 
     // 开启下一圈扫描
     scan_work->start_time = tick;
+    lidar_raw_sector_begin(tick);
 }
 
 // 计算D6 数据包的XOR校验值
@@ -250,6 +299,9 @@ static void lidar_data_handle(void)
         intensity = (uint8_t)((rx_buf[sample_offset + 1] & 0x03) << 6)
                     | (rx_buf[sample_offset] >> 2);
 
+        // 合并、零距离过滤之前保存，每个真实采样只追加一次；解析路径不打印。
+        if (raw_collect) lidar_raw_sector_append(angle, distance, intensity);
+
         // 统计本次扫描原始数据点数
         scan_work->raw_count++;
 
@@ -293,6 +345,7 @@ void lidar_init(UART_HandleTypeDef *huart) {
     dma_rd_ptr = 0;
     rx_restart_flag = 0;
     memset(lidar_data, 0, sizeof(lidar_data));
+    lidar_raw_sector_stop();
 
     // 初始化清空扫描缓冲区
     lidar_scan_clear(&scan_buffer[0]);
@@ -368,6 +421,27 @@ uint32_t lidar_get_xor_err_cnt(void) {
 }
 
 uint32_t lidar_get_scan_drop_cnt(void) { return lidar_scan_drop_cnt; }
+
+uint8_t lidar_raw_sector_start(uint16_t center_deg, uint16_t half_width_deg) {
+    if (center_deg >= 360 || half_width_deg > 180) return 0;
+    raw_center_deg = center_deg;
+    raw_half_width_deg = half_width_deg;
+    raw_work = &raw_sector_buffer[0];
+    raw_ok = &raw_sector_buffer[1];
+    raw_ok->scan_num = 0;
+    raw_collect = 0;
+    raw_sector_enabled = 1;
+    return 1;
+}
+
+void lidar_raw_sector_stop(void) {
+    raw_sector_enabled = raw_collect = 0;
+    raw_ok->scan_num = 0;
+}
+
+const lidar_raw_sector_t *lidar_raw_sector_get(void) {
+    return raw_sector_enabled && raw_ok->scan_num != 0 ? raw_ok : NULL;
+}
 
 // 获取当前扫描数据  const表示只读 不可被上层修改
 const lidar_scan_t *lidar_get_scan(void) {

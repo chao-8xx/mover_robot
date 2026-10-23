@@ -3,6 +3,96 @@
 
 static uint8_t map_test_fail = 0;  // 本轮未通过的测试项数量 0表示全部通过
 
+///////////////////////////////////// 真实位姿静止建图 ////////////////////////////////////
+// 复用KEY1底层读取，30ms消抖后在松开时确认一次，按住不重复触发
+static uint8_t map_pose_key_released(uint32_t tick) {
+    static uint8_t last_raw = 0, stable = 0;
+    static uint32_t changed_tick = 0;
+    uint8_t raw = key_getstate(0);
+
+    if (raw != last_raw) {
+        last_raw = raw;
+        changed_tick = tick;
+    }
+    if (raw != stable && tick - changed_tick >= 30U) {
+        stable = raw;
+        return stable == 0;
+    }
+    return 0;
+}
+
+// 主循环先执行chassis_odom_tick  本任务只读取实际位姿、更新地图和打印状态
+// 车实际放在右下启停区2、朝北，短按KEY1确认起点；不触发发车或IMU归零
+void map_pose_test(void) {
+    static uint32_t last_print_tick = 0;
+    static uint32_t last_map_scan = 0;  // 最近一次实际写入地图的扫描编号
+    map_pose_t pose;
+    road_state_t state;
+    const lidar_scan_t *scan;
+    uint32_t tick;
+    uint8_t valid;
+
+    tick = HAL_GetTick();
+    if (map_pose_key_released(tick)) {
+        if (car_run || car_is_busy() || my_chassis.x || my_chassis.y || my_chassis.omega) {
+            printf("[POSE KEY] 底盘正在运行，未设置起点，停止后重按KEY1\r\n");
+        }
+        else if (!hwt101_yaw_valid() || !isfinite(my_yaw)) {
+            printf("[POSE KEY] IMU角度未就绪，保持朝北，稳定后重按KEY1\r\n");
+        }
+        else {
+            uint8_t ok = chassis_odom_origin_set(225.0f, 15.0f); // cm，对应地图(2250,150)mm
+            // 设置起点后立即撤销旧位姿和待确认记录，等四轮新反馈重建基准
+            map_pose_update(0.0f, 0.0f, 0.0f, tick, 0);
+            map_update_clear_candidates();
+            last_map_scan = 0;
+            if (ok)
+                printf("[POSE KEY] 启停区2起点已确认=(2250,150)mm，等待四轮新反馈；未发车\r\n");
+            else
+                printf("[POSE KEY] 起点未接受，确认底盘停止后重按KEY1\r\n");
+        }
+    }
+
+    if (map_obstacle_pose_task())
+        last_map_scan = cloud.scan_num;
+
+    // 只限制日志频率，实际位姿和雷达处理每次主循环都执行
+    tick = HAL_GetTick();
+    if (tick - last_print_tick < 1000U) return;
+    last_print_tick = tick;
+    valid = map_pose_get(tick, &pose);
+
+    if (valid) {
+        printf("[POSE MAP] valid=1 xy=(%.1f,%.1f)mm yaw=%.1f age=%lums chassis=%u\r\n",
+               pose.x_mm, pose.y_mm, pose.yaw_deg,
+               (unsigned long)(tick - pose.tick), (unsigned int)car_get_state());
+    }
+    else {
+        printf("[POSE MAP] valid=0 imu=%u 车放在启停区2朝北，短按KEY1确认起点；仍需四轮反馈\r\n",
+               (unsigned int)hwt101_yaw_valid());
+    }
+
+    // 原始扫描仍可前进，accepted只在正式建图入口接受新扫描后更新
+    scan = lidar_get_scan();
+    if (scan != NULL && scan->scan_num != 0) {
+        printf("[POSE SCAN] raw=%lu age=%lums accepted=%lu changes=%lu\r\n",
+               (unsigned long)scan->scan_num, (unsigned long)(tick - scan->end_time),
+               (unsigned long)last_map_scan, (unsigned long)map_update_change_get());
+    }
+    else {
+        printf("[POSE SCAN] 等待雷达发布新扫描\r\n");
+    }
+
+    // 输出所有道路的长期状态，UNKNOWN不能理解为可通行，本任务不自动放行
+    printf("[POSE ROAD]");
+    for (uint8_t i = 0; i < MAP_ROAD_COUNT; i++) {
+        if (map_road_get(i, &state))
+            printf(" R%u=%s", (unsigned int)i, state == road_blocked ? "BLOCKED" :
+                   state == road_free ? "FREE" : "UNKNOWN");
+    }
+    printf("\r\n");
+}
+
 // 输出一项检查结果  ok非0表示通过 name是串口上显示的测试名称
 // 多个条件用&&连接 表示这些条件必须全部满足 任何一个失败则本项FAIL
 static void map_test_check(uint8_t ok, const char *name) {
@@ -351,6 +441,10 @@ uint8_t map_stage_test(void) {
 #define MAP_LIDAR_TEST_Y         2125.0f
 #define MAP_LIDAR_TEST_YAW         180.0f
 
+// 临时只打印与原始角度315~359、0~45度相交的聚类；改为0恢复全角度打印
+// 仅限制诊断日志，不改变聚类生成、候选筛选或地图更新
+#define MAP_LIDAR_TEST_FRONT_PRINT_ONLY 1
+
 // 桌面测试观察框：原始雷达0度方向前方400~600mm，左右各200mm
 // 映射到上述固定测试位姿后，对应地图X=1000~1400、Y=1525~1725
 // 只接收整个包围框都落在这里的聚类，避免桌边、近处物体把多个出口一起封锁
@@ -387,7 +481,7 @@ static void map_lidar_test_diagnose(uint32_t tick) {
     const lidar_scan_t *scan = lidar_get_scan();
     if (scan != NULL) {
         // 每项为 角度=距离/原始有效/点云有效；355~359、0~5覆盖原始0度两侧
-        // 原始有效但点云无效时检查屏蔽和距离过滤；少于3个有效点时不会生成聚类
+        // 原始有效但点云无效时检查屏蔽和距离过滤；聚类最少点数按近3/中2/远1分级
         printf("[PILLAR RAW] raw_scan=%lu cloud_scan=%lu",
                (unsigned long)scan->scan_num, (unsigned long)cloud.scan_num);
         for (int16_t offset = -5; offset <= 5; offset++) {
@@ -398,10 +492,13 @@ static void map_lidar_test_diagnose(uint32_t tick) {
         printf("\r\n");
     }
 
-    // 打印全部普通聚类，包含未通过筛选的组，避免目标恰好排在第8组以后而看不到
+    // 临时只打印正面聚类，仍包含未通过小柱筛选的组；跨0度或部分进入正面的组也保留
     // pillar=尺寸/点数/距离筛选是否通过；area=整个包围框是否在桌面观察区内
     for (uint16_t i = 0; i < obstacle_result.cluster_count; i++) {
         const lidar_cluster_t *cluster = &obstacle_result.clusters[i];
+        // 未跨0度且整组位于46~314度时，才完全不与正面观察角区相交
+        if (MAP_LIDAR_TEST_FRONT_PRINT_ONLY && cluster->start_angle <= cluster->end_angle &&
+            cluster->start_angle > 45U && cluster->end_angle < 315U) continue;
         uint8_t in_area = cluster->min_x >= MAP_LIDAR_TEST_MIN_X && cluster->max_x <= MAP_LIDAR_TEST_MAX_X &&
                           cluster->min_y >= MAP_LIDAR_TEST_MIN_Y && cluster->max_y <= MAP_LIDAR_TEST_MAX_Y;
         printf("[PILLAR CHECK] C%u a=%u~%u p=%u span=%.1f near=%.0f center=(%.0f,%.0f) pillar=%u area=%u\r\n",

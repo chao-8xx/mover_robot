@@ -323,8 +323,8 @@ static void test_directions_and_settling(void)
 
     setup(1200.0f, 2125.0f, -180.0f);
     map_nav_start(1, 4, map_unknown_allow, 100);
-    map_pose_yaw_offset_set(0.0f);
-    yaw_offset = 0.0f;
+    map_pose_yaw_offset_set(-90.0f);
+    yaw_offset = -90.0f;
     step(100, 1200.0f, 2125.0f, -180.0f);
     test_check(result().state == map_nav_stop && result().error == map_nav_error_pose,
                "changing yaw reference during active task requires restarting navigation");
