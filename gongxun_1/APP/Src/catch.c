@@ -8,7 +8,7 @@
 #define MM_PER_CIRCLE       8         // 一圈升降的距离mm
 #define LIFT_CMD_PULSE_PER_CM (PULSE_PER_CIRCLE / (MM_PER_CIRCLE / 10.0f))  // 绝对命令：4000 脉冲/cm
 #define LIFT_FEEDBACK_PER_CM  320.0f  // S_CPOS 反馈实测：约 320 单位/cm
-#define LIFT_TOL_CM           0.05f   // 升降到位容差 cm
+#define LIFT_TOL_CM           0.5f   // 升降到位容差 cm
 
 // 齿轮齿条控制相关参数
 #define GEAR_DIAMETER           31.1f  // 齿轮直径mm，卡尺实测
@@ -21,7 +21,7 @@
 #define STRETCH_RETRY_MAX      3     // 最多重发次数
 
 // 电机速度
-#define STEP_MOVE_SPEED     1650      // 丝杆电机位置模式移动速度
+#define STEP_MOVE_SPEED     800       // 丝杆电机位置模式移动速度（原1650，降速防过冲，保证升降到位稳定）
 #define STEP_SPEED          75        // 齿轮齿条电机位置模式移动速度
 
 // 伸缩齿轮齿条速度模式
@@ -43,9 +43,12 @@ static volatile int32_t  lift_target_pos  = 0;   // 本次目标（脉冲）
 static volatile uint32_t lift_read_tick   = 0;   // 上次发读请求的时刻
 static volatile uint32_t lift_start_tick  = 0;   // 本次动作开始时刻
 static volatile uint32_t lift_retry_times  = 0;  // 当前重发次数
-#define LIFT_POS_TOL          200                // 到位容差（脉冲），200/4000=0.05cm
-#define LIFT_READ_PERIOD_MS   20                 // 读位置周期
-#define LIFT_TIMEOUT_MS       5500               // 超时保护（防卡死）
+static int32_t  lift_zero_pos      = 0;          // 升降零点（清零后实际编码器值），动态抓取
+static volatile int32_t  lift_raw_pos   = 0;     // 1ms 中断读取 Motor_5 位置时保存的原始编码器值，供初始化抓零点
+static volatile uint8_t lift_raw_ready  = 0;     // 有新原始位置可用时置 1，初始化读取后清零
+#define LIFT_POS_TOL          1000               // 到位容差（脉冲），1000/4000=0.25cm
+#define LIFT_READ_PERIOD_MS   50                 // 读位置周期
+#define LIFT_TIMEOUT_MS       3000               // 超时保护（防卡死）
 #define LIFT_RETRY_MAX        3                  // 最多重发几次
 
 // 伸缩装置判断
@@ -95,6 +98,18 @@ void catch_init(void)
     get_lift_distance();
     HAL_Delay(20);
 
+    // 升降动态抓零点（同伸缩），消除上电不在 15cm 或清零帧残留导致的零点偏移
+    lift_raw_ready = 0;
+    get_lift_distance();
+    uint32_t lift_home_start = HAL_GetTick();
+    while ((HAL_GetTick() - lift_home_start) < 100) {
+        if (lift_raw_ready) {
+            lift_zero_pos = lift_raw_pos;
+            break;
+        }
+    }
+    motor_pos_set(Motor_5, lift_zero_pos);
+
     // 夹爪初始高度
     task_state.cur_lift_height = LIFT_ZERO_CM;
     task_state.cur_height = LIFT_ZERO_CM;
@@ -130,6 +145,7 @@ void catch_init(void)
     servo_init();
 
     // 舵机复位
+    // holder_rotate(HOLDER_CATCH);     // 云台舵机
     holder_rotate(HOLDER_SAFE);     // 云台舵机
     turntable_rotate(ONE_LOCATION); // 转盘舵机
     claw_ctrl(CLAW_LOOSE);          // 夹爪舵机
@@ -369,8 +385,8 @@ void catch_lift(float delta_cm)
 // 抓取装置夹爪升降至固定高度 单位:cm 绝对模式
 void catch_lift_to_height(float height)
 {
-    // 超限保护
-    if (height < -2.0f || height > 15.0f) {
+    // 超限和忙保护（同伸缩 catch_stretch_distance）
+    if (lift_busy || height < -2.0f || height > 15.0f) {
         return;
     }
 
@@ -501,7 +517,9 @@ void catch_tick(void)
     {
         int32_t pos;
         if (Emm_V5_Get_Pos(5, &pos)) {
-            float height = LIFT_ZERO_CM - (float)pos / LIFT_FEEDBACK_PER_CM;
+            lift_raw_pos = pos;                    // 供初始化阶段抓零点
+            lift_raw_ready = 1;
+            float height = LIFT_ZERO_CM - (float)(pos - lift_zero_pos) / LIFT_FEEDBACK_PER_CM;
             task_state.cur_height = height;        // 齿轮齿条实时位置
             task_state.cur_lift_height = height;   // 丝杆字段也同步（绝对定位在用）
 

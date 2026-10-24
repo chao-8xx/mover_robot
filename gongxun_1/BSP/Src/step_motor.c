@@ -139,11 +139,12 @@ void motor_set_speed_Pos(Motor_Num motor_num,int16_t speed,int32_t pos)
         vel = 5000;
     }
 
-    int32_t cur = step_motor_pos[motor_num];
-    dir = (pos < 0) ? 1 : 0;        // 绝对模式：dir 是绝对方向标志，由目标位置符号决定
-    // 伸缩电机方向翻转（如果机械装反了）
+    // dir 是方向标志，由目标位置符号决定（绝对模式下 dir 即目标符号）
     if (motor_num == Motor_6) {
-        dir = !dir;
+        dir = (pos < 0) ? 1 : 0;   // 伸缩：目标带符号
+        dir = !dir;                // 伸缩电机方向翻转（如果机械装反了）
+    } else {
+        dir = (pos < 0) ? 1 : 0;   // 升降/底盘：目标带符号（升降目标恒正，dir 恒 0）
     }
     clk = (pos < 0) ? (uint32_t)(-(int32_t)pos) : (uint32_t)pos;
     

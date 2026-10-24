@@ -1287,3 +1287,37 @@ void lift_test(void)
             break;
     }
 }
+
+// 伸缩测试
+void stretch_test(void)
+{
+    static uint8_t test_step = 0;
+
+    if (!car_reset) {
+        return;
+    }
+
+    switch (test_step)
+    {
+        case 0:
+            if (!stretch_is_busy()) {
+                catch_stretch_distance(STRETCH_CATCH);
+                test_step = 1;
+            }
+            break;
+        case 1:
+            if (!stretch_is_busy()) {
+                catch_stretch_distance(STRETCH_PUT);
+                test_step = 2;
+            }
+            break;
+        case 2:
+            if (!stretch_is_busy()) {
+                catch_stretch_distance(STRETCH_PUT_MID);
+                test_step = 0;
+            }
+            break;
+        default:
+            break;
+    }
+}

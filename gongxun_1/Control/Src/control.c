@@ -1,6 +1,6 @@
 #include "headfile.h"
 
-#define TARGET_DX   (0)         // 目标dx
+#define TARGET_DX   (0)          // 目标dx
 #define TARGET_DY   (0)          // 目标dy
 
 #define TARGET_CIRCLE_DX (2)     // 圆环目标dx
@@ -9,7 +9,7 @@
 #define LEAVE_PARK_DX     15.0f       // 离开启停区的横向距离
 #define LEAVE_PARK_DY     13.5f       // 离开启停区的纵向距离
 
-#define LOCK_CAR_CALI    (0.03f)      // 抓物料时锁定小车的x轴位置的系数
+#define LOCK_CAR_CALI    (0.05f)      // 抓物料时锁定小车的x轴位置的系数
 #define LOCK_CAR_DY      (25)         // 抓物料时锁定小车的DY目标 小车横向锁转盘中心
 
 #define MOVE_SPEED        470         // 底盘非任务区运行速度
@@ -23,7 +23,7 @@
 
 // 舵机等待时间 ms
 #define CLAW_WAIT         400         // 等待夹爪
-#define HOLDER_WAIT       800        // 等待云台
+#define HOLDER_WAIT       850         // 等待云台
 
 // 任务完成标志
 uint8_t scan_finish = 0;    // 扫码任务完成标志
@@ -504,9 +504,9 @@ void final_road_move(void)
 
     // 根据行驶距离决定是否横移 距离大于两格 直接直行不允许横移 怕有偏差
     {
-        // 0:垂直 1:同向 -1:反向
-        int8_t dot = (int8_t)(my_control.last_dx * my_control.head_x +
-                              my_control.last_dy * my_control.head_y);
+        // 0:垂直 1:同向 -1:反向（和“要求朝向”比，不要和会变的当前车头比）
+        int8_t dot = (int8_t)(my_control.last_dx * hx +
+                              my_control.last_dy * hy);
         if (dot == 0 && my_control.final_run_len > 2) {
             hx = my_control.last_dx;    // 目标姿态改成路径方向
             hy = my_control.last_dy;
@@ -886,7 +886,7 @@ void catch_material(void)
     static float temp_yaw = 0.0f;
     static uint8_t catch_y_ok = 0;          // 与转盘距离确定好后
     static uint8_t catch_a_ok = 0;          // 是否抓上来一个物料
-    static uint8_t clear_zero_time = 0;     // 编码器清零计时
+    static uint16_t clear_zero_time = 0;    // 编码器清零计时
     static uint8_t find_meta = 0;           // 是否发现过物料
 
     // 不在原料区 退出
@@ -897,8 +897,8 @@ void catch_material(void)
     switch (catch_step)
     {
         case 0:     // 复位升降高度
+            // car_stop();     // 先停车稳住
             catch_finish = 0;
-            car_stop();     // 先停车稳住
             catch_lift_to_height(LIFT_NORMAL);
             task_state.car_work = CATCHING; // 小车当前处于夹取物料状态
             catch_step = 1;
@@ -928,7 +928,8 @@ void catch_material(void)
             my_control.is_send_color = 1;
             temp_yaw = my_yaw;
             catch_stretch_distance(STRETCH_CATCH);
-            light_on();     // 开灯
+            // light_on();     // 开灯
+            light_off();        // 关灯
             catch_step = 4;
             break;
         case 4:     // 发现目标且目标稳定时 进入目标校准(第一次到达原料区)
@@ -1002,12 +1003,12 @@ void catch_material(void)
             }
             else {
                 clear_zero_time++;
-                if (clear_zero_time >= 5) {
+                if (clear_zero_time >= 20) {
                     car_stop();
                     catch_stretch_stop();
                 }
                 if (find_meta == 1) {   // 发现过物料 但是丢失
-                    if (clear_zero_time >= 100) {     // 连续丢失 100 帧再回零
+                    if (clear_zero_time >= 500) {     // 连续丢失 500 帧再回零
                         clear_zero_time = 0;
                         task_state.remindState = RED_REMIND;   // 闪灯警告
                         catch_step = 8; // 丢失目标 底盘回零
@@ -1022,7 +1023,7 @@ void catch_material(void)
             break;
         case 9:     // 等待底盘电机回零
             clear_zero_time ++;
-            if (clear_zero_time >= 140) {
+            if (clear_zero_time >= 300) {
                 clear_zero_time = 0;
                 if (catch_finish == 1) {
                     catch_step = 20;   // 抓取结束步骤
@@ -1107,7 +1108,7 @@ void catch_material(void)
             if (!servo_is_busy()) {
                 if (catch_num < 3) {    // 未抓完
                     catch_a_ok = 1;     // 刚抓完一个物料
-                    catch_step = 8;     // 底盘回零后再走
+                    catch_step = 8;     // 底盘回零
                 }
                 else if (catch_num >= 3) {  // 已抓完
                     catch_finish = 1;
@@ -1120,6 +1121,7 @@ void catch_material(void)
             light_off();    // 关灯
             catch_num = 0;
             catch_y_ok = 0;
+            catch_finish = 1;
             serve_wait_time = 0;
             servo_reset_step = 0;
             task_state.car_work = RUNNING; // 小车结束夹取状态 去往下一个点位
@@ -1193,7 +1195,8 @@ void put_material(void)
             else {
                 maix_start_ring(MAIX_RING_2);
             }
-            light_on();     // 开灯
+            // light_on();     // 开灯
+            light_off();     // 关灯
             put_step = 4;
             break;
         case 4:     // 跟踪2号圆环或中间码垛
@@ -1244,7 +1247,7 @@ void put_material(void)
             put_step = 3;   // 给maix发指令
             break;
         case 6:     // 上升夹爪准备放物料
-            catch_lift_to_height(LIFT_CATCH);
+            catch_lift_to_height(LIFT_NORMAL);
             put_step = 7;   // 底盘电机编码器清零
             break;
         case 7:     // 底盘电机编码器清零
@@ -1470,7 +1473,8 @@ void pick_material(void)
                 task_state.index = 1;   // 锁第一批物料中间圆环处
                 my_control.is_send_stack = 1;
             }
-            light_on();     // 开灯
+            // light_on();     // 开灯
+            light_off();     // 关灯
             temp_yaw = my_yaw;
             catch_stretch_distance(STRETCH_PUT_MID);
             pick_step = 4;
@@ -1526,7 +1530,7 @@ void pick_material(void)
             }
             else if (clear_zero_time == 100) {
                 clear_zero_time = 0;
-                catch_step = 6; // 控制转盘和云台
+                pick_step = 6; // 控制转盘和云台
             }
             break;
         case 6:   // 根据已抓物料数量控制云台和转盘角度
