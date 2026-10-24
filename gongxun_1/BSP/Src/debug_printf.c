@@ -111,6 +111,7 @@ uint16_t debug_printf_write(const uint8_t *data, uint16_t len) {
     // 空间不足时整条丢弃，避免串口上出现残缺日志
     if (len > free_len) {
         debug_err_bytes += len;
+        debug_try_send(); // 满队列仍需重试 避免上次DMA启动失败后一直无法腾出空间
         __set_PRIMASK(primask);
         return 0;
     }
@@ -145,6 +146,18 @@ uint16_t debug_printf_write(const uint8_t *data, uint16_t len) {
     __set_PRIMASK(primask);
 
     return write_len;
+}
+
+// 10ms周期重试尚未启动的发送 不等待、不复制数据
+void debug_printf_task(void) {
+    // 保存当前中断状态   禁止中断
+    uint32_t primask = __get_PRIMASK();
+    __disable_irq();
+
+    debug_try_send();
+
+    // 恢复中断
+    __set_PRIMASK(primask);
 }
 
 // printf DMA 发送完成回调函数

@@ -7,6 +7,7 @@
 
 void lidar_test(void);
 void wheel_mask_test(void);
+void lidar_install_test(void);  // 雷达倒装后的方向、安装偏移和安装角标定
 
 void tf2d_test_polar(void);
 void tf2d_test_base(void);

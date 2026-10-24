@@ -74,18 +74,22 @@ add_executable(${CMAKE_PROJECT_NAME}
         APP/Src/bfs.c
         Control/Inc/system.h
         Control/Src/system.c
-        APP/Src/track_map.c
-        APP/Inc/track_map.h
-        APP/Src/obstacle_find.c
-        APP/Inc/obstacle_find.h
+        APP/Src/map_track.c
+        APP/Inc/map_track.h
+        APP/Src/map_obs.c
+        APP/Inc/map_obs.h
         Test/Src/map_test.c
         Test/Inc/map_test.h
-        APP/Src/tf2d.c
-        APP/Inc/tf2d.h
+        Test/Src/map_stage_test.c
+        Test/Inc/map_stage_test.h
+        APP/Src/map_tf2d.c
+        APP/Inc/map_tf2d.h
         Test/Src/cam_test.c
         Test/Inc/cam_test.h
         Test/Src/lidar_test.c
         Test/Inc/lidar_test.h
+        Test/Src/lidar_pillar_test.c
+        Test/Inc/lidar_pillar_test.h
         Test/Src/run_test.c
         Test/Inc/run_test.h
         Test/Src/bfs_test.c
@@ -96,8 +100,19 @@ add_executable(${CMAKE_PROJECT_NAME}
         BSP/Inc/debug_printf.h
         Control/Inc/control.h
         Control/Src/control.c
-        APP/Src/grid.c
-        APP/Inc/grid.h
+        APP/Src/map_data.c
+        APP/Inc/map_data.h
+        APP/Src/map_update.c
+        APP/Inc/map_update.h
+        APP/Src/map_plan.c
+        APP/Inc/map_plan.h
+        APP/Src/map_lidar.c
+        APP/Inc/map_lidar.h
+        APP/Src/map_pose.c
+        APP/Inc/map_pose.h
+        APP/Src/map_nav.c
+        APP/Inc/map_nav.h
+        APP/Src/map_plan.c
 
 )
 

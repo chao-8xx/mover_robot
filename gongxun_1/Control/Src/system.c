@@ -13,6 +13,19 @@ void system_init(void)
     uart_init();                // 串口初始化   陀螺仪 串口屏 摄像头 串口调试 雷达
 
     tf_init();                  // 坐标变换初始化
+    map_pose_init();            // 等定位模块发布真实位姿 复位时清除上次结果
+    map_update_init();          // 初始化道路状态和扫描确认记录
+    HAL_Delay(100);             // 等待一会儿
+
+    // led_board_on();             // 开启补光板
+    light_on();                 // 开启补光灯
+
+    lidar_start();              // 启动雷达
+
+    light_buzzer_init();        // 灯光蜂鸣器初始化
+    uart_init();                // 串口初始化   陀螺仪 串口屏 摄像头 串口调试 雷达
+
+    tf_init();                  // 坐标变换初始化
     HAL_Delay(100);             // 等待一会儿
     light_on();                 // 开启补光灯
 

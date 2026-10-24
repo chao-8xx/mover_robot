@@ -1,0 +1,16 @@
+files:
+  - app.png
+  - app.yaml
+  - main.py
+  - vision_blob.py
+  - vision_config.py
+  - vision_ring.py
+  - vision_runtime.py
+  - vision_tasks.py
+  - vision_ui.py
+id: gongxun_now
+name: 工训视觉_NOW
+version: 2.3.2
+author: chao
+icon: app.png
+desc: 三任务RUN限频实时预览、多边形屏蔽、抓取覆盖判定、纯圆心定位

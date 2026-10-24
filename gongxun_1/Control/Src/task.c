@@ -214,22 +214,24 @@ uint8_t task_receive(void)
 
 
 // 陀螺仪处理任务
-void imu_task(void)
-{
+void imu_task(void) {
     // 处理陀螺仪数据
     if(hwt101_rx_flag || hwt101_error_flag) {
+
         // 先清除标志位
-        hwt101_error_flag = 0;
+        // 错误标志由驱动清除  提前清零会跳过DMA恢复分支
+        // hwt101_error_flag = 0;
         hwt101_rx_flag = 0;
+
         hwt101_rx_handle();
     }
 }
 
 // 摄像头处理任务
-void cam_task(void)
-{
+void cam_task(void) {
     if (cam_rx_flag || cam_error_flag) {
-        cam_error_flag = 0;
+        // 保留错误标志给cam_rx_handle处理  接收通知仍先清除
+        // cam_error_flag = 0;
         cam_rx_flag = 0;  // 先清除标志位
         cam_rx_handle();
     }
@@ -412,4 +414,75 @@ void hmi_get_car_state_task(void)
         default:
             break;
     }
+}
+
+// 读取实际位姿并更新雷达地图  位姿无效时仍接收雷达并清除待确认次数
+uint8_t map_obstacle_pose_task(void) {
+    map_pose_t pose;
+    uint8_t valid = map_pose_get(HAL_GetTick(), &pose);
+    return map_obstacle_task(pose.x_mm, pose.y_mm, pose.yaw_deg, valid);
+}
+
+// 从完整雷达扫描到道路状态的入口。当前安装标定测试不调用这个函数
+uint8_t map_obstacle_task(float car_x, float car_y, float car_yaw, uint8_t pose_valid) {
+    static uint8_t wait_new_scan = 2;  // 2: 记录旧圈；1: 丢弃跨越恢复时刻的圈
+    static uint32_t skip_scan_num = 0;
+    static uint32_t last_drop_num = 0;
+    const lidar_scan_t *scan;
+    uint32_t drop_num;
+
+    // 坏包/接收错误会打断连续观察，恢复后要重新等完整静止圈
+    lidar_process();
+    drop_num = lidar_get_scan_drop_cnt();
+    if (drop_num != last_drop_num) {
+        last_drop_num = drop_num;
+        map_update_clear_candidates();
+        wait_new_scan = 2;
+        skip_scan_num = 0;
+    }
+
+    if (!pose_valid || !map_update_is_ready() || car_get_state() != CHASSIS_IDLE ||
+        !isfinite(car_x) || !isfinite(car_y) || !isfinite(car_yaw) ||
+        map_check_area(car_x, car_y) != map_normal) {
+        map_update_clear_candidates();
+        wait_new_scan = 2;
+        skip_scan_num = 0;
+        return 0;
+        }
+
+    // 先记住已经发布的旧圈，再丢弃恢复后第一圈：它可能在恢复前就开始采集
+    if (wait_new_scan == 2) {
+        scan = lidar_get_scan();
+        if (scan == NULL || scan->scan_num == 0)
+            return 0;
+        skip_scan_num = scan->scan_num;
+        wait_new_scan = 1;
+        return 0;
+    }
+
+    if (wait_new_scan == 1) {
+        scan = lidar_get_scan();
+        if (scan == NULL || scan->scan_num == skip_scan_num) return 0;
+        skip_scan_num = scan->scan_num;
+        wait_new_scan = 0;
+        return 0;
+    }
+
+    if (skip_scan_num != 0) {
+        scan = lidar_get_scan();
+        if (scan == NULL || scan->scan_num == skip_scan_num) return 0;
+        skip_scan_num = 0;
+    }
+
+    if (!obstacle_find_task(car_x, car_y, car_yaw)) return 0;
+    // obstacle_find_task也会取DMA数据；若在这次处理里发生丢圈，不能先写地图再恢复
+    drop_num = lidar_get_scan_drop_cnt();
+    if (drop_num != last_drop_num) {
+        last_drop_num = drop_num;
+        map_update_clear_candidates();
+        wait_new_scan = 2;
+        skip_scan_num = 0;
+        return 0;
+    }
+    return map_lidar_handle(1);
 }

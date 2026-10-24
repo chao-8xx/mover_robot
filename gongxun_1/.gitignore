@@ -1,0 +1,32 @@
+# CLion / JetBrains: local IDE state (including nested CubeMX project)
+.idea/
+**/.idea/
+
+# CMake / Ninja build directories
+build/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
+.ninja_deps
+.ninja_log
+build.ninja
+
+# Toolchain outputs
+*.o
+*.obj
+*.d
+*.a
+*.elf
+*.hex
+*.bin
+*.map
+*.lst
+
+# Machine-specific CMake settings
+CMakeUserPresets.json
+
+# OS files
+.DS_Store
+Thumbs.db

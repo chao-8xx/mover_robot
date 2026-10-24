@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#101d2d">
+  <title>雷达回放台 · 工训</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="brand-icon" aria-hidden="true">⌖</span><div><h1>雷达回放台</h1><p>工训 · 看清每一圈数据</p></div></div>
+    <div class="header-actions"><span id="connection" class="status-pill">正在连接本地服务</span><button id="source-toggle" class="button quiet">源码信息</button></div>
+  </header>
+  <main>
+    <div id="error" class="notice error" role="alert" hidden><span id="error-text"></span><button id="error-dismiss" aria-label="关闭提示">×</button></div>
+    <section id="source-info" class="source-info" hidden><strong>算法来源</strong><div id="source-content"></div></section>
+    <section id="dataset-banner" class="notice synthetic"><span class="notice-icon">◈</span><div><strong id="banner-title">准备演示数据</strong><p id="banner-detail">合成数据用于检查流程，不能证明实物雷达能检测到细杆。</p></div><span id="dataset-tag" class="tag">合成演示</span></section>
+    <section class="recording-bar">
+      <div class="recording-name"><span class="eyebrow">当前记录</span><strong id="recording-name">正在载入…</strong><span id="recording-meta">—</span></div>
+      <div class="recording-actions"><input type="file" id="file-input" accept=".json,.jsonl,.ndjson,.csv,.bin,.txt" hidden><button id="import-button" class="button primary">＋ 导入记录</button><button id="demo-button" class="button">合成演示</button><button id="export-button" class="button" disabled>导出问题帧</button></div>
+    </section>
+    <div id="export-result" class="export-result" hidden><span>问题记录已保存到 exports 文件夹：</span><a id="export-link" download></a></div>
+    <section class="playback" aria-label="回放控制">
+      <div class="transport"><button id="previous-button" class="icon-button" aria-label="上一圈" title="上一圈（←）" disabled>⏮</button><button id="play-button" class="button play" disabled>▶ 播放</button><button id="next-button" class="icon-button" aria-label="下一圈" title="下一圈（→）" disabled>⏭</button></div>
+      <div class="timeline"><div class="timeline-label"><strong id="frame-label">第 — 圈</strong><span id="frame-detail">—</span></div><input id="frame-slider" type="range" min="0" max="0" value="0" aria-label="选择雷达圈数" disabled></div>
+      <label class="speed-label">速度<select id="play-speed"><option value="2">2 圈/秒</option><option value="5" selected>5 圈/秒</option><option value="10">10 圈/秒</option><option value="20">20 圈/秒</option></select></label>
+      <span id="processing" class="processing" aria-live="polite"></span>
+    </section>
+    <div class="workspace">
+      <div class="results">
+        <section class="stats" aria-label="本圈统计">
+          <div><span>原始有效点</span><strong id="stat-valid">—</strong><small>原始帧标记</small></div>
+          <div><span>轮区过滤</span><strong id="stat-wheel" class="orange">—</strong><small>被遮挡规则移除</small></div>
+          <div><span>保留点</span><strong id="stat-kept" class="aqua">—</strong><small id="stat-distance">通过距离筛选</small></div>
+          <div><span>有效聚类</span><strong id="stat-clusters">—</strong><small id="stat-rejected">— 个被拒绝</small></div>
+          <div><span>确认障碍</span><strong id="stat-obstacles">—</strong><small id="stat-map">等待定位</small></div>
+        </section>
+        <div class="plots">
+          <section class="panel point-panel">
+            <div class="panel-heading"><div><span class="eyebrow">01 / 雷达 → 聚类</span><h2>一圈点云</h2></div><select id="point-coordinates" aria-label="点云坐标系"><option value="body">车体坐标</option><option value="lidar">雷达原始坐标</option></select></div>
+            <div class="plot-legend"><label><input id="layer-raw" type="checkbox" checked><i class="dot raw"></i>原始点</label><label><input id="layer-wheel" type="checkbox" checked><i class="dot wheel"></i>轮区点</label><label><input id="layer-cluster" type="checkbox" checked><i class="dot cluster"></i>聚类</label><label><input id="layer-rejected" type="checkbox" checked><i class="dot rejected"></i>拒绝候选</label></div>
+            <div class="canvas-wrap"><canvas id="point-canvas" aria-label="雷达点云，点击点查看详细数据"></canvas><div class="canvas-hint">滚轮缩放 · 点击查看点</div><button id="zoom-reset" class="canvas-button" title="复位点云视野">复位视野</button><div id="point-empty" class="canvas-empty" hidden>这一圈没有可显示的点</div></div>
+            <div class="plot-footer"><span id="point-scale">—</span><span>车体：右方 +X / 前方 +Y</span></div>
+          </section>
+          <section class="panel map-panel">
+            <div class="panel-heading"><div><span class="eyebrow">02 / 聚类 → 场地</span><h2>地图与道路</h2></div><span id="map-ready" class="tag muted">等待有效定位</span></div>
+            <div class="plot-legend map-legend"><span><i class="dot free"></i>畅通</span><span><i class="dot blocked"></i>阻塞</span><span><i class="dot unknown"></i>未知</span><span><i class="outline-dot"></i>待确认</span></div>
+            <div class="canvas-wrap"><canvas id="map-canvas" aria-label="场地地图和道路障碍状态"></canvas><div id="map-empty" class="map-empty"><strong>场地映射等待有效定位</strong><span>在右侧填写车体位置和朝向，再应用定位。</span></div></div>
+            <div class="plot-footer"><span id="map-change">地图变化 —</span><span>场地坐标 / mm</span></div>
+          </section>
+        </div>
+        <section id="comparison" class="comparison" hidden><strong>与源码默认参数对比</strong><span id="comparison-detail"></span><small>虚线框表示默认参数的聚类边界</small></section>
+        <section class="panel inspector"><div><span class="eyebrow">点数据</span><h2 id="point-title">点击点云中的点</h2></div><dl id="point-inspector"><div><dt>原始角度</dt><dd>—</dd></div><div><dt>距离</dt><dd>—</dd></div><div><dt>筛选结果</dt><dd>—</dd></div><div><dt>车体 (X, Y)</dt><dd>—</dd></div><div><dt>场地 (X, Y)</dt><dd>—</dd></div></dl></section>
+        <section class="panel candidate-panel"><div class="panel-heading"><div><span class="eyebrow">候选追踪</span><h2>本圈聚类与映射结果</h2></div><span id="candidate-count" class="small-text">—</span></div><div class="table-wrap"><table><thead><tr><th>聚类</th><th>点数</th><th>车体中心 / mm</th><th>场地中心 / mm</th><th>车体宽 × 高 / mm</th><th>最近距离</th><th>映射 / 原因</th><th>格子 / 道路</th></tr></thead><tbody id="candidate-table"><tr><td colspan="8" class="empty-cell">载入记录后显示</td></tr></tbody></table></div></section>
+        <section class="panel state-panel"><div class="panel-heading"><div><span class="eyebrow">连续多圈状态</span><h2>障碍确认与道路状态</h2></div><span id="map-reason" class="small-text">—</span></div><div id="road-list" class="road-list"></div><div id="obstacle-list" class="obstacle-list"></div></section>
+      </div>
+      <aside class="parameters panel">
+        <div class="panel-heading"><div><span class="eyebrow">试验参数</span><h2>改一处，看变化</h2></div><button id="reset-params" class="text-button">恢复源码值</button></div>
+        <label class="compare-toggle"><input id="compare-toggle" type="checkbox">与源码默认参数对比</label>
+        <p class="parameter-note">修改只影响电脑回放；不会写入单片机。</p>
+        <fieldset><legend>距离与聚类</legend><div class="form-grid"><label>最小距离 / mm<input type="number" data-param="min_distance" min="0" step="1"></label><label>最大距离 / mm<input type="number" data-param="max_distance" min="1" step="1"></label><label>连接距离 / mm<input type="number" data-param="gap_mm" min="1" step="1"></label><label>最少点数<input type="number" data-param="min_points" min="1" max="360" step="1"></label><label>允许缺点数<input type="number" data-param="max_miss" min="0" max="254" step="1"></label><label>最多聚类数<input type="number" data-param="max_clusters" min="1" max="20" step="1"></label></div></fieldset>
+        <fieldset><legend>车轮遮挡</legend><label class="inline-check"><input id="mask-enabled" type="checkbox" checked>启用四轮遮挡过滤</label><p class="field-hint">角度包含两端；起点大于终点表示跨过 0°。</p><div id="wheel-ranges" class="wheel-ranges"></div></fieldset>
+        <details open><summary>雷达 → 车体变换</summary><div class="form-grid"><label>右向偏移 X / mm<input id="tf-x" type="number" step="1"></label><label>前向偏移 Y / mm<input id="tf-y" type="number" step="1"></label><label>安装角 / °<input id="tf-yaw" type="number" step="0.1"></label><label class="inline-check transform-mirror"><input id="tf-mirror" type="checkbox">镜像原始 X</label></div><p class="field-hint">按当前工程变换执行。安装值需要用实物标定。</p></details>
+        <fieldset><legend>地图膨胀尺寸</legend><div class="form-grid"><label>车体宽度 / mm<input id="car-width" type="number" min="1" step="1" value="450"></label><label>安全余量 / mm<input id="safety" type="number" min="0" step="10" value="50"></label></div><p class="field-hint warning-text">演示值，填实车尺寸。膨胀会影响道路阻塞判断。</p></fieldset>
+        <fieldset class="pose-controls"><legend>车体在场地的位置</legend><span id="pose-origin" class="small-text">记录内定位</span><div class="form-grid"><label>场地 X / mm<input id="pose-x" type="number" step="10" value="0"></label><label>场地 Y / mm<input id="pose-y" type="number" step="10" value="0"></label><label>朝向 / °<input id="pose-yaw" type="number" step="1" value="0"></label><label class="inline-check pose-valid"><input id="pose-valid" type="checkbox">定位有效</label></div><p class="field-hint">0° 朝向场地 +Y。仅有点云时，不应勾选定位有效。</p><div class="pose-buttons"><button id="pose-apply-frame" class="button">应用到本圈</button><button id="pose-apply-all" class="button">应用到整段</button></div><button id="pose-reset" class="text-button">恢复记录内定位</button></fieldset>
+        <div id="warnings" class="warnings" hidden></div>
+        <div class="import-help"><strong>可导入的文件</strong><p>完整 JSON、逐行 JSONL、CSV 点数据，或原始 D6 二进制记录。</p><p>仅有 SCAN / WHEEL 统计信息的日志无法还原点云。</p><span>拖动文件到页面，也能导入</span></div>
+      </aside>
+    </div>
+    <footer class="page-footer"><span>离线文件回放 · 重建多圈地图状态，不模拟固件任务调度</span><span>合成样本验证 ≠ 实物检测验收</span></footer>
+  </main>
+  <div id="drop-overlay" class="drop-overlay" hidden><div><span>↓</span><strong>释放文件，开始回放</strong><p>JSON / JSONL / CSV / 原始 D6 二进制</p></div></div>
+  <div id="toast" class="toast" role="status" hidden></div>
+</body>
+</html>

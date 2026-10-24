@@ -29,6 +29,18 @@ void light_toggle(void)
     HAL_GPIO_TogglePin(LED_BUZZER_PORT,LED_PIN);
 }
 
+// 开启补光板
+void led_board_on(void) {
+    HAL_GPIO_WritePin(GPIOE, GPIO_PIN_4, GPIO_PIN_SET);
+}
+
+// 关闭补光板
+void led_board_off(void) {
+    HAL_GPIO_WritePin(GPIOE, GPIO_PIN_4, GPIO_PIN_RESET);
+}
+
+
+
 // 蜂鸣器打开
 void buzzer_on(void)
 {
