@@ -4,11 +4,12 @@
 // UART 串口设备初始化
 void uart_init(void)
 {
+    debug_uart_init(&huart6);   // 串口调试
     cam_init(&huart1);          // OpenMV maixcam 摄像头
     my_hwt101_init();           // HWT101 陀螺仪
     lidar_init(&huart4);        // 雷达
     my_hmi_init();              // 串口屏
-    debug_uart_init(&huart6);   // 串口调试
+    step_motor_init();          // 闭环步进电机
 }
 
 // 普通中断接收完成

@@ -12,7 +12,7 @@
 
 // 齿轮齿条控制相关参数
 #define GEAR_DIAMETER           31.1f  // 齿轮直径mm，卡尺实测
-#define STRETCH_FEEDBACK_PER_CM 24.5f  // S_CPOS 原始读数：伸出 1cm 对应多少单位
+#define STRETCH_FEEDBACK_PER_CM 26.2f  // S_CPOS 原始读数：伸出 1cm 对应多少单位
 #define STRETCH_CMD_PULSE_PER_CM \
     (PULSE_PER_CIRCLE / (3.14159265f * GEAR_DIAMETER / 10.0f))  // 绝对位置命令的脉冲/cm
 #define STRETCH_TOL_CM         0.1f  // 伸缩绝对定位容差 cm
@@ -178,7 +178,7 @@ void catch_stretch_send(int16_t speed)
 static int32_t stretch_dist_to_pos(float dist_cm)
 {
     float p = (float)stretch_cmd_zero_pos
-            + dist_cm * STRETCH_CMD_PULSE_PER_CM; // 伸出为正
+            + dist_cm * STRETCH_CMD_PULSE_PER_CM; // 伸出为负
     return (int32_t)(p + (p >= 0.0f ? 0.5f : -0.5f));
 }
 // 抓取装置夹爪伸缩一定距离 齿轮齿条 pos:编码器绝对位置
@@ -488,6 +488,7 @@ void catch_tick(void)
             if (stretch_abs_mode && stretch_busy) {
                 float target_cm = (float)(stretch_target_pos - stretch_cmd_zero_pos)
                                 / STRETCH_CMD_PULSE_PER_CM;
+
                 if (my_absf(task_state.cur_stretch - target_cm) <= STRETCH_TOL_CM) {
                     stretch_abs_mode = 0;
                     stretch_busy = 0;

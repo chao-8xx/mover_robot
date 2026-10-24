@@ -140,20 +140,13 @@ void motor_set_speed_Pos(Motor_Num motor_num,int16_t speed,int32_t pos)
     }
 
     int32_t cur = step_motor_pos[motor_num];
-    dir = (pos < cur) ? 1 : 0;             // 位置值减小 = 上升 = dir 1
-    // ★ 伸缩电机方向翻转（如果机械装反了）
+    dir = (pos < 0) ? 1 : 0;        // 绝对模式：dir 是绝对方向标志，由目标位置符号决定
+    // 伸缩电机方向翻转（如果机械装反了）
     if (motor_num == Motor_6) {
         dir = !dir;
     }
     clk = (pos < 0) ? (uint32_t)(-(int32_t)pos) : (uint32_t)pos;
-
-    // 打印5号升降电机数据！
-    if (motor_num == Motor_5) {
-        printf("M5 pos=%ld cur=%ld dir=%u clk=%lu tx=%u\r\n",
-               (long)pos, (long)cur, dir, (unsigned long)clk,
-               Emm_V5_Tx_Count());
-    }
-
+    
     if (Emm_V5_Pos_Control(addr, dir, vel, STEP_MOTOR_CATCH_ACC, clk, true, false)) {
         step_motor_pos[motor_num] = pos;   // 只有命令成功入队才更新账本
     }

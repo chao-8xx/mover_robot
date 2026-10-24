@@ -27,7 +27,6 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "headfile.h"
-#include "lidar_pillar_test.h"
 
 /* USER CODE END Includes */
 
@@ -127,12 +126,10 @@ int main(void)
 
   while (1)
   {
-    // cam_task();               // 解析摄像头数据
-    // mv_task();                // OpenMV扫码处理任务
-    // send_conduct_task();      // 给maix发数据处理任务
-    // hmi_get_car_state_task(); // 非阻塞式发送小车当前状态至串口屏任务
-
-
+    cam_task();               // 解析摄像头数据
+    mv_task();                // OpenMV扫码处理任务
+    send_conduct_task();      // 给maix发数据处理任务
+    hmi_get_car_state_task(); // 非阻塞式发送小车当前状态至串口屏任务
 
     // 雷达安装标定测试：按串口提示放置挡板，短按KEY1采集下一组
     // lidar_install_test();
@@ -159,11 +156,11 @@ int main(void)
 
 
     // 雷达正面障碍物测试 测距离  1300mm
-    lidar_pillar_test();
+    // lidar_pillar_test();
 
     // 真实位姿静止建图：更新道路并打印位姿、扫描和道路状态 不发送运动指令
-    chassis_odom_tick();       // 实际轮子反馈 -> cm里程计 -> mm地图位姿
-    map_pose_test();
+    // chassis_odom_tick();       // 实际轮子反馈 -> cm里程计 -> mm地图位姿
+    // map_pose_test();
 
     // 固定测试位姿的R8封路测试
     // map_lidar_test();

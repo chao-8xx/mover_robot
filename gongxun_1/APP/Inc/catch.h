@@ -2,7 +2,7 @@
 #define GONGXUN_1_CATCH_H
 
 // 伸缩运行的最大距离
-#define STRETCH_MAX_CM   16.5f    // 伸缩最大允许伸出距离
+#define STRETCH_MAX_CM   16.0f    // 伸缩最大允许伸出距离
 
 // 夹爪舵机角度定义
 #define CLAW_CATCH  3.0f     // 夹爪夹取角度
