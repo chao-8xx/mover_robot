@@ -52,16 +52,19 @@ Chassis_Mode car_get_state(void);
 
 // ======== 全局位姿解析 ======== //
 // 暂停底盘航迹推算（跟随模式下调用）
+// 暂停期间位置未知  恢复前必须重新设置已知实际起点
 void chassis_odom_hold(void);
-// 1ms 调用：轮流给四个电机发读位置请求
+// 车辆静止在已知位置时设置实际X/Y(cm)  重新建立轮子基准  不发送移动命令
+uint8_t chassis_odom_origin_set(float x_cm, float y_cm);
+// 主循环调用：轮流给四个电机发读位置请求
 void chassis_odom_poll(void);
-// 1ms 调用：把回复进来的位置取走，换算成累计 cm
+// 主循环调用：把完整位置反馈取走，换算成累计cm并记录接收时间
 void chassis_odom_fetch(void);
-// 20ms 调用：用四个轮子的增量做航迹推算
+// 主循环调用：四轮新反馈齐全才积分并发布地图位姿
 void chassis_odom_update(void);
-// 编码器清零后调用：把航迹推算的累计值和基准一起归零
+// 静止清零编码器后重建轮子基准  保留已确认的全局X/Y
 void chassis_odom_reset(void);
-// 底盘全局位姿实时解算tick
+// 底盘全局位姿实时解算tick  只放主循环  不在中断中调用
 void chassis_odom_tick(void);
 
 // ======== 非阻塞计时发送 ======== //

@@ -7,29 +7,34 @@ void system_init(void)
     HAL_Delay(100);             // 等待一会儿
     car_reset = false;          // 未完成初始化/复位
 
-    debug_uart_init(&huart6);   // 串口调试
     task_init();                // 任务初始化
     timer_init();               // 定时器初始化
-    my_hwt101_init();           // 陀螺仪
-    my_hmi_init();              // 串口屏
+    light_buzzer_init();        // 灯光蜂鸣器初始化
+    uart_init();                // 串口初始化   陀螺仪 串口屏 摄像头 串口调试 雷达
+
+    tf_init();                  // 坐标变换初始化
+    HAL_Delay(100);             // 等待一会儿
+    light_on();                 // 开启补光灯
+
+    lidar_start();              // 启动雷达
+
     step_motor_init();          // 闭环步进电机
     HAL_Delay(100);             // 等待一会儿
 
-    light_buzzer_init();        // 蜂鸣器 补光板
     chassis_init();             // 底盘装置
     catch_init();               // 抓取装置
-    cam_init(&huart1);          // OpenMV maix摄像头
-    lidar_init(&huart4);        // 雷达
-    HAL_Delay(100);             // 等待一会儿
+
     remind_init();              // 提示装置
-    bfs_init();                 // 路径规划初始化
+    bfs_init();                 // 路径规划
+    bfs_base_obstacle();        // 预设障碍物
     HAL_Delay(100);             // 等待一会儿
-    maix_stop();                // maix停止视觉任务
 
     init_ok_remind();           // 初始化完成提醒
 
     openmv_end = 0;
     car_reset = true;           // 系统完成初始化/复位
+
+    // obstacle_map_init();
 }
 
 // 整车系统控制 10ms中断

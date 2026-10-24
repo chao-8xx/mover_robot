@@ -7,13 +7,14 @@ void uart_init(void)
     cam_init(&huart1);          // OpenMV maixcam 摄像头
     my_hwt101_init();           // HWT101 陀螺仪
     lidar_init(&huart4);        // 雷达
-    hmi_init(&huart5);          // 串口屏
+    my_hmi_init();              // 串口屏
     debug_uart_init(&huart6);   // 串口调试
 }
 
 // 普通中断接收完成
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
+    (void)huart;
     // if (huart->Instance == USART1) {
     //     openmv_uart_rx_callback(huart);
     // }
@@ -66,6 +67,8 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
     else if (huart->Instance == USART2)
     {
         __HAL_UART_CLEAR_OREFLAG(huart);
+        Emm_V5_Rx_Reset();
+        chassis_odom_hold();    // 反馈中断后不继续发布旧全局坐标
         Emm_V5_Rx_Start();
     }
     else if (huart->Instance == USART3)
@@ -76,11 +79,14 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
     {
         debug_error_callback(huart);
     }
-    // // LiDAR的错误处理
-    // if (huart->Instance == UART4)
-    // {
-    //     // openmv_uart_error_callback(huart);
-    // }
+    else if (huart->Instance == UART4)
+    {
+        lidar_error_callback(huart);    // HAL 已经停止RX DMA  交给主循环重新开启
+    }
+    else if (huart->Instance == UART5)
+    {
+        // hmi_error_callback(huart);
+    }
 }
 
 // 串口打印十进制数字（定宽，末尾自动补回车换行）

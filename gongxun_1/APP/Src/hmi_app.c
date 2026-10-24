@@ -35,7 +35,7 @@ void hmi_start(void)
     car_run = true;
     hmi_lift_state = 0;
     hmi_stretch_state = 0;
-    chassis_odom_hold();    // 发车时先不开启全局位姿
+    // 沿用设置发车点时建立的轮子基准  不在离开启停区前丢掉这段位移
 }
 
 // 触摸串口屏停车事件
@@ -88,21 +88,20 @@ void hmi_solve(UART_HandleTypeDef *huart, uint16_t Size)
     }
     else if (hmi_rxbuffer[0] == 0xCC) {     // 设置发车坐标事件
         // 帧格式：CC 00 FF FF FF = 发车点 (0,0)；CC 01 FF FF FF = 发车点 (4,0)
+        // 上面保留旧比赛的格子编号；实际地图坐标以赛场图左下角为原点，X向右、Y向上
         if (Size >= 5 && hmi_rxbuffer[Size - 1] == 0xFF &&
             hmi_rxbuffer[Size - 2] == 0xFF && hmi_rxbuffer[Size - 3] == 0xFF) {
             if (hmi_rxbuffer[1] == 0x00) {  // 启停区2
                 hmi_start_x = 0;
                 hmi_start_y = 0;
-                task_state.x_cm= 15.0f;
-                task_state.y_cm= 15.0f;
+                chassis_odom_origin_set(240.0f - 15.0f, 15.0f);  // 右下启停区2中心 cm
                 task_state.task_location = PARKING_2;
                 start_location = 0; // 0:启停区2发车
             }
             else if (hmi_rxbuffer[1] == 0x01) { // 启停区1
                 hmi_start_x = 4;
                 hmi_start_y = 0;
-                task_state.x_cm= 240.0f - 15.0f;
-                task_state.y_cm= 15.0f;
+                chassis_odom_origin_set(240.0f - 15.0f, 240.0f - 15.0f);  // 右上启停区1中心 cm
                 task_state.task_location = PARKING_1;
                 start_location = 1; // 1:启停区1发车
             }
