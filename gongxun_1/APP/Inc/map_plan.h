@@ -45,4 +45,10 @@ uint8_t map_plan_check(const map_path_t *path, map_unknown_mode_t mode);
 // 本接口不替代上层对位姿可信、实际停稳和行驶近场危险的判断
 map_step_t map_plan_road_state(const map_path_t *path, uint8_t road_index, uint32_t tick);
 
+// 任务观察几何：道路及前方节点的范围，和该范围在实际雷达坐标下的角区。
+// 只做选区规划，不接收雷达、不累计候选、不控制底盘。
+uint8_t map_plan_observe_area(uint8_t road_id, uint8_t next_node, map_rect_t *area);
+uint8_t map_plan_observe_sector(const map_rect_t *area, float sensor_x, float sensor_y,
+                               float sensor_yaw, float margin_deg, float *center, float *half_width);
+
 #endif //GONGXUN_1_MAP_PLAN_H

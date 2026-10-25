@@ -195,6 +195,32 @@ uint8_t map_update_roads(uint16_t road_mask, uint32_t scan_num, uint32_t tick, u
     return 1;
 }
 
+// 上游已用同位置多圈确认：这里仅检查扫描身份、保存疑似状态并提交已确认封路。
+uint8_t map_update_confirmed_roads(uint16_t confirmed_mask, uint16_t pending_mask,
+                                 uint32_t scan_num, uint32_t tick, uint8_t complete) {
+    uint16_t affected = confirmed_mask | pending_mask;
+    if (!map_ready || scan_num == 0 || (affected >> MAP_ROAD_COUNT) != 0) {
+        map_update_clear_candidates();
+        return 0;
+    }
+    if (map_has_scan && (scan_num <= map_last_scan || tick - map_last_tick >= 0x80000000U))
+        return 0;
+
+    // 新入口不累计连续票数，但仍撤销旧的通行许可和旧入口的待确认计数。
+    map_scan_valid = complete != 0;
+    for (uint8_t road = 0; road < MAP_ROAD_COUNT; road++) {
+        road_state_t state;
+        map_road_seen[road] = (affected & (1U << road)) != 0;
+        if ((confirmed_mask & (1U << road)) && map_road_get(road, &state) &&
+            state != road_blocked && map_road_set(road, road_blocked))
+            map_change_num++;
+    }
+    map_has_scan = 1;
+    map_last_scan = scan_num;
+    map_last_tick = tick;
+    return 1;
+}
+
 // 上层已经确认整段道路被有效观察后 再用最近一圈结果显式确认放行
 uint8_t map_update_confirm_free(uint8_t road_id, uint32_t scan_num, uint32_t tick) {
     road_state_t state;

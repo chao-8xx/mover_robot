@@ -192,3 +192,61 @@ map_step_t map_plan_road_state(const map_path_t *path, uint8_t road_index, uint3
 
     return map_step_stop;
 }
+
+///////////////////////////////////// 任务道路与观察角区 ////////////////////////////////////////
+static float plan_view_wrap(float angle) {
+    angle = fmodf(angle, 360.0f);
+    if (angle >= 180.0f) angle -= 360.0f;
+    if (angle < -180.0f) angle += 360.0f;
+    return angle;
+}
+
+// 选取目标道路和前方节点的几何边界，不使用台架固定距离观察框。
+uint8_t map_plan_observe_area(uint8_t road_id, uint8_t next_node, map_rect_t *area) {
+    map_road_t road;
+    if (area == NULL || !map_road_info_get(road_id, &road) ||
+        (road.node_a != next_node && road.node_b != next_node)) return 0;
+    uint8_t found = 0;
+    for (uint8_t y = 0; y < MAP_CELL_HEIGHT; y++) {
+        for (uint8_t x = 0; x < MAP_CELL_WIDTH; x++) {
+            map_cell_t cell;
+            map_rect_t rect;
+            if (!map_cell_get(x, y, &cell) ||
+                !((cell.cell_type == cell_road && cell.cell_id == road_id) ||
+                  (cell.cell_type == cell_node && cell.cell_id == next_node))) continue;
+            if (!map_cell_rect_get(x, y, &rect)) return 0;
+            if (!found) { *area = rect; found = 1; }
+            else {
+                area->min_x = fminf(area->min_x, rect.min_x);
+                area->max_x = fmaxf(area->max_x, rect.max_x);
+                area->min_y = fminf(area->min_y, rect.min_y);
+                area->max_y = fmaxf(area->max_y, rect.max_y);
+            }
+        }
+    }
+    return found;
+}
+
+// 道路选区投影到雷达角区，纯几何计算，不读取点云或底盘状态。
+uint8_t map_plan_observe_sector(const map_rect_t *area, float sensor_x, float sensor_y,
+                               float sensor_yaw, float margin_deg, float *center, float *half_width) {
+    if (area == NULL || center == NULL || half_width == NULL ||
+        !isfinite(sensor_x) || !isfinite(sensor_y) || !isfinite(sensor_yaw) ||
+        !isfinite(margin_deg) || margin_deg < 0.0f || margin_deg > 180.0f ||
+        !isfinite(area->min_x) || !isfinite(area->max_x) ||
+        !isfinite(area->min_y) || !isfinite(area->max_y) ||
+        area->min_x >= area->max_x || area->min_y >= area->max_y) return 0;
+    float middle_x = (area->min_x + area->max_x) * 0.5f;
+    float middle_y = (area->min_y + area->max_y) * 0.5f;
+    float bearing = atan2f(-(middle_x - sensor_x), middle_y - sensor_y) * 180.0f / 3.14159265358979323846f;
+    float spread = 0.0f;
+    for (uint8_t i = 0; i < 4; i++) {
+        float x = i & 1U ? area->max_x : area->min_x;
+        float y = i & 2U ? area->max_y : area->min_y;
+        float corner = atan2f(-(x - sensor_x), y - sensor_y) * 180.0f / 3.14159265358979323846f;
+        spread = fmaxf(spread, fabsf(plan_view_wrap(corner - bearing)));
+    }
+    *center = plan_view_wrap(bearing - sensor_yaw);
+    *half_width = fminf(180.0f, spread + margin_deg);
+    return isfinite(*center) && isfinite(*half_width);
+}

@@ -58,8 +58,8 @@ int main(void) {
     start_case();
     point(10, 1100, 1625); point(11, 1200, 1625); point(12, 1300, 1625);
     frame(); frame();
-    check(obstacle_result.cluster_count == 1 && obstacle_result.clusters[0].point_count == 3,
-          "large ordinary cluster remains available for diagnosis");
+    check(obstacle_result.cluster_count == 0,
+          "oversized cluster is removed from obstacle results");
     check(all_unknown(), "large cluster is not a pillar road obstacle");
 
     // 三点都在场外；小包围框覆盖场内N6的一角，不能凭框内空白封R4/R7
@@ -84,7 +84,7 @@ int main(void) {
     start_case();
     for (uint16_t i = 0; i < 12; i++) point(10 + i, 1180 + i * 3, 1625);
     frame(); frame();
-    check(road_is(8, road_blocked), "more than ten compact points remain a pillar candidate");
+    check(obstacle_result.cluster_count == 0 && all_unknown(), "more than eight compact points are discarded whole");
 
     start_case();
     point(359, 1190, 1625); point(0, 1200, 1620); point(1, 1210, 1625);
@@ -100,38 +100,59 @@ int main(void) {
 
     start_case(); point(10, 1200, 1625); point(11, 1210, 1625);
     frame(); frame();
-    check(obstacle_result.cluster_count == 0 && all_unknown(), "near range still rejects two point noise");
+    check(obstacle_result.cluster_count == 1 && road_is(8, road_blocked), "near range accepts two measured points");
 
-    // 近处3点、中距离2点、远处1点；保存和小柱筛选必须使用同一距离分级
+    // 220~1320mm及1~8点均包含边界；保存结果和道路入口共用同一规则
     const struct {
         float distance;
         uint16_t count;
         uint8_t accepted;
-    } tiers[] = {
-        {799, 1, 0}, {799, 2, 0}, {799, 3, 1},
-        {800, 1, 0}, {800, 2, 1}, {1199, 1, 0}, {1199, 2, 1},
-        {1200, 1, 1}, {1800, 1, 1}, {2200, 1, 1}
+    } limits[] = {
+        {219, 1, 0}, {219, 8, 0}, {220, 1, 1}, {220, 8, 1}, {220, 9, 0},
+        {500, 1, 1}, {500, 2, 1}, {500, 8, 1}, {500, 9, 0},
+        {799, 1, 1}, {800, 1, 1}, {1199, 1, 1}, {1200, 1, 1},
+        {1320, 1, 1}, {1320, 8, 1}, {1320, 9, 0},
+        {1321, 1, 0}, {1321, 8, 0}, {2200, 1, 0}
     };
-    for (unsigned int i = 0; i < sizeof(tiers) / sizeof(tiers[0]); i++) {
+    for (unsigned int i = 0; i < sizeof(limits) / sizeof(limits[0]); i++) {
         start_case();
-        for (uint16_t j = 0; j < tiers[i].count; j++) {
+        for (uint16_t j = 0; j < limits[i].count; j++) {
             point(10 + j, 1200 + j * 5, 1625);
-            cloud.points[10 + j].distance = tiers[i].distance;
+            cloud.points[10 + j].distance = limits[i].distance;
         }
         frame();
-        check((obstacle_result.cluster_count == 1) == tiers[i].accepted,
-              "distance tier selects the expected point count");
+        check((obstacle_result.cluster_count == 1) == limits[i].accepted,
+              "distance and point count limits filter saved results");
         check(road_is(8, road_unknown), "sparse or dense first scan cannot immediately block");
         frame();
-        check(road_is(8, road_blocked) == tiers[i].accepted,
-              "distance tier reaches the actual-point map after two scans");
+        check(road_is(8, road_blocked) == limits[i].accepted,
+              "only accepted clusters reach the map after two scans");
     }
 
-    // 横跨档位时按最近点采用更严格要求，不能用远点放宽近处点组
+    // 距离以完整聚类最近点为准，不能预先删掉近点后让剩余点组通过
     start_case(); point(10, 1200, 1625); point(11, 1210, 1625);
-    cloud.points[10].distance = 799; cloud.points[11].distance = 1200;
+    cloud.points[10].distance = 219; cloud.points[11].distance = 500;
     frame(); frame();
-    check(obstacle_result.cluster_count == 0 && all_unknown(), "nearest point chooses the stricter tier");
+    check(obstacle_result.cluster_count == 0 && all_unknown(), "out-of-range nearest point rejects the whole cluster");
+
+    start_case(); point(10, 1200, 1625); point(11, 1210, 1625);
+    cloud.points[10].distance = 1320; cloud.points[11].distance = 1350;
+    frame(); frame();
+    check(obstacle_result.cluster_count == 1 && road_is(8, road_blocked), "maximum range is checked against nearest point");
+
+    // 大点组不截成8点；被拒绝的一组不影响后面合格候选
+    start_case();
+    for (uint16_t i = 0; i < 9; i++) point(10 + i, 1200 + i * 2, 1625);
+    point(30, 1200, 1625);
+    frame();
+    check(obstacle_result.cluster_count == 1 && obstacle_result.clusters[0].start_angle == 30 &&
+          obstacle_result.clusters[0].point_count == 1 && !obstacle_result.truncated,
+          "rejected groups occupy no result slots and do not hide later candidates");
+
+    start_case();
+    for (uint16_t i = 0; i < 9; i++) point((356 + i) % 360, 1200 + i * 2, 1625);
+    frame(); frame();
+    check(obstacle_result.cluster_count == 0 && all_unknown(), "nine points across zero are rejected as one complete group");
 
     start_case(); point(359, 1200, 1625); point(0, 1210, 1625);
     cloud.points[359].distance = cloud.points[0].distance = 1000;
@@ -139,24 +160,24 @@ int main(void) {
     check(obstacle_result.cluster_count == 1 && obstacle_result.clusters[0].point_count == 2 &&
           road_is(8, road_blocked), "midrange two point pillar crosses zero correctly");
 
-    start_case(); point(359, 1200, 1625); cloud.points[359].distance = 1500;
+    start_case(); point(359, 1200, 1625); cloud.points[359].distance = 1300;
     frame();
     memset(cloud.points, 0, sizeof(cloud.points)); frame();
-    point(359, 1200, 1625); cloud.points[359].distance = 1500; frame();
+    point(359, 1200, 1625); cloud.points[359].distance = 1300; frame();
     check(road_is(8, road_unknown), "missing sparse return resets road confirmation");
     frame();
     check(road_is(8, road_blocked), "far single point still needs consecutive observed scans");
 
-    lidar_cluster_t tier_candidate = {.valid = 1, .point_count = 1, .nearest_distance = 1200};
-    check(obstacle_cluster_is_pillar(&tier_candidate), "pillar filter accepts the far single point tier");
-    tier_candidate.nearest_distance = 1199;
-    check(!obstacle_cluster_is_pillar(&tier_candidate), "pillar filter rejects a midrange single point");
-    tier_candidate.point_count = 2;
-    check(obstacle_cluster_is_pillar(&tier_candidate), "pillar filter accepts the midrange two point tier");
-    tier_candidate.nearest_distance = 799;
-    check(!obstacle_cluster_is_pillar(&tier_candidate), "pillar filter keeps the near three point tier");
-    tier_candidate.nearest_distance = 2201;
-    check(!obstacle_cluster_is_pillar(&tier_candidate), "sparse tier cannot bypass the maximum range");
+    lidar_cluster_t candidate = {.valid = 1, .point_count = 1, .nearest_distance = 220};
+    check(obstacle_cluster_is_pillar(&candidate), "pillar filter accepts one point at the minimum distance");
+    candidate.point_count = 8; candidate.nearest_distance = 1320;
+    check(obstacle_cluster_is_pillar(&candidate), "pillar filter accepts eight points at the maximum distance");
+    candidate.point_count = 9;
+    check(!obstacle_cluster_is_pillar(&candidate), "pillar filter rejects nine points");
+    candidate.point_count = 0;
+    check(!obstacle_cluster_is_pillar(&candidate), "pillar filter rejects empty clusters");
+    candidate.point_count = 1; candidate.nearest_distance = NAN;
+    check(!obstacle_cluster_is_pillar(&candidate), "pillar filter rejects a nonfinite distance");
 
     start_case(); small_pillar(); frame();
     check(!map_lidar_handle(0), "invalid pose rejects map input");

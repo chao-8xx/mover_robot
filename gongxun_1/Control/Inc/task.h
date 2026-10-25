@@ -118,6 +118,8 @@ void hmi_get_car_state_task(void);
 uint8_t map_obstacle_task(float car_x, float car_y, float car_yaw, uint8_t pose_valid);
 // 主循环调用：读取定位模块通过map_pose_update发布的位姿，再更新真实雷达地图。
 uint8_t map_obstacle_pose_task(void);
+// 下一道路由活动导航scan阶段自动选择；其他任务可先map_nav_observe_begin(当前节点,下一节点)。
+// 有选区时执行同位置5圈3次确认；运动/定位中断清窗口，不自动确认道路FREE。
 
 
 #endif //GONGXUN_1_TASK_H

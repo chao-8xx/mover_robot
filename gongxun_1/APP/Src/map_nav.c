@@ -1,22 +1,22 @@
 #include "headfile.h"
 
 // 导航任务变量
-static map_nav_t map_nav;                 // 当前任务、路径和运行状态
+static map_nav_t map_nav;                   // 当前任务、路径和运行状态
 static map_unknown_mode_t nav_unknown_mode; // 本次规划是否允许未知道路
-static int16_t nav_speed;                 // 本次任务的电机指令速度 RPM
-static uint32_t nav_phase_tick;           // 进入当前状态的时刻 用于超时检查
-static float nav_map_yaw;                // 当前道路的地图方向
-static float nav_imu_yaw;                // 本次转向的累计IMU目标角
-static float nav_yaw_offset;             // 启动时的角度偏移  任务期间不允许重新对齐
-static uint8_t nav_align_stopped;         // 对准后是否已发送停车指令 避免重复发送
+static int16_t nav_speed;                   // 本次任务的电机指令速度 RPM
+static uint32_t nav_phase_tick;             // 进入当前状态的时刻 用于超时检查
+static float nav_map_yaw;                   // 当前道路的地图方向
+static float nav_imu_yaw;                   // 本次转向的累计IMU目标角
+static float nav_yaw_offset;                // 启动时的角度偏移  任务期间不允许重新对齐
+static uint8_t nav_align_stopped;           // 对准后是否已发送停车指令 避免重复发送
 
 // 用连续的新位姿检查停稳  不能重复使用同一份定位结果累计次数
-static map_pose_t nav_settle_pose;        // 本轮停稳观察的基准位姿
-static uint32_t nav_pose_tick;            // 上一次参与停稳判断的定位时间
-static uint8_t nav_settle_count;          // 连续有效定位次数 达到3次后不再增加
+static map_pose_t nav_settle_pose;          // 本轮停稳观察的基准位姿
+static uint32_t nav_pose_tick;              // 上一次参与停稳判断的定位时间
+static uint8_t nav_settle_count;            // 连续有效定位次数 达到3次后不再增加
 
 ///////////////////////////////////// 内部调用函数 ////////////////////////////////////////
-// 角度归一化到[-180,180) 用于求最短转角和比较朝向变化
+// 角度归一化到[-180,180)   用于求最短转角和比较朝向变化
 static float nav_angle_wrap(float angle)
 {
     angle = fmodf(angle, 360.0f);
@@ -154,6 +154,7 @@ void map_nav_init(void)
     map_nav.next_node = MAP_NO_ID;
     map_nav.road_id = MAP_NO_ID;
     nav_settle_count = 0;
+    map_nav_observe_sync();
 }
 
 // 接收一个节点到节点的任务 检查通过后进入规划状态 此处不下发移动
@@ -376,4 +377,249 @@ uint8_t map_nav_get_result(map_nav_t *out)
     if (out == NULL) return 0;
     *out = map_nav;
     return 1;
+}
+
+///////////////////////////////////// 停车观察与小柱确认 ////////////////////////////////////////
+
+// 只保存候选摘要和5位命中历史，不缓存多圈点云、不分配堆内存。
+static map_nav_observe_result_t observation;
+static uint32_t observe_last_scan, observe_last_tick, observe_start_tick;
+
+static float observe_wrap(float angle) {
+    angle = fmodf(angle, 360.0f);
+    if (angle >= 180.0f) angle -= 360.0f;
+    if (angle < -180.0f) angle += 360.0f;
+    return angle;
+}
+
+static float observe_positive(float angle) {
+    angle = fmodf(angle, 360.0f);
+    return angle < 0.0f ? angle + 360.0f : angle;
+}
+
+static uint8_t observe_hits(uint8_t mask) {
+    uint8_t count = 0;
+    for (; mask; mask >>= 1) count += mask & 1U;
+    return count;
+}
+
+// 清窗口时保留当前任务，扫描屏障更新为已发布的cloud，不能重算旧圈。
+void map_nav_observe_reset(void) {
+    memset(observation.candidates, 0, sizeof(observation.candidates));
+    observation.scan_num = observation.scan_tick = observation.frames = 0;
+    observation.process_us = 0;
+    observation.first_confirm_ms = UINT32_MAX;
+    observation.pending_roads = observation.confirmed_roads = 0;
+    observation.frame_candidates = observation.match_rejects = 0;
+    observation.candidate_count = observation.confirmed_count = observation.overflow = 0;
+    observe_last_scan = cloud.scan_num;
+    observe_last_tick = observe_start_tick = 0;
+    map_update_clear_candidates();
+}
+
+void map_nav_observe_end(void) {
+    memset(&observation, 0, sizeof(observation));
+    observation.current_node = observation.next_node = observation.road_id = MAP_NO_ID;
+    map_nav_observe_reset();
+}
+
+uint8_t map_nav_observe_begin(uint8_t current_node, uint8_t next_node) {
+    uint8_t road;
+    if (!map_road_find(current_node, next_node, &road)) {
+        map_nav_observe_end();
+        return 0;
+    }
+    if (observation.active && observation.current_node == current_node && observation.next_node == next_node)
+        return 1;
+    observation.active = 1;
+    observation.current_node = current_node;
+    observation.next_node = next_node;
+    observation.road_id = road;
+    map_nav_observe_reset();
+    return 1;
+}
+
+uint8_t map_nav_observe_is_active(void) { return observation.active; }
+uint16_t map_nav_observe_task_key(void) {
+    return observation.active ? (uint16_t)((observation.current_node << 8) | observation.next_node) : UINT16_MAX;
+}
+
+uint8_t map_nav_observe_check_timeout(uint32_t tick) {
+    if (!observation.active || !observation.frames || tick - observation.scan_tick <= MAP_SCAN_TIMEOUT_MS)
+        return 0;
+    map_nav_observe_reset();
+    return 1;
+}
+
+uint8_t map_nav_observe_get_result(map_nav_observe_result_t *out) {
+    if (out == NULL) return 0;
+    *out = observation;
+    return 1;
+}
+
+// 导航提供实际雷达位置；道路选区和角区几何交给map_plan。
+static uint8_t observe_sector(const map_rect_t *area, float *center, float *half_width) {
+    float rad = cloud.car_angle * TF_PI / 180.0f;
+    float cs = cosf(rad), sn = sinf(rad);
+    float sensor_x = cloud.car_x + cs * tf_base.tx - sn * tf_base.ty;
+    float sensor_y = cloud.car_y + sn * tf_base.tx + cs * tf_base.ty;
+    if (!map_plan_observe_sector(area, sensor_x, sensor_y,
+                                cloud.car_angle + tf_base.yaw_deg,
+                                MAP_OBSERVE_ANGLE_MARGIN_DEG, center, half_width)) return 0;
+    observation.angle_start_deg = observe_positive(*center - *half_width);
+    observation.angle_end_deg = observe_positive(*center + *half_width);
+    return 1;
+}
+
+// 完整聚类先经过尺寸筛选，再检查它真实点的角度和道路归属。
+static uint16_t observe_cluster_roads(const lidar_cluster_t *cluster, const map_rect_t *area,
+                                      float center, float half_width) {
+    uint16_t roads = 0;
+    uint16_t span = (cluster->end_angle + 360U - cluster->start_angle) % 360U;
+    for (uint16_t i = 0; i <= span; i++) {
+        uint16_t angle = (cluster->start_angle + i) % 360U;
+        const lidar_point_t *point = &cloud.points[angle];
+        float x = point->map_point.x, y = point->map_point.y;
+        if (!point->valid || !isfinite(x) || !isfinite(y) ||
+            x < area->min_x || x >= area->max_x || y < area->min_y || y >= area->max_y ||
+            fabsf(observe_wrap((float)angle - center)) > half_width) continue;
+        uint16_t actual = map_lidar_point_roads(x, y);
+        if (actual & (1U << observation.road_id)) roads |= actual;
+    }
+    return roads;
+}
+
+// 最近位置一对一匹配，固定anchor防止链式漂移；同一圈同一候选最多一次。
+static void observe_add(const lidar_cluster_t *cluster, uint16_t roads) {
+    map_nav_observe_candidate_t *match = NULL, *empty = NULL;
+    float best = MAP_OBSERVE_MATCH_MM * MAP_OBSERVE_MATCH_MM;
+    uint8_t already_matched = 0, had_candidate = 0;
+    for (uint8_t i = 0; i < MAP_OBSERVE_MAX_CANDIDATES; i++) {
+        map_nav_observe_candidate_t *candidate = &observation.candidates[i];
+        if (!candidate->valid) { if (empty == NULL) empty = candidate; continue; }
+        had_candidate = 1;
+        float dx = cluster->center_point.x - candidate->anchor.x;
+        float dy = cluster->center_point.y - candidate->anchor.y;
+        float square = dx * dx + dy * dy;
+        if (square <= MAP_OBSERVE_MATCH_MM * MAP_OBSERVE_MATCH_MM && candidate->current_hit)
+            already_matched = 1;
+        if (!candidate->current_hit && square <= best) { best = square; match = candidate; }
+    }
+    if (match == NULL) {
+        if (already_matched) return;
+        if (had_candidate) observation.match_rejects++;
+        if (empty == NULL) { observation.overflow = 1; return; }
+        match = empty;
+        memset(match, 0, sizeof(*match));
+        match->anchor = cluster->center_point;
+        match->valid = 1;
+    }
+    match->hit_window |= 1U;
+    match->road_history[0] = roads;
+    match->current_hit = 1;
+    match->position = cluster->center_point;
+    match->last_hit_scan = cloud.scan_num;
+    match->point_count = cluster->point_count;
+    match->nearest_distance = cluster->nearest_distance;
+    match->width = cluster->width;
+    match->height = cluster->height;
+}
+
+uint8_t map_nav_observe_update(uint8_t pose_valid) {
+    map_rect_t area = {0};
+    float center, half_width;
+    uint8_t cell_x, cell_y;
+    map_cell_t cell;
+    if (!observation.active) return 0;
+    if (!pose_valid || !map_update_is_ready() || cloud.scan_num == 0 ||
+        !isfinite(cloud.car_x) || !isfinite(cloud.car_y) || !isfinite(cloud.car_angle) ||
+        !isfinite(tf_base.tx) || !isfinite(tf_base.ty) || !isfinite(tf_base.yaw_deg) ||
+        !map_xy_to_cell(cloud.car_x, cloud.car_y, &cell_x, &cell_y) ||
+        !map_cell_get(cell_x, cell_y, &cell) || cell.cell_type != cell_node ||
+        cell.cell_id != observation.current_node ||
+        obstacle_result.cloud_flag == 0 || obstacle_result.cloud_flag != cloud.update_flag ||
+        obstacle_result.cluster_count > CLUSTER_MAX_COUNT ||
+        HAL_GetTick() - cloud.scan_tick > MAP_SCAN_TIMEOUT_MS) {
+        map_nav_observe_reset();
+        return 0;
+    }
+    if (observe_last_scan && (int32_t)(cloud.scan_num - observe_last_scan) <= 0) return 0;
+#if defined(DWT) && defined(CoreDebug)
+    CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+    DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+    uint32_t before_cycles = DWT->CYCCNT;
+#endif
+    // 编号跳变和长间隔无法作为连续窗口，当前真实新圈可以开启新窗口。
+    if (observation.frames && (cloud.scan_num - observe_last_scan != 1U ||
+        cloud.scan_tick - observe_last_tick > MAP_SCAN_TIMEOUT_MS)) map_nav_observe_reset();
+    if (!map_plan_observe_area(observation.road_id, observation.next_node, &area) || !observe_sector(&area, &center, &half_width)) {
+        map_nav_observe_reset(); return 0;
+    }
+    if (!observation.frames) observe_start_tick = cloud.scan_tick;
+    observation.frame_candidates = observation.match_rejects = 0;
+    observation.pending_roads = observation.confirmed_roads = 0;
+    observation.candidate_count = observation.confirmed_count = 0;
+    observation.overflow = obstacle_result.truncated;
+    for (uint8_t i = 0; i < MAP_OBSERVE_MAX_CANDIDATES; i++) {
+        map_nav_observe_candidate_t *candidate = &observation.candidates[i];
+        candidate->hit_window = (candidate->hit_window << 1) & ((1U << MAP_OBSERVE_WINDOW) - 1U);
+        candidate->current_hit = 0;
+        for (uint8_t j = MAP_OBSERVE_WINDOW - 1; j > 0; j--)
+            candidate->road_history[j] = candidate->road_history[j - 1];
+        candidate->road_history[0] = 0;
+        if (candidate->hit_window == 0) memset(candidate, 0, sizeof(*candidate));
+    }
+    for (uint16_t i = 0; i < obstacle_result.cluster_count; i++) {
+        const lidar_cluster_t *cluster = &obstacle_result.clusters[i];
+        if (!obstacle_cluster_is_pillar(cluster)) continue;
+        if (cluster->start_angle >= 360 || cluster->end_angle >= 360 ||
+            !isfinite(cluster->center_point.x) || !isfinite(cluster->center_point.y)) {
+            observation.overflow = 1; continue;
+        }
+        uint16_t roads = observe_cluster_roads(cluster, &area, center, half_width);
+        if (!roads) continue;
+        observation.frame_candidates++;
+        observe_add(cluster, roads);
+    }
+    for (uint8_t i = 0; i < MAP_OBSERVE_MAX_CANDIDATES; i++) {
+        map_nav_observe_candidate_t *candidate = &observation.candidates[i];
+        if (!candidate->valid) continue;
+        uint16_t roads = 0;
+        candidate->hits = observe_hits(candidate->hit_window);
+        for (uint8_t j = 0; j < MAP_OBSERVE_WINDOW; j++) roads |= candidate->road_history[j];
+        observation.candidate_count++;
+        observation.pending_roads |= roads;
+        if (candidate->hits >= MAP_OBSERVE_MIN_HITS) {
+            observation.confirmed_count++;
+            // 只在本圈有新回波时提交确认，历史状态不冒充本圈测量。
+            if (candidate->current_hit) observation.confirmed_roads |= roads;
+        }
+    }
+    // 方向选区仅用于确认障碍，无法证明整条道路无障碍，始终不授权FREE。
+    if (!map_update_confirmed_roads(observation.confirmed_roads, observation.pending_roads,
+                                    cloud.scan_num, cloud.scan_tick, 0)) {
+        map_nav_observe_reset(); return 0;
+    }
+    observation.scan_num = observe_last_scan = cloud.scan_num;
+    observation.scan_tick = observe_last_tick = cloud.scan_tick;
+    observation.frames++;
+    if (observation.confirmed_roads && observation.first_confirm_ms == UINT32_MAX)
+        observation.first_confirm_ms = cloud.scan_tick - observe_start_tick;
+#if defined(DWT) && defined(CoreDebug)
+    observation.process_us = (DWT->CYCCNT - before_cycles) / (SystemCoreClock / 1000000U);
+#endif
+    return 1;
+}
+
+// 导航只在scan阶段拥有观察方向；其他任务仍可手动begin，不受空闲导航覆盖。
+void map_nav_observe_sync(void) {
+    static uint8_t owned_by_navigation = 0;
+    if (map_nav.state == map_nav_scan) {
+        map_nav_observe_begin(map_nav.current_node, map_nav.next_node);
+        owned_by_navigation = 1;
+    }
+    else if (owned_by_navigation) {
+        map_nav_observe_end();
+        owned_by_navigation = 0;
+    }
 }

@@ -16,6 +16,10 @@ typedef struct { uint8_t unused; } UART_HandleTypeDef;
 #include "map_update.h"
 #include "map_plan.h"
 #include "map_lidar.h"
+#include "map_pose.h"
+#include "chassis.h"
+#include "map_nav.h"
+extern float my_yaw;
 uint32_t HAL_GetTick(void);
 
 #endif

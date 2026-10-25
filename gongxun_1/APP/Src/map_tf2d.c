@@ -33,7 +33,7 @@ void tf_init(void) {
 // 初始化正余弦查找表
 void angle_table_init(void) {
 
-    // 开机计算一次 后续使用直接查表，避免频繁调用 sinf/cosf 函数，提高效率
+    // 开机计算一次 后续使用直接查表 避免频繁调用 sinf/cosf 函数 提高效率
     for (uint16_t angle = 0; angle < 360; angle++) {
         float rad = angle * TF_PI / 180.0f;  // 将角度转换为弧度
 

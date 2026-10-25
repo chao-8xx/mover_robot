@@ -1,7 +1,60 @@
 # 工训视觉 NOW：校赛后独立版本
 
-入口：main.py。应用名：工训视觉_NOW；id：gongxun_now；版本：2.3.2。
-启动标记：NOW_RUN_PREVIEW_V12。
+入口：main.py。应用名：工训视觉_NOW；id：gongxun_now；版本：2.3.3。
+启动标记：NOW_COLOR_TUNING_V13。
+
+### 2.3.3：黑色/浅蓝调试准备
+
+本轮保留六色LAB、B2面积500..1500、stack面积300..1200、参考点(163,116)、
+grasp=(150,103,25,25)/40%及现有发送周期；先排查屏蔽和面积过滤，再按真机反馈调整阈值。
+按本次确认不加入曝光、增益、白平衡读取或锁定，相机设置保持现状。
+
+vision_config.py中exclude_polygons按现有坐标拆为左上、右上、左下、右下四个独立区域，
+每块旁边有中文注释；删除重复绕回及跨区域连接，不自动扩大到新的转盘轮廓。
+仅对完全匹配已知旧连画点列的schema12及更旧JSON作拆分迁移；其他自定义点列、空列表不替换。
+因旧连画存在折返/重叠，修复后填充可能不同，须在原始视野检查，尤其确认高物料不被切掉。
+
+诊断开关同样在vision_config.py中，也可保存到本应用JSON：
+
+```python
+"color_diagnostics": True,
+```
+
+开启color_diagnostics后，仅B2黑色/浅蓝约每秒采样一帧，示例：
+
+```text
+[VISION B2 DIAG] UI TARGET=black WHY=AREA_REJECTED SIZE=220x200 MASK_PIX=3000/2000/1800 CUT=1000 TOP_AREA_PROC=[1700.0:LARGE] LIMIT_PROC=500..1500 CAND=1 SMALL=0 LARGE=1 PASS=0 LAB=[20,110,110]..[155,145,140]
+```
+
+示例数值仅解释字段，不是真机测量。MASK_PIX依次为阈值后/屏蔽后/形态学后的非零像素数，
+SIZE与像素数都是实际处理图单位；TOP_AREA_PROC为最多三个候选的原始轮廓面积，不新增RUN面积换算。
+SMALL/LARGE/PASS按实际处理阈值分类；LIMIT_PROC也使用处理图面积范围，LAB为当前生效的颜色阈值。
+RUN经过缩放，诊断面积不能直接和UI数值对比；原有正常结果的坐标/面积映射及现场面积参数保持不变。
+WHY分别为THRESHOLD_EMPTY、MASK_EMPTY、MORPH_EMPTY、AREA_REJECTED、SELECTED、NO_CENTER。
+CUT只表示本采样帧总共被屏蔽掉多少颜色像素，不能单凭它断言真实物料被切掉；需结合MASK画面。
+诊断复用一次LAB和现有轮廓遍历，仅采样帧增加计数，不改变最大合格色块选择，不清零或修改阈值。
+切任务/颜色/保存会重置采样状态，正常连续运行最多约1Hz。
+进入B2时GEOMETRY还会打印实际blob与当前LAB，先核对JSON是否覆盖了源码设置。
+
+现场建议：到黑色/浅蓝阈值页的MASK，分别记录边缘/中间/无目标时的一张画面和一条DIAG。
+现有JSON已有阈值、面积和多边形时仍优先使用；不要只改源码就认定真机参数已改变。
+
+本轮修改文件（仅maix_now）：
+
+| 文件 | 修改内容 |
+| --- | --- |
+| vision_config.py | 四角屏蔽点列、中文注释、精确匹配旧点列迁移及诊断开关；保留现场标定 |
+| vision_blob.py | 可选的掩膜分阶段计数、候选原始面积及拒绝分类，复用LAB和轮廓 |
+| vision_tasks.py | 仅B2传递采样开关并附加统计；原有RUN结果映射不变 |
+| vision_runtime.py | 格式化诊断日志，面积保持处理图单位；发送与性能统计实现不变 |
+| main.py | 黑/浅蓝1Hz诊断采样、当前生效参数输出及模块版本检查；保留原本地调试开关 |
+| tests/test_color_diagnostics.py | 新增掩膜、候选分类、UI/RUN、隔离、迁移及保存加载验证 |
+| tests/test_main_now.py | 验证诊断限频、其他颜色不触发诊断 |
+| tests/test_vision_v9.py | 合成测试固定自己的面积输入，避免现场参数修改破坏夹具 |
+| app.yaml | 更新2.3.3版本说明，仍打包7个Python模块 |
+| tools/build_package.py | 核对新启动标记，继续核对清单、依赖和包内文件 |
+| README.md | 本轮参数、诊断字段、部署及调试说明 |
+| VALIDATION.md | 记录电脑检查结果及真机待验证项 |
 
 仅修改maix_now，不更改maix_main、OpenMV或F407。六色LAB采用用户提供的maix_main配置，
 B2默认面积和对准点同步迁入；B3以及B4的几何/面积标定保持原值。
@@ -222,9 +275,9 @@ Python启动之前的系统串口日志不由本程序控制。
 ### MaixVision直接运行必须同步依赖
 
 直接运行/上传main.py不能作为其他Python模块已经更新的证据。
-2.3.2的B2/B4首页选择和阈值调参应有原六色，进入B2时打印模块版本和实际文件路径。
+2.3.3的B2/B4首页选择和阈值调参应有原六色，进入B2时打印模块版本和实际文件路径。
 配置颜色列表应为('red', 'yellow', 'blue', 'green', 'black', 'light_blue')，UI标记B2_LIVE_RUN_UI_V4。
-配置模块检查应显示schema=12；blob/tasks标记B2_POLYGON_V5，runtime沿用B2_OK2_PIXELS_V3。
+配置模块检查应显示schema=13；blob/tasks标记B2_COLOR_DIAG_V6，runtime标记B2_COLOR_DIAG_V4。
 启动RATE显示B2=28ms (35.7Hz)、B3/B4=25ms (40.0Hz)，DISPLAY显示100ms实时预览间隔。
 若显示OLD或module mismatch，停止当前程序，将新包解压后的以下7个Python文件
 上传到同一个设备目录，再重新启动main.py，避免继续混用不同版本：
@@ -335,10 +388,11 @@ FRAME_ID按处理帧递增、按8位回绕；发送限频或切任务可能造�
 python -B -m unittest discover -s tests -v
 python -B tools/build_package.py
 
-安装包：dist/maix-gongxun_now-v2.3.2.zip。
+安装包：dist/maix-gongxun_now-v2.3.3.zip。
 只打包app.yaml清单文件，逐文件核对ZIP内容及CRC，排除OCR模块、测试和缓存。
 已删除maix_now内遗留vision_ocr.py；清单及全部运行模块不依赖OCR、字体数字模板或旧入口。
-dist中较早版本仅作为历史回退包，本次部署只使用2.3.2，不要误装gongxun_1或较早NOW版本。
+dist中较早版本仅作为历史回退包，本次部署只使用2.3.3，不要误装gongxun_1或较早NOW版本。
+必须同步全部7个运行Python模块，不能只上传main.py或vision_config.py。
 
 电脑检查覆盖单色选择/单次处理、全图四角、几何跟踪、坐标映射、LAB迁移与参数持久化、
 UART分包/粘包/坏校验/停止、B2的28ms与B3/B4的25ms调度、RUN实时预览限频、相机兼容回退。

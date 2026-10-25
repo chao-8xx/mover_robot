@@ -20,7 +20,7 @@ typedef struct {
 
 // 独立小柱测试旁路：按实际采样顺序保存目标角区，不改变原有360格最近距离。
 // angle_q6单位为1/64度；同角度的多个真实采样仍分别保存，distance=0也保留。
-#define LIDAR_RAW_SECTOR_MAX 64
+#define LIDAR_RAW_SECTOR_MAX 256 // 正面90度约100个原始采样，保留余量并继续检测溢出
 typedef struct {
     uint16_t angle_q6;
     uint16_t distance;

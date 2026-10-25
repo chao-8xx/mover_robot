@@ -6,7 +6,7 @@ from vision_tasks import TASK_MATERIAL, safe_xy_result
 SEND_TIME_MS = 25
 B2_SEND_TIME_MS = 28
 MAX_RESULT_AGE_MS = 50
-B2_RUNTIME_BUILD = "B2_OK2_PIXELS_V3"
+B2_RUNTIME_BUILD = "B2_COLOR_DIAG_V4"
 
 
 def send_interval_ms(task_id):
@@ -51,6 +51,30 @@ def pack_xy_frame(cmd, frame_id, raw_ok, dx, dy):
     data = [int(frame_id) & 0xFF, ok,
             dx & 0xFF, dx >> 8, dy & 0xFF, dy >> 8]
     return bytes([0xAA, 0x55, cmd, 6] + data + [(cmd + 6 + sum(data)) & 0xFF])
+
+
+def color_diagnostic_line(result, config, run_mode=False):
+    """采样帧复用检测统计；像素数、候选面积和筛选范围均为实际处理图单位。"""
+    info = result.get("diagnostic")
+    if info is None:
+        return None
+    raw, kept, clean = (info[k] for k in ("raw_pixels", "kept_pixels", "clean_pixels"))
+    reason = ("THRESHOLD_EMPTY" if not raw else "MASK_EMPTY" if not kept else
+              "MORPH_EMPTY" if not clean else "AREA_REJECTED" if not info["eligible"] else
+              "SELECTED" if result.get("found") else "NO_CENTER")
+    top = []
+    for area in info["top"]:
+        state = "SMALL" if area < info["min_area"] else "LARGE" if area > info["max_area"] else "PASS"
+        top.append("{:.1f}:{}".format(area, state))
+    threshold = config["thresholds"]["LAB"][config["target_color"]]
+    return ("[VISION B2 DIAG] {} TARGET={} WHY={} SIZE={}x{} "
+            "MASK_PIX={}/{}/{} CUT={} TOP_AREA_PROC=[{}] LIMIT_PROC={}..{} "
+            "CAND={} SMALL={} LARGE={} PASS={} LAB={}..{}").format(
+        "RUN" if run_mode else "UI", config["target_color"], reason, *info["size"],
+        raw, kept, clean, raw-kept, ",".join(top),
+        info["min_area"], info["max_area"],
+        info["contours"], info["small"], info["large"], info["eligible"],
+        threshold["lower"], threshold["upper"])
 
 
 class B2DebugLog:

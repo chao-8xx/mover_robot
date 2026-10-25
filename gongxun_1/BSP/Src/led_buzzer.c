@@ -7,7 +7,7 @@
 // 拓展板板载LED与蜂鸣器初始化
 void light_buzzer_init(void)
 {
-    light_off();
+    // light_off();
     buzzer_off();
 }
 

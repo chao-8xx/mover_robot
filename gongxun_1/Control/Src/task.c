@@ -419,6 +419,7 @@ void hmi_get_car_state_task(void)
 // 读取实际位姿并更新雷达地图  位姿无效时仍接收雷达并清除待确认次数
 uint8_t map_obstacle_pose_task(void) {
     map_pose_t pose;
+    map_nav_observe_sync(); // 下一观察道路由导航模块统一选择
     uint8_t valid = map_pose_get(HAL_GetTick(), &pose);
     return map_obstacle_task(pose.x_mm, pose.y_mm, pose.yaw_deg, valid);
 }
@@ -428,15 +429,28 @@ uint8_t map_obstacle_task(float car_x, float car_y, float car_yaw, uint8_t pose_
     static uint8_t wait_new_scan = 2;  // 2: 记录旧圈；1: 丢弃跨越恢复时刻的圈
     static uint32_t skip_scan_num = 0;
     static uint32_t last_drop_num = 0;
+    static uint16_t last_observe_task = UINT16_MAX;
     const lidar_scan_t *scan;
     uint32_t drop_num;
 
+    // 没有新圈时也清超时证据；必须在解析缓存前设置屏障，防止跨停更的半圈进入窗口。
+    if (map_nav_observe_check_timeout(HAL_GetTick())) {
+        wait_new_scan = 2;
+        skip_scan_num = 0;
+    }
     // 坏包/接收错误会打断连续观察，恢复后要重新等完整静止圈
     lidar_process();
+    uint16_t observe_task = map_nav_observe_task_key();
+    if (observe_task != last_observe_task) {
+        last_observe_task = observe_task;
+        map_nav_observe_reset();
+        wait_new_scan = 2; // 角区/任务改变后只接受完整的新观察圈
+        skip_scan_num = 0;
+    }
     drop_num = lidar_get_scan_drop_cnt();
     if (drop_num != last_drop_num) {
         last_drop_num = drop_num;
-        map_update_clear_candidates();
+        map_nav_observe_reset();
         wait_new_scan = 2;
         skip_scan_num = 0;
     }
@@ -444,7 +458,7 @@ uint8_t map_obstacle_task(float car_x, float car_y, float car_yaw, uint8_t pose_
     if (!pose_valid || !map_update_is_ready() || car_get_state() != CHASSIS_IDLE ||
         !isfinite(car_x) || !isfinite(car_y) || !isfinite(car_yaw) ||
         map_check_area(car_x, car_y) != map_normal) {
-        map_update_clear_candidates();
+        map_nav_observe_reset();
         wait_new_scan = 2;
         skip_scan_num = 0;
         return 0;
@@ -479,10 +493,12 @@ uint8_t map_obstacle_task(float car_x, float car_y, float car_yaw, uint8_t pose_
     drop_num = lidar_get_scan_drop_cnt();
     if (drop_num != last_drop_num) {
         last_drop_num = drop_num;
-        map_update_clear_candidates();
+        map_nav_observe_reset();
         wait_new_scan = 2;
         skip_scan_num = 0;
         return 0;
     }
+    // 已有任务方向时用位置窗口一次确认；无任务时保留原有地图诊断入口。
+    if (map_nav_observe_is_active()) return map_nav_observe_update(1);
     return map_lidar_handle(1);
 }

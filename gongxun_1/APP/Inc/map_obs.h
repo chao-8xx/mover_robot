@@ -11,20 +11,15 @@
 // 相邻点聚类参数
 #define CLUSTER_MAX_MISS_ANGLE        2       // 聚类点间允许连续缺失的角度数 超过该值则认为聚类结束
 #define CLUSTER_MAX_COUNT            64       // 单帧最多保存的候选聚类数量，满后仍标记截断
-#define CLUSTER_MIN_POINT_COUNT       3       // 近距离最少3点，避免近处单点噪声进入地图
+#define CLUSTER_MIN_POINT_COUNT       1       // 小柱允许单点回波
+#define CLUSTER_MAX_POINT_COUNT       8       // 小柱最多8点，超过后整组剔除
 #define CLUSTER_MAX_POINT_GAP       100.0f    // 相邻两点最大连接距离 mm
 
-// 圆柱近大远小：按最近点距离分级 保存聚类和小柱筛选共用同一要求
-// 小于800mm至少3点  800~1200mm至少2点  1200mm及以上至少1点（试验分界）
-#define CLUSTER_MID_DISTANCE        800.0f
-#define CLUSTER_FAR_DISTANCE       1200.0f
-#define CLUSTER_MID_MIN_POINTS          2
-#define CLUSTER_FAR_MIN_POINTS          1
-
 // 障碍物小圆柱候选参数: 赛题圆柱直径50mm  先用 100mm 作为测距误差、缺点情况下的宽松试验值
-// 只检查平面跨度  距离先沿用点云范围  可靠距离等实测后收紧
+// 台架标定后按完整聚类最近点筛选，距离和点数均包含上下限；不符合时不保存为障碍物
 #define LIDAR_PILLAR_MAX_SIZE       100.0f
-#define LIDAR_PILLAR_MAX_DISTANCE   LIDAR_MAX_DISTANCE
+#define LIDAR_PILLAR_MIN_DISTANCE   220.0f
+#define LIDAR_PILLAR_MAX_DISTANCE  1320.0f
 
 
 // 2026-10-19 整车垫高、轮子相对雷达不变时测得的车体/车轮遮挡范围
@@ -97,12 +92,12 @@ typedef struct
     float height;           // 聚类包围框高度 mm
     float nearest_distance; // 聚类中距离雷达最近的点 mm
 
-    uint8_t valid; // 1表示满足最小点数要求，0表示无效
+    uint8_t valid; // 1表示完整聚类属性有效，保存前还需通过小柱筛选
 } lidar_cluster_t;
 
 
 // 障碍物候选结果结构体
-// 保存由当前点云分割得到的全部有效聚类
+// 只保存通过距离、点数及平面跨度筛选的小柱聚类
 typedef struct
 {
     lidar_cluster_t clusters[CLUSTER_MAX_COUNT];
@@ -119,9 +114,12 @@ extern obstacle_result_t obstacle_result;
 
 // 点云生成
 uint8_t point_cloud_update(const lidar_scan_t *scan, float car_x, float car_y, float car_yaw, uint32_t tick);
+// 独立裸雷达测试可关闭车体屏蔽；正式入口仍通过上面的接口使用既有屏蔽参数
+uint8_t point_cloud_update_with_mask(const lidar_scan_t *scan, float car_x, float car_y,
+                                     float car_yaw, uint32_t tick, uint8_t wheel_mask);
 // 相邻点聚类
 void obstacle_cluster_update(const point_cloud_t *cloud, uint32_t tick);
-// 简单小柱候选筛选：近3点、中2点、远1点；不代表已识别颜色或圆柱形状
+// 小柱筛选：最近点220~1320mm、1~8点、平面跨度不超过100mm
 uint8_t obstacle_cluster_is_pillar(const lidar_cluster_t *cluster);
 
 #endif // GONGXUN_1_LIDAR_OBSTACLE_H

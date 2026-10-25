@@ -21,11 +21,70 @@ static uint8_t map_pose_key_released(uint32_t tick) {
     return 0;
 }
 
+// 正面诊断每2秒输出一次  只读现有扫描、点云和聚类，不重新接收或修改地图
+static void map_pose_front_diagnose(const lidar_scan_t *scan, uint32_t tick, uint32_t accepted) {
+    static uint32_t last_tick = 0;
+    uint16_t front_count = 0, pillar_count = 0;
+    uint8_t printed = 0;
+
+    if (tick - last_tick < 2000U) return;
+    last_tick = tick;
+    // 原始扫描可能已前进，只有同一圈才能逐点对照，旧点云不能当成本圈结果
+    if (scan == NULL || scan->scan_num == 0 || scan->scan_num != cloud.scan_num ||
+        cloud.scan_num != accepted || obstacle_result.cloud_flag != cloud.update_flag) {
+        printf("[POSE FRONT] waiting same scan raw=%lu cloud=%lu accepted=%lu\r\n",
+               (unsigned long)(scan == NULL ? 0 : scan->scan_num),
+               (unsigned long)cloud.scan_num, (unsigned long)accepted);
+        return;
+    }
+
+    printf("[POSE FRONT] scan=%lu age=%lums points=%u clusters=%u truncated=%u\r\n",
+           (unsigned long)cloud.scan_num, (unsigned long)(tick - cloud.scan_tick),
+           cloud.valid_count, obstacle_result.cluster_count, obstacle_result.truncated);
+    // 每项为原始角度=距离mm/原始有效/点云有效  352~359和0~8覆盖正面两侧
+    printf("[POSE RAW]");
+    for (int16_t offset = -8; offset <= 8; offset++) {
+        uint16_t angle = (uint16_t)((offset + LIDAR_ANGLE_COUNT) % LIDAR_ANGLE_COUNT);
+        printf(" %u=%u/%u/%u", angle, scan->distance[angle], scan->valid[angle], cloud.points[angle].valid);
+    }
+    printf("\r\n");
+
+    for (uint16_t i = 0; i < obstacle_result.cluster_count; i++) {
+        const lidar_cluster_t *cluster = &obstacle_result.clusters[i];
+        // 保留跨0度及与正面角区相交的聚类，包括没通过小柱筛选的大聚类
+        if (cluster->start_angle <= cluster->end_angle &&
+            cluster->start_angle > 8U && cluster->end_angle < 352U) continue;
+        front_count++;
+        uint8_t pillar = obstacle_cluster_is_pillar(cluster);
+        pillar_count += pillar;
+        if (printed >= 3) continue; // 每组最多3项，避免串口打印干扰接收
+
+        uint16_t roads = 0;
+        uint16_t span = (cluster->end_angle + LIDAR_ANGLE_COUNT - cluster->start_angle) % LIDAR_ANGLE_COUNT;
+        for (uint16_t step = 0; step <= span; step++) {
+            uint16_t angle = (cluster->start_angle + step) % LIDAR_ANGLE_COUNT;
+            const lidar_point_t *point = &cloud.points[angle];
+            if (point->valid)
+                roads |= map_lidar_point_roads(point->map_point.x, point->map_point.y);
+        }
+        // roads只表示这组真实点的几何归属；pillar=0或未通过观察确认时不会封路
+        printf("[POSE CLUSTER] C%u a=%u~%u p=%u near=%.0f span=(%.1f,%.1f) "
+               "xy=(%.1f,%.1f) pillar=%u roads=0x%03X\r\n", i,
+               cluster->start_angle, cluster->end_angle, cluster->point_count,
+               cluster->nearest_distance, cluster->width, cluster->height,
+               cluster->center_point.x, cluster->center_point.y, pillar, roads);
+        printed++;
+    }
+    // 近处不足3点的组在聚类保存前就被丢弃，应结合上面的RAW逐点查看
+    printf("[POSE FRONT END] front=%u pillar=%u shown=%u\r\n", front_count, pillar_count, printed);
+}
+
 // 主循环先执行chassis_odom_tick  本任务只读取实际位姿、更新地图和打印状态
 // 车实际放在右下启停区2、朝北，短按KEY1确认起点；不触发发车或IMU归零
 void map_pose_test(void) {
     static uint32_t last_print_tick = 0;
     static uint32_t last_map_scan = 0;  // 最近一次实际写入地图的扫描编号
+    static map_nav_observe_result_t observed; // 调试快照，不放在F407主循环栈上
     map_pose_t pose;
     road_state_t state;
     const lidar_scan_t *scan;
@@ -53,6 +112,11 @@ void map_pose_test(void) {
         }
     }
 
+    // 当前静止入口演示启停区2北向道路N8->N5；正式任务由下一道路覆盖选择。
+    // 不下发移动或转向；角区按实际位姿和地图道路几何生成。
+    map_nav_t nav;
+    if (!map_nav_observe_is_active() && map_nav_get_result(&nav) && nav.state == map_nav_idle)
+        map_nav_observe_begin(8, 5);
     if (map_obstacle_pose_task())
         last_map_scan = cloud.scan_num;
 
@@ -91,6 +155,31 @@ void map_pose_test(void) {
                    state == road_free ? "FREE" : "UNKNOWN");
     }
     printf("\r\n");
+
+    if (map_nav_observe_get_result(&observed) && observed.active) {
+        printf("[OBSERVE] N%u->N%u R%u angle=%.1f~%.1f scan=%lu frames=%lu "
+               "now=%u tracks=%u confirmed=%u pending=0x%03X block=0x%03X "
+               "mismatch=%u overflow=%u cost=%luus first=%ldms\r\n",
+               observed.current_node, observed.next_node, observed.road_id,
+               observed.angle_start_deg, observed.angle_end_deg,
+               (unsigned long)observed.scan_num, (unsigned long)observed.frames,
+               observed.frame_candidates, observed.candidate_count, observed.confirmed_count,
+               observed.pending_roads, observed.confirmed_roads, observed.match_rejects,
+               observed.overflow, (unsigned long)observed.process_us,
+               observed.first_confirm_ms == UINT32_MAX ? -1L : (long)observed.first_confirm_ms);
+        for (uint8_t i = 0; i < MAP_OBSERVE_MAX_CANDIDATES; i++) {
+            const map_nav_observe_candidate_t *candidate = &observed.candidates[i];
+            if (!candidate->valid) continue;
+            printf("[OBSERVE C%u] xy=(%.1f,%.1f) d=%.0f points=%u span=(%.1f,%.1f) "
+                   "hits=%u/%u now=%u last=%lu\r\n", i,
+                   candidate->position.x, candidate->position.y, candidate->nearest_distance,
+                   candidate->point_count, candidate->width, candidate->height,
+                   candidate->hits, MAP_OBSERVE_WINDOW, candidate->current_hit,
+                   (unsigned long)candidate->last_hit_scan);
+            break; // 每秒最多一项候选细节，避免串口日志干扰接收
+        }
+    }
+    if (valid) map_pose_front_diagnose(scan, tick, last_map_scan);
 }
 
 // 输出一项检查结果  ok非0表示通过 name是串口上显示的测试名称
@@ -481,7 +570,7 @@ static void map_lidar_test_diagnose(uint32_t tick) {
     const lidar_scan_t *scan = lidar_get_scan();
     if (scan != NULL) {
         // 每项为 角度=距离/原始有效/点云有效；355~359、0~5覆盖原始0度两侧
-        // 原始有效但点云无效时检查屏蔽和距离过滤；聚类最少点数按近3/中2/远1分级
+        // 原始有效但点云无效时检查屏蔽和距离过滤；聚类结果只保留220~1320mm、1~8点的小柱
         printf("[PILLAR RAW] raw_scan=%lu cloud_scan=%lu",
                (unsigned long)scan->scan_num, (unsigned long)cloud.scan_num);
         for (int16_t offset = -5; offset <= 5; offset++) {

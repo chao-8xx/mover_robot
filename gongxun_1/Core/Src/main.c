@@ -28,6 +28,7 @@
 /* USER CODE BEGIN Includes */
 #include "headfile.h"
 #include "lidar_pillar_test.h"
+#include "lidar_map_desk_test.h"
 
 /* USER CODE END Includes */
 
@@ -43,6 +44,16 @@
 
 /* Private macro -------------------------------------------------------------*/
 /* USER CODE BEGIN PM */
+
+#ifndef LIDAR_MAP_DESK_TEST_ENABLE
+#define LIDAR_MAP_DESK_TEST_ENABLE 1 // 固定测试位姿的裸雷达地图联调
+#endif
+#ifndef LIDAR_PILLAR_TEST_ENABLE
+#define LIDAR_PILLAR_TEST_ENABLE 0 // 原始点/360格对照；与上面的地图测试互斥
+#endif
+#if LIDAR_MAP_DESK_TEST_ENABLE && LIDAR_PILLAR_TEST_ENABLE
+#error "只能启用一个独立雷达测试入口"
+#endif
 
 /* USER CODE END PM */
 
@@ -107,12 +118,14 @@ int main(void)
   MX_TIM4_Init();
   /* USER CODE BEGIN 2 */
 
-  // 系统整体初始化
-#if LIDAR_PILLAR_TEST_ENABLE
-  lidar_pillar_test_init();  // 独立小柱对照，不启动整车设备或运动任务
-#else
+//   // 系统整体初始化
+// #if LIDAR_MAP_DESK_TEST_ENABLE
+//   lidar_map_desk_test_init(); // 只初始化调试串口、雷达和测试地图
+// #elif LIDAR_PILLAR_TEST_ENABLE
+//   lidar_pillar_test_init();  // 独立小柱对照，不启动整车设备或运动任务
+// #else
   system_init();
-#endif
+// #endif
 
   // maix 任务一测试
   // maix_b2_test();
@@ -127,10 +140,10 @@ int main(void)
 
   while (1)
   {
-    // cam_task();               // 解析摄像头数据
-    // mv_task();                // OpenMV扫码处理任务
-    // send_conduct_task();      // 给maix发数据处理任务
-    // hmi_get_car_state_task(); // 非阻塞式发送小车当前状态至串口屏任务
+    cam_task();               // 解析摄像头数据
+    mv_task();                // OpenMV扫码处理任务
+    send_conduct_task();      // 给maix发数据处理任务
+    hmi_get_car_state_task(); // 非阻塞式发送小车当前状态至串口屏任务
 
 
 
@@ -157,15 +170,22 @@ int main(void)
     //   obstacle_cluster_test();   // 打印候选物体的角度、位置和尺寸
     // }
 
+//
+// #if LIDAR_MAP_DESK_TEST_ENABLE
+//     lidar_map_desk_test(); // 固定位姿静止建图；KEY1开始或清空重测，不发送运动指令
+// #elif LIDAR_PILLAR_TEST_ENABLE
+//     // 独立对照复用全局点云，与正式位姿地图互斥。
+//     lidar_pillar_test();
+// #else
+//     // // 雷达正面障碍物测试 测距离  1300mm
+//     // lidar_pillar_test();
+//
+//     // 真实位姿静止建图：更新道路并打印位姿、扫描和道路状态 不发送运动指令
+//     chassis_odom_tick();       // 实际轮子反馈 -> cm里程计 -> mm地图位姿
+//     map_pose_test();
+// #endif
 
-    // 雷达正面障碍物测试 测距离  1300mm
-    lidar_pillar_test();
-
-    // 真实位姿静止建图：更新道路并打印位姿、扫描和道路状态 不发送运动指令
-    chassis_odom_tick();       // 实际轮子反馈 -> cm里程计 -> mm地图位姿
-    map_pose_test();
-
-    // 固定测试位姿的R8封路测试
+    // 固定测试位姿的R8封路测试wm
     // map_lidar_test();
 
 

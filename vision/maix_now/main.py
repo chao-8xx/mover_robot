@@ -17,9 +17,9 @@ from vision_tasks import (
     TASK_NONE, TASK_MATERIAL, TASK_RING, TASK_STACK, TASK_LABELS, TaskManager,
 )
 from vision_ui import TouchInput, VisionUI
-from vision_runtime import B2_SEND_TIME_MS, SEND_TIME_MS, B2DebugLog, ResultSender, PerfStats, pack_xy_frame, send_interval_ms
+from vision_runtime import B2_SEND_TIME_MS, SEND_TIME_MS, B2DebugLog, ResultSender, PerfStats, pack_xy_frame, send_interval_ms, color_diagnostic_line
 
-BUILD = "NOW_RUN_PREVIEW_V12"
+BUILD = "NOW_COLOR_TUNING_V13"
 CMD_NONE, CMD_BLOB, CMD_RING, CMD_ONUP = 0xB0, 0xB2, 0xB3, 0xB4
 COLOR_NONE, SUM_2 = 0xC0, 0xD2
 COLOR_CODE_TO_KEY = {0xC0 + number: key for key, number in COLOR_NUMBERS.items()}
@@ -43,10 +43,10 @@ def now_ms():
 
 def check_b2_modules():
     """检查实际导入的依赖，避免新抓取界面/检测混用会压掉OK=2的旧模块。"""
-    modules = (("vision_blob", blob_module, "B2_PIPELINE_BUILD", "B2_POLYGON_V5"),
-               ("vision_tasks", tasks_module, "B2_TASK_BUILD", "B2_POLYGON_V5"),
+    modules = (("vision_blob", blob_module, "B2_PIPELINE_BUILD", "B2_COLOR_DIAG_V6"),
+               ("vision_tasks", tasks_module, "B2_TASK_BUILD", "B2_COLOR_DIAG_V6"),
                ("vision_ui", ui_module, "B2_UI_BUILD", "B2_LIVE_RUN_UI_V4"),
-               ("vision_runtime", runtime_module, "B2_RUNTIME_BUILD", "B2_OK2_PIXELS_V3"))
+               ("vision_runtime", runtime_module, "B2_RUNTIME_BUILD", "B2_COLOR_DIAG_V4"))
     mismatch = []
     for name, module, attr, expected in modules:
         actual = getattr(module, attr, "OLD")
@@ -56,7 +56,7 @@ def check_b2_modules():
     colors = tuple(getattr(config_module, "COLOR_ORDER", ()))
     schema = getattr(config_module, "SCHEMA_VERSION", 0)
     print("[VISION B2 MODULE] vision_config", getattr(config_module, "__file__", "?"), colors, "schema=", schema)
-    if colors != ("red", "yellow", "blue", "green", "black", "light_blue") or schema != 12:
+    if colors != ("red", "yellow", "blue", "green", "black", "light_blue") or schema != 13:
         mismatch.append("vision_config")
     if mismatch:
         raise RuntimeError("B2 module mismatch: " + ",".join(mismatch) +
@@ -251,6 +251,7 @@ def run():
     previous_signature = None
     previous_revision = -1
     last_display = 0
+    next_color_diag_ms = 0
     fps = 0.0
     tx_hz = display_fps = 0.0
     # copy=False会忽略ensure_bgr，只有原生BGR才允许借用内存。
@@ -276,6 +277,7 @@ def run():
                     tasks.reset_current()
                     sender.reset(now_ms())
                     b2_debug.reset()
+                    next_color_diag_ms = 0
 
             active_mode, active_target = active_task(ui)
             task_id = mode_to_task_id(active_mode)
@@ -293,7 +295,9 @@ def run():
                       "exclude=", geometry_config["exclude_rois"],
                       "polygons=", geometry_config["exclude_polygons"],
                       "reference=", geometry_config["center"],
-                      "grasp=", geometry_config["grasp"]["roi"])
+                      "grasp=", geometry_config["grasp"]["roi"],
+                      "blob=", geometry_config["blob"],
+                      "LAB=", geometry_config["thresholds"]["LAB"][geometry_config["target_color"]])
             tasks.switch(task_id, active_target)
             if changed:
                 tasks.reset_current()
@@ -301,6 +305,7 @@ def run():
                 sender.interval_ms = send_interval_ms(task_id)
                 sender.reset(now_ms())
                 b2_debug.reset()
+                next_color_diag_ms = 0
                 stats.reset(now_ms())
                 fps = tx_hz = display_fps = 0.0
                 previous_signature = signature
@@ -324,10 +329,14 @@ def run():
                 cv_bgr = image.image2cv(camera_image, ensure_bgr=True, copy=True)
             capture_ms = now_ms() - capture_start
             config = ui.detection_config()
+            diagnostic_due = (task_id == TASK_MATERIAL and config["color_diagnostics"] and
+                              config["target_color"] in ("black", "light_blue") and
+                              now_ms() >= next_color_diag_ms)
             detect_start = now_ms()
             frame = tasks.process(cv_bgr, config, run_mode,
                                   need_mask=display_due and
-                                  (task_id == TASK_MATERIAL or ui.needs_mask_for_display()))
+                                  (task_id == TASK_MATERIAL or ui.needs_mask_for_display()),
+                                  diagnostic=diagnostic_due)
             result = frame["result"]
             detect_ms = now_ms() - detect_start
 
@@ -352,6 +361,9 @@ def run():
                     fps=fps, tx_hz=tx_hz)
                 if debug_line is not None:
                     print(debug_line)
+            if diagnostic_due:
+                print(color_diagnostic_line(result, config, run_mode))
+                next_color_diag_ms = now_ms() + 1000
 
             # 结果发送/停止检查在LCD之前；未到显示时刻不生成预览或绘制。
             if display_due:

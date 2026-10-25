@@ -3,6 +3,7 @@
 
 // 复用实际地图与位姿源码  只替代时钟和底盘接口
 #include "../map_include/headfile.h"
+#include "../perception_include/headfile.h"
 #include "map_pose.h"
 #include "map_tf2d.h"
 #include "chassis.h"

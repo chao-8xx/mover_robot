@@ -15,7 +15,7 @@ from vision_ring import detect_ring_candidates
 
 
 TASK_NONE = 0
-B2_TASK_BUILD = "B2_POLYGON_V5"
+B2_TASK_BUILD = "B2_COLOR_DIAG_V6"
 TASK_MATERIAL = 1
 TASK_RING = 2
 TASK_STACK = 3
@@ -66,7 +66,7 @@ class ColorTracker:
             self.b2_buffers = ColorBuffers(width, height)
 
     def process(self, cv_bgr, config, run_mode=False, need_mask=True, reuse_buffers=False,
-                grasp=None):
+                grasp=None, diagnostic=False):
         resize_tick = perf_counter()
         if run_mode:
             roi, center, blob = config["roi"], config["center"], config["blob"]
@@ -111,12 +111,14 @@ class ColorTracker:
         resize_ms = (perf_counter() - resize_tick) * 1000.0
         # B2调参也复用LAB/MASK输出，仍按320x240处理；B4沿用原路径。
         buffers = self.b2_buffers if reuse_buffers else None
+        diagnostics = {} if diagnostic else None
         try:
             result, mask_roi, perf = detect_color(
                 roi_bgr, process_config, process_roi, need_mask, buffers=buffers,
                 fast_filter=reuse_buffers,
                 grasp_roi=grasp_roi,
                 grasp_preview=need_mask and not run_mode and grasp is not None,
+                diagnostics=diagnostics,
             )
         except (TypeError, cv2.error) as error:
             if buffers is None:
@@ -125,7 +127,8 @@ class ColorTracker:
             result, mask_roi, perf = detect_color(
                 roi_bgr, process_config, process_roi, need_mask, fast_filter=reuse_buffers,
                 grasp_roi=grasp_roi,
-                grasp_preview=need_mask and not run_mode and grasp is not None)
+                grasp_preview=need_mask and not run_mode and grasp is not None,
+                diagnostics=diagnostics)
         if reuse_buffers:
             perf["resize_ms"] = resize_ms
             perf["buffer_reuse"] = buffers is not None and self.b2_buffers_supported
@@ -137,6 +140,9 @@ class ColorTracker:
                                       interpolation=cv2.INTER_NEAREST)
         if grasp is not None:
             result = apply_grasp_status(result, grasp)
+        if diagnostics is not None:
+            diagnostics["size"] = process_roi[2:]
+            result["diagnostic"] = diagnostics
         result.update(perf)
         result["target_color"] = target_key
         result["color_count"] = 1
@@ -324,7 +330,7 @@ class TaskManager:
     def invalidate_material_geometry(self):
         self.color_tracker.invalidate_geometry()
 
-    def process(self, cv_bgr, config, run_mode=False, need_mask=True):
+    def process(self, cv_bgr, config, run_mode=False, need_mask=True, diagnostic=False):
         if self.current is None:
             return {"result": empty_result(), "mask_roi": None,
                     "roi_rect": (0, 0, IMAGE_WIDTH, IMAGE_HEIGHT), "config": config}
@@ -345,6 +351,7 @@ class TaskManager:
             cv_bgr, task_config, run_mode, need_mask=need_mask,
             reuse_buffers=self.task_id == TASK_MATERIAL,
             grasp=config["grasp"] if self.task_id == TASK_MATERIAL else None,
+            diagnostic=diagnostic and self.task_id == TASK_MATERIAL,
         )
         if self.task_id == TASK_MATERIAL:
             frame["config"] = config  # 预览仍用原图绝对参考点，内部局部坐标不外泄。

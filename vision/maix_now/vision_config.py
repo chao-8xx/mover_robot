@@ -9,7 +9,7 @@ import json
 import os
 
 
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
 IMAGE_WIDTH = 320
 IMAGE_HEIGHT = 240
 
@@ -49,24 +49,28 @@ COLOR_NUMBERS = {
 DEFAULT_CONFIG = {
     "schema_version": SCHEMA_VERSION,
     # B2/B4每帧只检测指定颜色；固定LAB，参数中不再保存模式开关。
-    "target_color": "red",
+    "target_color": "yellow",
     # 当前真机性能基线使用 OPEN_ONLY；仍保留另外三档供现场对比。
     "morph_mode": MORPH_OPEN_ONLY,
-    # B2外层检测ROI：决定搜索范围。默认先保留全图，按实物修改x/y/w/h即可裁剪。
+    # B2黑色/浅蓝每秒采样一次掩膜及候选诊断；不修改检测阈值或候选排序。
+    "color_diagnostics": True,
+    # B2外层检测ROI：保留左右/上边界，底边由230收至215，排除盘下背景。
     # RUN保持约0.75的采样比例，只缩小此ROI，不将裁剪区拉伸成整幅240x180。
-    "roi": {"x": 65, "y": 30, "w": 220, "h": 200},
+    "roi": {"x": 65, "y": 30, "w": 220, "h": 185},
     # B2内部屏蔽区：320x240原图坐标，只清检测掩膜，不把原图涂黑。
-    # 以下左右夹爪矩形按照片估计，须检查夹爪全行程；设为[]可关闭屏蔽。
+    # 按本轮实拍移至盘内的夹爪暗面；须检查全行程，目标不能被屏蔽切掉。[]可关闭。
     "exclude_rois": [
-        {"x": 65, "y": 216, "w": 22, "h": 14},   # 左夹爪
-        {"x": 285, "y": 216, "w": 22, "h": 14},   # 右夹爪
+        {"x": 0, "y": 0, "w": 0, "h": 0},   # 左夹爪暗面
+        {"x": 0, "y": 0, "w": 0, "h": 0},  # 右夹爪暗面
     ],
     # B2多边形屏蔽：每个列表是一块封闭区域，顶点沿边界顺序填写[x,y]。
     # 圆弧用多个顶点近似：沿外弧走，再沿内弧反向返回，形成有厚度的弧带。
-    # 以下仅为右侧弧带占位，必须按实拍修改；设为[]可关闭多边形屏蔽。
+    # 沿现有外沿拆成四个独立区域；物料高度余量仍须按实拍确认。[]可关闭。
     "exclude_polygons": [
-        [[246, 65], [262, 85], [272, 110], [272, 138], [262, 160],
-         [253, 155], [263, 135], [263, 112], [254, 89], [239, 72]],
+        [[65, 115], [65, 30], [124, 30], [66, 115]],    # 左上屏蔽区
+        [[236, 30], [285, 30], [285, 115], [284, 115]], # 右上屏蔽区
+        [[65, 115], [124, 230], [65, 230]],            # 左下屏蔽区
+        [[284, 115], [285, 230], [211, 230]],          # 右下屏蔽区
     ],
     # B2 center.x/y为原图绝对坐标，裁剪外层ROI不能移动此参考点。
     # custom=False使用原图中心(160,120)；stack/ring的center仍为各自ROI内相对坐标。
@@ -78,42 +82,42 @@ DEFAULT_CONFIG = {
         "custom": True,
     },
     # 面积范围同样按 320x240 等效面积保存，RUN 内部会自动按像素比例换算。
-    "blob": {"min_area": 600, "max_area": 12000},
+    "blob": {"min_area": 500, "max_area": 1800},
     # B2抓取判定区：只判定覆盖，不裁剪全图搜索、不改变dx/dy参考点。
     # 320x240原图坐标；40x40/60%只是初试值，新镜头/夹爪必须实物标定。
     "grasp": {
-        "roi": {"x": 150, "y": 103, "w": 25, "h": 25},
-        "min_coverage_pct": 50,
+        "roi": {"x": 121, "y": 74, "w": 105, "h": 80},
+        "min_coverage_pct": 40,
     },
     # 任务三复用颜色阈值和ColorTracker，但保留独立ROI、对准中心和面积范围。
     "stack": {
-        "roi": {"x": 110, "y": 25, "w": 135, "h": 135},
+        "roi": {"x": 121, "y": 74, "w": 105, "h": 80},
         "center": {
-            "x": IMAGE_WIDTH // 2,
-            "y": IMAGE_HEIGHT // 2,
+            "x": 163,
+            "y": 116,
             "custom": False,
         },
-        "blob": {"min_area": 600, "max_area": 12000},
+        "blob": {"min_area": 300, "max_area": 800},
     },
     "thresholds": {
         # 按用户提供的maix_main现场配置迁入六色LAB；B2/B4共享此表。
         "LAB": {
             "red": {"lower": [75, 170, 130], "upper": [210, 220, 170]},
-            "yellow": {"lower": [125, 100, 185], "upper": [230, 130, 220]},
+            "yellow": {"lower": [150, 100, 155], "upper": [245, 130, 220]},
             "blue": {"lower": [35, 135, 50], "upper": [138, 185, 110]},
             "green": {"lower": [102, 70, 128], "upper": [205, 120, 170]},
-            "black": {"lower": [40, 105, 110], "upper": [155, 140, 140]},
-            "light_blue": {"lower": [85, 100, 75], "upper": [195, 135, 100]},
+            "black": {"lower": [0, 118, 116], "upper": [135, 140, 140]},
+            "light_blue": {"lower": [85, 100, 70], "upper": [255, 130, 125]},
         },
     },
     # F407先到2号附近，B3只定位几何圆心，不识别数字。
     "ring": {
         # 任务位置约定为2，但这不是OCR识别结果。
         "target_number": 2,
-        "roi": {"x": 0, "y": 0, "w": IMAGE_WIDTH, "h": IMAGE_HEIGHT},
+        "roi": {"x": 121, "y": 74, "w": 105, "h": 80},
         "center": {
-            "x": IMAGE_WIDTH // 2,
-            "y": IMAGE_HEIGHT // 2,
+            "x": 163,
+            "y": 116,
             "custom": False,
         },
         # 灰度值不高于该值的像素作为黑色候选。
@@ -132,6 +136,13 @@ DEFAULT_CONFIG = {
         "layer_check_interval": 5,
     },
 }
+
+# 只迁移这一份已知的旧连画点列；其他现场多边形不替换。
+_LEGACY_JOINED_POLYGON = [
+    [65, 115], [65, 30], [78, 30], [285, 30], [285, 115],
+    [280, 115], [230, 30], [130, 30], [68, 115], [65, 115],
+    [65, 230], [130, 230], [215, 230], [280, 115], [285, 230], [130, 230],
+]
 
 
 def clone_config(config):
@@ -186,6 +197,8 @@ def validate_config(value):
     if morph_mode in VALID_MORPH_MODES:
         result["morph_mode"] = morph_mode
 
+    result["color_diagnostics"] = bool(source.get("color_diagnostics", result["color_diagnostics"]))
+
     roi_source = source.get("roi", {})
     if not isinstance(roi_source, dict):
         roi_source = {}
@@ -228,6 +241,8 @@ def validate_config(value):
             result["exclude_rois"].append(dict(x=left, y=top, w=right-left, h=bottom-top))
 
     polygons = source.get("exclude_polygons", DEFAULT_CONFIG["exclude_polygons"])
+    if source.get("schema_version", 0) != SCHEMA_VERSION and polygons == [_LEGACY_JOINED_POLYGON]:
+        polygons = DEFAULT_CONFIG["exclude_polygons"]
     result["exclude_polygons"] = []
     for polygon in polygons if isinstance(polygons, (list, tuple)) else []:
         if not isinstance(polygon, (list, tuple)) or len(polygon) < 3:

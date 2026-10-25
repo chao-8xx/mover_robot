@@ -49,6 +49,12 @@ static uint8_t get_wheel_blocked(uint16_t angle) {
 ////////////////////////////////////// 点云生成 ////////////////////////////////////////
 // 点云生成   遍历360度雷达数据 并把有效点依次变换到map坐标系
 uint8_t point_cloud_update(const lidar_scan_t *scan, float car_x, float car_y, float car_yaw, uint32_t tick){
+    return point_cloud_update_with_mask(scan, car_x, car_y, car_yaw, tick, LIDAR_WHEEL_MASK_ENABLE);
+}
+
+// 共用同一坐标变换和扫描去重；裸雷达台架只改变是否使用车体屏蔽
+uint8_t point_cloud_update_with_mask(const lidar_scan_t *scan, float car_x, float car_y,
+                                     float car_yaw, uint32_t tick, uint8_t wheel_mask) {
     point2d_t p_lidar;
     point2d_t p_base;
     point2d_t p_map;
@@ -81,7 +87,7 @@ uint8_t point_cloud_update(const lidar_scan_t *scan, float car_x, float car_y, f
         point->map_point.y = 0.0f;
 
         // 只在点云层跳过实测遮挡角度；原始scan保留，遮挡测试仍可读取
-        if (get_wheel_blocked(angle))
+        if (wheel_mask && get_wheel_blocked(angle))
             continue;
 
         // 当前角度无效点 跳过
@@ -116,19 +122,11 @@ uint8_t point_cloud_update(const lidar_scan_t *scan, float car_x, float car_y, f
 
 
 ///////////////////////////////////// 相邻点聚类 //////////////////////////////////////
-// 按最近点决定最少点数，横跨距离档位时使用较近一档的严格要求
-static uint16_t cluster_min_point_count(float distance) {
-    if (distance >= CLUSTER_FAR_DISTANCE)
-        return CLUSTER_FAR_MIN_POINTS;
-    if (distance >= CLUSTER_MID_DISTANCE)
-        return CLUSTER_MID_MIN_POINTS;
-    return CLUSTER_MIN_POINT_COUNT;
-}
-
-// 普通聚类全部保留供调试  地图入口单独调用本函数筛选小尺寸候选
+// 保存聚类、独立台架和地图入口共用同一小柱规则
 uint8_t obstacle_cluster_is_pillar(const lidar_cluster_t *cluster) {
     if (cluster == NULL || !cluster->valid ||
-        cluster->point_count < cluster_min_point_count(cluster->nearest_distance))
+        cluster->point_count < CLUSTER_MIN_POINT_COUNT ||
+        cluster->point_count > CLUSTER_MAX_POINT_COUNT)
         return 0;
 
     // width/height都是平面跨度  不设严格尺寸下限  避免只看到部分表面时漏掉小柱
@@ -136,7 +134,7 @@ uint8_t obstacle_cluster_is_pillar(const lidar_cluster_t *cluster) {
         !isfinite(cluster->nearest_distance) ||
         cluster->width < 0.0f || cluster->height < 0.0f ||
         cluster->width > LIDAR_PILLAR_MAX_SIZE || cluster->height > LIDAR_PILLAR_MAX_SIZE ||
-        cluster->nearest_distance < LIDAR_MIN_DISTANCE ||
+        cluster->nearest_distance < LIDAR_PILLAR_MIN_DISTANCE ||
         cluster->nearest_distance > LIDAR_PILLAR_MAX_DISTANCE)
         return 0;
 
@@ -224,29 +222,29 @@ static uint8_t cluster_points_connected(const lidar_point_t *previous,const lida
 }
 
 
-// 保存有效聚类  完成一个临时聚类，满足最小点数后保存到结果数组
+// 完整聚类结束后再筛选，不能把大点组截成8点或先裁距离后伪装成小柱
 static void cluster_finish(lidar_cluster_t *cluster)
 {
     lidar_cluster_t *final;
-    uint16_t min_points;
 
     if (cluster == NULL || cluster->point_count == 0)
         return;
 
-    min_points = cluster_min_point_count(cluster->nearest_distance);
+    // 先计算完整点组的平面跨度，再统一检查距离、点数和尺寸
+    cluster->width = cluster->max_x - cluster->min_x;
+    cluster->height = cluster->max_y - cluster->min_y;
+    cluster->valid = 1;
+    if (!obstacle_cluster_is_pillar(cluster)) {
+        cluster_clear(cluster);
+        return;
+    }
 
     // 合格聚类放不下时明确标记截断  不能拿不完整结果证明道路无障碍
-    if (cluster->point_count >= min_points && obstacle_result.cluster_count >= CLUSTER_MAX_COUNT)
+    if (obstacle_result.cluster_count >= CLUSTER_MAX_COUNT)
         obstacle_result.truncated = 1;
 
-    // 仅当聚类点数达到阈值且结果数组未满时才保存
-    if (cluster->point_count >= min_points && obstacle_result.cluster_count < CLUSTER_MAX_COUNT) {
-
-        // 计算聚类的包围框宽高
-        cluster->width = cluster->max_x - cluster->min_x;
-        cluster->height = cluster->max_y - cluster->min_y;
-        cluster->valid = 1;
-
+    // 只保存合格小柱，过滤掉的点组不占结果容量
+    if (obstacle_result.cluster_count < CLUSTER_MAX_COUNT) {
         // 将聚类结果复制到全局结果数组中
         final = &obstacle_result.clusters[obstacle_result.cluster_count];
         *final = *cluster;
@@ -257,7 +255,7 @@ static void cluster_finish(lidar_cluster_t *cluster)
 }
 
 
-// 从真正断开的位置开始遍历，让跨0度的一组点先完整收集，再判断最小点数。
+// 从真正断开的位置开始遍历，让跨0度的一组点先完整收集，再检查点数和距离。
 static uint16_t cluster_start_angle(const point_cloud_t *source) {
     uint16_t first_angle = 0;
     uint16_t last_angle = LIDAR_ANGLE_COUNT - 1;

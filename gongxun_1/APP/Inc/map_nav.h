@@ -2,6 +2,7 @@
 #define GONGXUN_1_MAP_NAV_H
 
 #include "map_plan.h"
+#include "map_tf2d.h"
 
 // 导航参数  软件初值 待定位和低速实车联调后调整
 #define MAP_NAV_NODE_TOL_MM        30.0f   // 节点到位范围 mm
@@ -9,10 +10,10 @@
 #define MAP_NAV_YAW_TOL_DEG         1.2f   // 车头对准道路的角度范围
 #define MAP_NAV_SETTLE_MM           5.0f   // 停稳观察期间允许的位置变化 mm
 #define MAP_NAV_SETTLE_YAW_DEG      1.0f   // 停稳观察期间允许的角度变化
-#define MAP_NAV_SETTLE_MS           300   // 连续新位姿确认停稳的时间 ms
-#define MAP_NAV_WAIT_TIMEOUT_MS  10000   // 观察、转向和到位确认的超时时间 ms
-#define MAP_NAV_MOVE_TIMEOUT_MS  30000   // 单条道路移动超时时间 ms
-#define MAP_NAV_MAX_SPEED          200   // 本模块允许的电机指令速度上限 RPM
+#define MAP_NAV_SETTLE_MS           300    // 连续新位姿确认停稳的时间 ms
+#define MAP_NAV_WAIT_TIMEOUT_MS  10000     // 观察、转向和到位确认的超时时间 ms
+#define MAP_NAV_MOVE_TIMEOUT_MS  30000     // 单条道路移动超时时间 ms
+#define MAP_NAV_MAX_SPEED          200     // 本模块允许的电机指令速度上限 RPM
 
 // 导航运行状态
 typedef enum
@@ -73,5 +74,64 @@ void map_nav_task(void);
 void map_nav_cancel(void);
 // 读取当前导航结果 out非空时返回1
 uint8_t map_nav_get_result(map_nav_t *out);
+
+///////////////////////////////////// 停车观察接口 ////////////////////////////////////////
+// 停车观察初值：只影响跨圈关联，不改变单圈聚类连接距离或小柱尺寸。
+#define MAP_OBSERVE_MATCH_MM          80.0f
+#define MAP_OBSERVE_WINDOW                5
+#define MAP_OBSERVE_MIN_HITS              3
+#define MAP_OBSERVE_MAX_CANDIDATES       16
+#define MAP_OBSERVE_ANGLE_MARGIN_DEG   3.0f
+
+#if MAP_OBSERVE_WINDOW < 1 || MAP_OBSERVE_WINDOW > 8 || \
+    MAP_OBSERVE_MIN_HITS < 1 || MAP_OBSERVE_MIN_HITS > MAP_OBSERVE_WINDOW
+#error "观察窗口须满足1 <= MIN_HITS <= WINDOW <= 8"
+#endif
+#if MAP_OBSERVE_MAX_CANDIDATES < 1 || MAP_OBSERVE_MAX_CANDIDATES > 64
+#error "观察候选容量须在1~64范围内"
+#endif
+
+typedef struct {
+    point2d_t anchor;          // 本次候选的固定地图位置，不随每次匹配漂移
+    point2d_t position;        // 最近一次真实回波位置，不冒充圆柱中心
+    float nearest_distance;
+    float width, height;
+    uint32_t last_hit_scan;
+    uint16_t point_count;
+    uint16_t road_history[MAP_OBSERVE_WINDOW]; // 每圈真实点涉及的道路，不填充包围框
+    uint8_t hit_window;        // 最低位对应本圈，每圈最多一票
+    uint8_t hits;
+    uint8_t current_hit;       // 本圈是否确实看到，区别于窗口内历史确认
+    uint8_t valid;
+} map_nav_observe_candidate_t;
+
+typedef struct {
+    map_nav_observe_candidate_t candidates[MAP_OBSERVE_MAX_CANDIDATES];
+    uint32_t scan_num, scan_tick, frames;
+    uint32_t process_us;       // 仅本模块处理耗时，主机测试为0；不含雷达接收和单圈聚类
+    uint32_t first_confirm_ms; // UINT32_MAX表示尚未确认，从首个有效观察圈计时
+    float angle_start_deg, angle_end_deg; // 雷达局部角区，start>end表示跨0度
+    uint16_t pending_roads, confirmed_roads;
+    uint16_t frame_candidates, match_rejects;
+    uint8_t candidate_count, confirmed_count, overflow;
+    uint8_t active, current_node, next_node, road_id;
+} map_nav_observe_result_t;
+
+// 上层指定下一条相邻道路；同一个请求重复调用不清空窗口。
+// 原始雷达仍接收整圈，完整聚类之后按道路和角区筛选。
+uint8_t map_nav_observe_begin(uint8_t current_node, uint8_t next_node);
+void map_nav_observe_end(void);
+void map_nav_observe_reset(void); // 运动/定位/接收中断：保留任务方向，清除待确认窗口
+uint8_t map_nav_observe_is_active(void);
+// 当前有向任务的轻量标识；任务层用它识别角区切换并丢弃过渡扫描。
+uint16_t map_nav_observe_task_key(void);
+// 主循环即使没有新扫描也要检查；返回1后任务层重新等待完整新圈。
+uint8_t map_nav_observe_check_timeout(uint32_t tick);
+// 只消费cloud/obstacle_result中的新圈，不接收、不转向、不发车、不自动放行。
+uint8_t map_nav_observe_update(uint8_t pose_valid);
+uint8_t map_nav_observe_get_result(map_nav_observe_result_t *out);
+
+// 同步当前导航准备进入的道路；任务层不再复制导航状态并自行判断方向。
+void map_nav_observe_sync(void);
 
 #endif //GONGXUN_1_MAP_NAV_H

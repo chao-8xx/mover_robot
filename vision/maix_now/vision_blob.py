@@ -24,7 +24,7 @@ MORPH_KERNEL = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
 # 运行时只使用当前颜色的一组LAB阈值。缓存对应的 uint8 数组，
 # 避免每帧重复把 Python list 转换成多个 NumPy 小数组。
 _THRESHOLD_CACHE = {}
-B2_PIPELINE_BUILD = "B2_POLYGON_V5"
+B2_PIPELINE_BUILD = "B2_COLOR_DIAG_V6"
 _POLYGON_MASK_CACHE = {}
 
 
@@ -366,7 +366,7 @@ def clear_exclusions(mask, roi_rect, exclusions, polygon_mask=None):
 
 
 def detect_color(roi_bgr, config, roi_rect, need_mask=True, buffers=None, fast_filter=False,
-                 grasp_roi=None, grasp_preview=False):
+                 grasp_roi=None, grasp_preview=False, diagnostics=None):
     """只检测指定颜色；RUN不保留预览MASK，不创建三色结果集合。"""
     tick = perf_counter()
     converted = (convert_color_space(roi_bgr) if buffers is None else
@@ -375,17 +375,23 @@ def detect_color(roi_bgr, config, roi_rect, need_mask=True, buffers=None, fast_f
     tick = perf_counter()
     mask = (apply_color_threshold(converted, config) if buffers is None else
             apply_color_threshold(converted, config, dst=buffers.mask))
+    if diagnostics is not None:
+        diagnostics["raw_pixels"] = int(cv2.countNonZero(mask))
     threshold_ms = (perf_counter() - tick) * 1000.0
     tick = perf_counter()
     exclusions = config.get("exclude_rois", [])
     polygon_mask = (config["_exclude_polygon_mask"] if "_exclude_polygon_mask" in config else
                     polygon_exclusion_mask(roi_rect, config.get("exclude_polygons", [])))
     clear_exclusions(mask, roi_rect, exclusions, polygon_mask)
+    if diagnostics is not None:
+        diagnostics["kept_pixels"] = int(cv2.countNonZero(mask))
     mode = config.get("morph_mode", MORPH_OPEN_CLOSE)
     mask = (clean_mask(mask, mode) if buffers is None else
             clean_mask(mask, mode, dst=buffers.cleaned))
     if mode != "NONE":
         clear_exclusions(mask, roi_rect, exclusions, polygon_mask)
+    if diagnostics is not None:
+        diagnostics["clean_pixels"] = int(cv2.countNonZero(mask))
     morph_ms = (perf_counter() - tick) * 1000.0
     tick = perf_counter()
     options = {"grasp_roi": grasp_roi} if grasp_roi is not None else {}
@@ -393,6 +399,8 @@ def detect_color(roi_bgr, config, roi_rect, need_mask=True, buffers=None, fast_f
         options["fast_filter"] = True
     if grasp_preview:
         options["grasp_preview"] = True
+    if diagnostics is not None:
+        options["diagnostics"] = diagnostics
     result = find_largest_blob(mask, config, roi_rect, **options)
     blob_ms = (perf_counter() - tick) * 1000.0
     return result, mask if need_mask else None, {
@@ -428,7 +436,7 @@ def build_roi_mask(cv_bgr, config):
 
 
 def find_largest_blob(mask_roi, config, roi_rect, fast_filter=False, grasp_roi=None,
-                      grasp_preview=False):
+                      grasp_preview=False, diagnostics=None):
     """在已有 ROI 掩膜中只选择面积最大的合格色块并计算中心偏差。"""
     x, y, w, h = roi_rect
     min_area = config["blob"]["min_area"]
@@ -436,6 +444,9 @@ def find_largest_blob(mask_roi, config, roi_rect, fast_filter=False, grasp_roi=N
     best_contour = None
     best_area = 0.0
     best_rect = None
+    if diagnostics is not None:
+        diagnostics.update(contours=0, small=0, large=0, eligible=0, top=[],
+                           min_area=min_area, max_area=max_area)
     for contour in _find_contours(mask_roi):
         contour_rect = None
         if fast_filter:
@@ -448,7 +459,7 @@ def find_largest_blob(mask_roi, config, roi_rect, fast_filter=False, grasp_roi=N
             _, _, rect_w, rect_h = contour_rect
             # contourArea不可能大于外接矩形面积。只跳过必然低于原min_area的噪点，
             # 合格轮廓仍以原轮廓面积/矩求结果，不改成像素面积、不改任何门槛。
-            if (rect_w - 1) * (rect_h - 1) < min_area:
+            if diagnostics is None and (rect_w - 1) * (rect_h - 1) < min_area:
                 continue
         try:
             area = float(cv2.contourArea(contour))
@@ -457,6 +468,13 @@ def find_largest_blob(mask_roi, config, roi_rect, fast_filter=False, grasp_roi=N
             if contour is None:
                 continue
             area = float(cv2.contourArea(contour))
+        if diagnostics is not None:
+            diagnostics["contours"] += 1
+            reason = "small" if area < min_area else "large" if area > max_area else "eligible"
+            diagnostics[reason] += 1
+            diagnostics["top"].append(area)
+            diagnostics["top"].sort(reverse=True)
+            del diagnostics["top"][3:]
         if min_area <= area <= max_area and area > best_area:
             best_area = area
             best_contour = contour

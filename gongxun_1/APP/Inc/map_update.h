@@ -32,6 +32,11 @@ uint8_t map_update_scan(const map_scan_obs_t *obs, uint8_t count, uint32_t scan_
 // road_mask低12位对应R0~R11，本圈实际点命中哪条路就置哪一位；内部仍按连续两圈确认
 uint8_t map_update_roads(uint16_t road_mask, uint32_t scan_num, uint32_t tick, uint8_t complete);
 
+// 位置窗口已经确认的真实点道路，立即封锁，不再执行旧的连续两圈判断。
+// pending_mask包含仍有疑似/历史证据的道路，阻止上层误放行；同样校验新扫描。
+uint8_t map_update_confirmed_roads(uint16_t confirmed_mask, uint16_t pending_mask,
+                                 uint32_t scan_num, uint32_t tick, uint8_t complete);
+
 // 上层确认待进入道路的整段通行范围已经有效观察后调用，不能仅凭没有聚类就调用
 // scan_num必须是最近一次接受的扫描编号；tick传当前时间HAL_GetTick()，用于检查是否过期
 // 返回1表示已确认可通行；本圈有障碍、数据无效/过期或道路已封锁时返回0，不自动解封

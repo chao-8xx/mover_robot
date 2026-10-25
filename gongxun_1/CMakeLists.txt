@@ -90,6 +90,8 @@ add_executable(${CMAKE_PROJECT_NAME}
         Test/Inc/lidar_test.h
         Test/Src/lidar_pillar_test.c
         Test/Inc/lidar_pillar_test.h
+        Test/Src/lidar_map_desk_test.c
+        Test/Inc/lidar_map_desk_test.h
         Test/Src/run_test.c
         Test/Inc/run_test.h
         Test/Src/bfs_test.c

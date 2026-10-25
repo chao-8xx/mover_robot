@@ -277,6 +277,29 @@ class MainLoopTests(unittest.TestCase):
         self.assertIn("display", events)
         self.assertLess(events.index("send"), events.index("display"))
 
+    def test_black_diagnostics_are_limited_to_one_sample_per_second(self):
+        env = self.load_entry(local=True)
+        sampled_at = []
+        line = env["color_diagnostic_line"]
+        def record(*args):
+            sampled_at.append(env["now_ms"]())
+            return line(*args)
+        env["color_diagnostic_line"] = record
+        with tempfile.TemporaryDirectory() as path:
+            cfg = config()
+            cfg["target_color"] = "black"
+            VisionConfigStore(path).save(cfg)
+            self.hardware(env, path, [], loops=45, local=True, clock_step=4)
+        self.assertGreater(len(sampled_at), 1)
+        self.assertTrue(all(b-a >= 1000 for a, b in zip(sampled_at, sampled_at[1:])))
+        self.assertTrue(any("[VISION B2 DIAG]" in str(call) for call in env["print"].call_args_list))
+
+    def test_other_colors_do_not_emit_extra_diagnostics(self):
+        env = self.load_entry(local=True)
+        with tempfile.TemporaryDirectory() as path:
+            self.hardware(env, path, [], loops=15, local=True, clock_step=4)
+        self.assertFalse(any("[VISION B2 DIAG]" in str(call) for call in env["print"].call_args_list))
+
     def test_b2_reports_and_rejects_mixed_old_ui_module(self):
         env = self.load_entry()
         env["ui_module"] = types.SimpleNamespace(__file__="/old/vision_ui.py")
