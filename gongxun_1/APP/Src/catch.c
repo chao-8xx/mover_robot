@@ -21,8 +21,8 @@
 #define STRETCH_RETRY_MAX      3     // 最多重发次数
 
 // 电机速度
-#define STEP_MOVE_SPEED     800       // 丝杆电机位置模式移动速度（原1650，降速防过冲，保证升降到位稳定）
-#define STEP_SPEED          75        // 齿轮齿条电机位置模式移动速度
+#define STEP_MOVE_SPEED     1500      // 丝杆电机位置模式移动速度（原1650，降速防过冲，保证升降到位稳定）
+#define STEP_SPEED          80        // 齿轮齿条电机位置模式移动速度
 
 // 伸缩齿轮齿条速度模式
 uint8_t stretch_speed_on = 0;         // 启动速度模式
@@ -48,7 +48,7 @@ static volatile int32_t  lift_raw_pos   = 0;     // 1ms 中断读取 Motor_5 位
 static volatile uint8_t lift_raw_ready  = 0;     // 有新原始位置可用时置 1，初始化读取后清零
 #define LIFT_POS_TOL          1000               // 到位容差（脉冲），1000/4000=0.25cm
 #define LIFT_READ_PERIOD_MS   50                 // 读位置周期
-#define LIFT_TIMEOUT_MS       3000               // 超时保护（防卡死）
+#define LIFT_TIMEOUT_MS       1500               // 超时保护（防卡死）；降到1.5s，堵转/丢帧后能快速重试恢复
 #define LIFT_RETRY_MAX        3                  // 最多重发几次
 
 // 伸缩装置判断
@@ -73,8 +73,8 @@ static volatile uint8_t stretch_retry_times = 0; // 当前重发次数
 #define Y_KD            0.2f
 #define Y_MAX_I         50.0f
 #define Y_MAX_OUT       180
-#define FOLLOW_KP       0.8f    // 物料y轴坐标与齿轮齿条伸缩闭环
-#define FOLLOW_KD       0.5f
+#define FOLLOW_KP       1.2f    // 物料y轴坐标与齿轮齿条伸缩闭环
+#define FOLLOW_KD       0.4f
 #define FOLLOW_MAX_I    10.0f
 #define FOLLOW_MAX_OUT  50
 
@@ -386,7 +386,7 @@ void catch_lift(float delta_cm)
 void catch_lift_to_height(float height)
 {
     // 超限和忙保护（同伸缩 catch_stretch_distance）
-    if (lift_busy || height < -2.0f || height > 15.0f) {
+    if (lift_busy || height < -2.0f || height > 16.5f) {
         return;
     }
 
@@ -552,7 +552,7 @@ void catch_tick(void)
                     Emm_V5_Read_Sys_Params(5, S_CPOS);
                 }
             }
-            // 超时保护：规定时间没到位，说明驱动器丢失指令，再次发送
+            // 超时保护：规定时间没到位，说明驱动器丢失指令或堵转锁死，再次发送
             if ((int32_t)(HAL_GetTick() - lift_start_tick) >= LIFT_TIMEOUT_MS && lift_retry_times < LIFT_RETRY_MAX) {
                 motor_set_speed_Pos(Motor_5, STEP_MOVE_SPEED, lift_target_pos);
                 lift_start_tick = HAL_GetTick();

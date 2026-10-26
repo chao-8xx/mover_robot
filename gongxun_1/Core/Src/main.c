@@ -107,17 +107,12 @@ int main(void)
   /* USER CODE BEGIN 2 */
 
   // 系统整体初始化
-#if LIDAR_PILLAR_TEST_ENABLE
-  lidar_pillar_test_init();  // 独立小柱对照，不启动整车设备或运动任务
-#else
   system_init();
-#endif
 
   // maix 任务一测试
   // maix_b2_test();
-
-  // 预设数据的地图自检
-  // map_stage_test();
+  // openmv测试
+  // openmv_test();
 
   /* USER CODE END 2 */
 
@@ -130,41 +125,6 @@ int main(void)
     mv_task();                // OpenMV扫码处理任务
     send_conduct_task();      // 给maix发数据处理任务
     hmi_get_car_state_task(); // 非阻塞式发送小车当前状态至串口屏任务
-
-    // 雷达安装标定测试：按串口提示放置挡板，短按KEY1采集下一组
-    // lidar_install_test();
-    // wheel_mask_test();  // 四车轮遮挡测试，需要时切换回来
-
-    // // 雷达测试 完成
-    // lidar_test();
-
-
-    // // 遮挡测试 完成
-    // wheel_mask_test();
-
-    // 坐标标定测试   暂缓 后续按实际尺寸复测
-    // lidar_install_test();
-
-    // 坐标变换测试 完成
-    // // tf2d_test();
-
-    // 点云 聚类静止测试    暂用雷达原点、零朝向作为局部测试坐标 不代表小车实际全局位姿
-    // if (obstacle_find_task(0.0f, 0.0f, 0.0f)) {
-    //   point_cloud_test();        // 打印点云摘要
-    //   obstacle_cluster_test();   // 打印候选物体的角度、位置和尺寸
-    // }
-
-
-    // 雷达正面障碍物测试 测距离  1300mm
-    // lidar_pillar_test();
-
-    // 真实位姿静止建图：更新道路并打印位姿、扫描和道路状态 不发送运动指令
-    // chassis_odom_tick();       // 实际轮子反馈 -> cm里程计 -> mm地图位姿
-    // map_pose_test();
-
-    // 固定测试位姿的R8封路测试
-    // map_lidar_test();
-
 
     /* USER CODE END WHILE */
 

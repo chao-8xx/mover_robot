@@ -94,14 +94,14 @@ void hmi_solve(UART_HandleTypeDef *huart, uint16_t Size)
             if (hmi_rxbuffer[1] == 0x00) {  // 启停区2
                 hmi_start_x = 0;
                 hmi_start_y = 0;
-                chassis_odom_origin_set(240.0f - 15.0f, 15.0f);  // 右下启停区2中心 cm
+                chassis_odom_origin_set(15.0f, 15.0f);  // 左下启停区2中心 cm
                 task_state.task_location = PARKING_2;
                 start_location = 0; // 0:启停区2发车
             }
             else if (hmi_rxbuffer[1] == 0x01) { // 启停区1
                 hmi_start_x = 4;
                 hmi_start_y = 0;
-                chassis_odom_origin_set(240.0f - 15.0f, 240.0f - 15.0f);  // 右上启停区1中心 cm
+                chassis_odom_origin_set(240.0f - 15.0f, 15.0f);  // 右下启停区1中心 cm
                 task_state.task_location = PARKING_1;
                 start_location = 1; // 1:启停区1发车
             }

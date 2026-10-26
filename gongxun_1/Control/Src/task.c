@@ -54,14 +54,14 @@ void task_init()
 
     // 没码时 手动设置任务 后续可删 默认任务
     task_state.color_buf_one[0] = TASK_RED; // 第一组 红黄蓝
-    task_state.color_buf_one[1] = TASK_YELLOW;
+    task_state.color_buf_one[1] = TASK_GREEN;
     task_state.color_buf_one[2] = TASK_BLUE;
     task_state.area_buf_one[0] = AREA_1;
     task_state.area_buf_one[1] = AREA_2;
     task_state.area_buf_one[2] = AREA_3;
     task_state.color_buf_two[0] = TASK_BLUE; // 第二组 蓝红黄
     task_state.color_buf_two[1] = TASK_RED;
-    task_state.color_buf_two[2] = TASK_YELLOW;
+    task_state.color_buf_two[2] = TASK_GREEN;
     task_state.area_buf_two[0] = AREA_1;
     task_state.area_buf_two[1] = AREA_2;
     task_state.area_buf_two[2] = AREA_3;
@@ -71,6 +71,17 @@ void task_init()
     task_state.color_buf[3] = TASK_BLUE;
     task_state.color_buf[4] = TASK_RED;
     task_state.color_buf[5] = TASK_GREEN;
+
+    // 默认任务也要算转盘映射，否则没扫到码时第二批转盘一直是 [0,0,0] 不转
+    for (int e = 0; e < 3; e++) {
+        task_state.turntable_seq[e] = 0;
+        for (int f = 0; f < 3; f++) {
+            if (task_state.color_buf[f] == task_state.color_buf_two[e]) {
+                task_state.turntable_seq[e] = f;
+                break;
+            }
+        }
+    }
 }
 
 // 任务解析 把接收到的C0、C1等颜色字节转化为状态
@@ -192,7 +203,7 @@ uint8_t task_receive(void)
         }
     }
 
-    // ★ 六个槽任意一个没填上（或值为 0）就算解析失败
+    // 六个槽任意一个没填上（或值为 0）就算解析失败
     for (k = 0; k < 6; k++) {
         if (task_state.color_buf[k] < TASK_RED || task_state.color_buf[k] > TASK_LOW_BLUE)
             return 0;      // 失败

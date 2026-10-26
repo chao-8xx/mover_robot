@@ -6,14 +6,15 @@
 #define CHASSIS_MOTOR_PULSE_PER_REV  3200       // 多少脉冲一圈
 #define CHASSIS_CM_PER_PULSE         ((3.14159265f * CHASSIS_WHEEL_DIAM_CM) / CHASSIS_MOTOR_PULSE_PER_REV)  // cm/脉冲
 #define CHASSIS_CM_PER_FEEDBACK      ((3.14159265f * CHASSIS_WHEEL_DIAM_CM) / 65536.0f)  // 位置反馈与控制脉冲的单位不同
+#define CHASSIS_YAW_SETTLE     50        // 50 个 10ms = 稳定 500ms 后才算转到位
+#define CHASSIS_MOVE_MARGIN_MS 500       // 位置移动结束的额外余量ms
+#define CHASSIS_ARRIVE_TOL_CM  0.5f      // 底盘到位容差 cm（编码器反馈提前判到位）
 
 // 偏航 PID：输出是电机速度(RPM)，正负方向按实际转向调整
 #define CHASSIS_YAW_KP         3.8f
 #define CHASSIS_YAW_KD         0.2f
 #define CHASSIS_YAW_MAX_I      50.0f
 #define CHASSIS_YAW_MAX_OUT    120
-#define CHASSIS_YAW_SETTLE     50        // 50 个 10ms = 稳定 500ms 后才算转到位
-#define CHASSIS_MOVE_MARGIN_MS 500     // 位置移动结束的额外余量ms
 
 // 转向电机死区速度
 #define ROTATE_DEAD_SPEED  0
@@ -56,6 +57,8 @@ static uint8_t chassis_send_mode = 0;    // 0=速度模式，1=位置模式
 static int16_t chassis_move_speed = 0;   // 位置模式使用
 static uint8_t chassis_send_index = 0;   // 下一个要发送的电机下标
 static uint8_t chassis_sending = 0;      // 1 = 还在逐条发送命令
+static float chassis_start_dist[4] = {0};   // 每轮起点累计位移 cm
+static float chassis_target_dist[4] = {0};  // 每轮目标增量 cm
 
 // ======== 初始化 ======== //
 // float 绝对值
@@ -290,6 +293,12 @@ static void car_move_xy(int16_t speed, float x_cm, float y_cm)
         }
         chassis_wheel_cmd[i] = w[i];
     }
+
+    // 记录每轮起点和目标增量，供编码器反馈提前判到位
+    for (int i = 0; i < 4; i++) {
+        chassis_start_dist[i] = cur_wheel_dist[i];
+        chassis_target_dist[i] = (float)chassis_wheel_cmd[i] * CHASSIS_CM_PER_PULSE;
+    }
     chassis_send_mode = 1;     // 位置模式
     chassis_move_speed = speed;
     chassis_send_index = 0;
@@ -390,6 +399,11 @@ void chassis_odom_poll(void)
     static uint8_t idx = 0;
     static uint32_t last_tick = 0;
 
+    // 位姿解算被暂停时不发读请求，避免干扰升降/伸缩的反馈
+    if (!task_state.odom_on) {
+        return;
+    }
+
     // 等当前发送完成再读  保留底盘原有分时发送  不向串口队列连续塞请求
     if (Emm_V5_Tx_Count() != 0) {
         return;
@@ -488,12 +502,12 @@ void chassis_odom_update(void)
     float car_dy = ( d[0] - d[1] + d[2] - d[3]) / 4.0f;
     float car_dx = ((d[0] + d[1] - d[2] - d[3]) / 4.0f) / CHASSIS_STRAFE_K;
 
-    // 与地图使用相同的变换角  按赛场图朝北归零，默认my_yaw=0朝北、+90朝西
+    // 与车头朝向约定一致：车头 (1,0)=东，my_yaw=0 朝东、+90 朝北、-90 朝南
     // 区间中间朝向近似旋转期间的位移方向  第一次采样只记录轮子基准
     if (inited) {
         float rad = ((yaw + last_yaw) * 0.5f + odom_yaw_offset) * 3.14159265f / 180.0f;
-        x_cm += car_dx * cosf(rad) - car_dy * sinf(rad);
-        y_cm += car_dx * sinf(rad) + car_dy * cosf(rad);
+        x_cm += car_dy * cosf(rad) + car_dx * sinf(rad);
+        y_cm += car_dy * sinf(rad) - car_dx * cosf(rad);
     }
 
     primask = __get_PRIMASK();
@@ -527,12 +541,27 @@ void chassis_odom_reset(void)
     odom_epoch++;
     __set_PRIMASK(primask);
 }
+// 编码器反馈提前判到位：四轮都到目标增量才提前清 busy，deadline 仍作兜底
+void chassis_odom_arrive_check(void)
+{
+    if (!task_state.odom_on) return;             // odom 停着没有新鲜反馈，不做提前判
+    if (chassis_mode != CHASSIS_MOVE || chassis_sending) return;
+
+    for (int i = 0; i < 4; i++) {
+        float actual = cur_wheel_dist[i] - chassis_start_dist[i];
+        if (my_absf(actual - chassis_target_dist[i]) > CHASSIS_ARRIVE_TOL_CM) {
+            return;
+        }
+    }
+    chassis_mode = CHASSIS_IDLE;
+}
 // 底盘全局位姿实时解算tick
 void chassis_odom_tick(void)
 {
     // 航迹推算
     chassis_odom_poll();     // 每20ms读一个电机  静止时也轮询
     chassis_odom_fetch();    // 取回已到达的回复，更新 cur_wheel_dist[]
+    chassis_odom_arrive_check();  // 编码器反馈提前判到位（deadline 仍兜底）
     chassis_odom_update();   // 四轮新数据齐全后积分并发布实际位姿
 }
 

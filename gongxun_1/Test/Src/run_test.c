@@ -1321,3 +1321,100 @@ void stretch_test(void)
             break;
     }
 }
+
+// 底盘编码器测试 全局位姿用
+void chassis_encoder_test(void)
+{
+    static uint8_t  step = 0;
+    static uint32_t step_start = 0;
+    static uint32_t last_print = 0;
+    const int16_t speed = 120;        // 底盘速度 RPM
+    const float   dist  = 50.0f;      // 单次移动距离 cm
+
+    // 每 500ms 打印一次全局位姿到串口6
+    if ((int32_t)(HAL_GetTick() - last_print) >= 500) {
+        last_print = HAL_GetTick();
+        printf("x_cm=%.2f y_cm=%.2f\r\n",
+               (double)task_state.x_cm, (double)task_state.y_cm);
+    }
+
+    switch (step) {
+        case 0:   // 偏航角归零 -> 朝向 (1,0)
+            hwt101_yaw_reset();
+            step = 1;
+            break;
+        case 1:   // 等偏航复位完成
+            if (hwt101_yaw_valid()) {
+                step = 2;
+            }
+            break;
+        case 2:   // 设置起点并开启全局位姿解算
+            if (chassis_odom_origin_set(15.0f, 15.0f)) {
+                step_start = HAL_GetTick();
+                step = 3;
+            }
+            break;
+        case 3:   // 等位姿解算建立轮子基准
+            if ((int32_t)(HAL_GetTick() - step_start) >= 400) {
+                step = 4;
+            }
+            break;
+        case 4:   // 直行
+            if (!car_is_busy()) {
+                car_run_distance(speed, 0.0f, dist);
+                step = 5;
+            }
+            break;
+        case 5:   // 等直行结束
+            if (!car_is_busy()) {
+                step_start = HAL_GetTick();
+                step = 6;
+            }
+            break;
+        case 6:   // 停顿后后退
+            if ((int32_t)(HAL_GetTick() - step_start) >= 500) {
+                car_run_distance(speed, 0.0f, -dist);
+                step = 7;
+            }
+            break;
+        case 7:   // 等后退结束
+            if (!car_is_busy()) {
+                step_start = HAL_GetTick();
+                step = 8;
+            }
+            break;
+        case 8:   // 停顿后左移
+            if ((int32_t)(HAL_GetTick() - step_start) >= 500) {
+                car_run_distance(speed, -dist, 0.0f);
+                step = 9;
+            }
+            break;
+        case 9:   // 等左移结束
+            if (!car_is_busy()) {
+                step_start = HAL_GetTick();
+                step = 10;
+            }
+            break;
+        case 10:  // 停顿后右移
+            if ((int32_t)(HAL_GetTick() - step_start) >= 500) {
+                car_run_distance(speed, dist, 0.0f);
+                step = 11;
+            }
+            break;
+        case 11:  // 等右移结束
+            if (!car_is_busy()) {
+                step_start = HAL_GetTick();
+                step = 12;
+            }
+            break;
+        case 12:  // 一轮结束，停顿后循环
+            if ((int32_t)(HAL_GetTick() - step_start) >= 1000) {
+                step = 4;
+            }
+            break;
+        default:
+            car_stop();
+            step = 0;
+            break;
+    }
+}
