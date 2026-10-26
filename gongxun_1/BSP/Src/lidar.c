@@ -166,7 +166,7 @@ static uint16_t lidar_xor_check(const uint8_t *data, uint16_t len) {
     check_num ^= read_u16(&data[6]);
 
     // CS 位于data[8] data[9] 不参与计算
-    for (uint8_t i = 0; i < len; i++) {
+    for (uint16_t i = 0; i < len; i++) {
         offset = FRAME_LEN + (uint16_t)i * 3;
 
         // 与D6配套驱动一致：第一个字节补零参与XOR 后两个字节组成小端16位
@@ -545,10 +545,4 @@ void lidar_process(void) {
         }
     }
 }
-
-
-
-
-
-
 

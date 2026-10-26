@@ -3,38 +3,38 @@
 // 整车系统初始化 不可放入中断
 void system_init(void)
 {
+    // 失能定时器
     timer_disable();            // 先失能定时器
-    HAL_Delay(100);             // 等待一会儿
     car_reset = false;          // 未完成初始化/复位
+    HAL_Delay(100);             // 等待一会儿
 
-    task_init();                // 任务初始化
+    // 外设初始化
+    uart_init();                // 串口初始化   陀螺仪 串口屏 摄像头 串口调试 雷达 步进电机
     timer_init();               // 定时器初始化
-    light_buzzer_init();        // 灯光蜂鸣器初始化
-    uart_init();                // 串口初始化   陀螺仪 串口屏 摄像头 串口调试 雷达
 
-    tf_init();                  // 坐标变换初始化
+    // 车身装置初始化
+    chassis_init();             // 底盘装置
+    catch_init();               // 抓取装置
+    remind_init();              // 提示装置
+    light_buzzer_init();        // 灯光蜂鸣器初始化
+    HAL_Delay(100);             // 等待一会儿
+
+    // 任务、算法初始化
+    bfs_init();                 // 路径规划 ———— BFS 迪杰斯特拉
+    bfs_base_obstacle();        // 预设障碍物
+    HAL_Delay(100);             // 等待一会儿
+    task_init();                // 任务初始化 ———— 抓取任务
+    tf_init();                  // 坐标变换初始化 ———— 坐标变换及全局位姿
     map_pose_init();            // 等定位模块发布真实位姿 复位时清除上次结果
     map_update_init();          // 初始化道路状态和扫描确认记录
     HAL_Delay(100);             // 等待一会儿
 
-    // led_board_on();             // 开启补光板
-    light_on();                 // 开启补光灯
-
     lidar_start();              // 启动雷达
-
-    step_motor_init();          // 闭环步进电机
-    HAL_Delay(100);             // 等待一会儿
-
-    chassis_init();             // 底盘装置
-    catch_init();               // 抓取装置
-
-    remind_init();              // 提示装置
-    bfs_init();                 // 路径规划
-    bfs_base_obstacle();        // 预设障碍物
     HAL_Delay(100);             // 等待一会儿
 
     init_ok_remind();           // 初始化完成提醒
 
+    // 变量初始化
     openmv_end = 0;
     car_reset = true;           // 系统完成初始化/复位
 

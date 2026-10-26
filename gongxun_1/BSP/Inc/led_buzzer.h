@@ -13,12 +13,6 @@ void light_off(void);
 // 补光板翻转
 void light_toggle(void);
 
-// 开启补光板
-void led_board_on(void);
-
-// 关闭补光板
-void led_board_off(void);
-
 // 蜂鸣器打开
 void buzzer_on(void);
 
