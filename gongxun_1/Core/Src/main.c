@@ -125,6 +125,7 @@ int main(void)
     mv_task();                // OpenMV扫码处理任务
     send_conduct_task();      // 给maix发数据处理任务
     hmi_get_car_state_task(); // 非阻塞式发送小车当前状态至串口屏任务
+    lidar_process();          // 雷达DMA数据解析
 
     /* USER CODE END WHILE */
 

@@ -32,6 +32,8 @@ void hmi_touch(void) {
 // 触摸串口屏发车事件
 void hmi_start(void)
 {
+    hwt101_yaw_reset();     // 陀螺仪偏航角复位
+    my_yaw = 0.0f;
     car_run = true;
     hmi_lift_state = 0;
     hmi_stretch_state = 0;
@@ -62,7 +64,7 @@ void hmi_solve(UART_HandleTypeDef *huart, uint16_t Size)
                     (touch.page_id == 0x04 && touch.obj_id == 0x02)) {
                     hmi_stop();     // 停车事件触发
                     }
-                else if (touch.page_id == 0x01 && touch.obj_id == 0x04) {
+                else if (touch.page_id == 0x08 && touch.obj_id == 0x01) {
                     hmi_start();    // 发车事件触发
                 }
                 else if (touch.page_id == 0x06 && touch.obj_id == 0x0F) {

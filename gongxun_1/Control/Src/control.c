@@ -25,17 +25,28 @@
 #define CLAW_WAIT         400         // 等待夹爪
 #define HOLDER_WAIT       850         // 等待云台
 
+// 雷达扫描范围mm
+#define LIDAR_SMALL_SCALE   1000      // 小距离
+#define LIDAR_LARGE_SCALE   1500      // 大距离
+
 // 任务完成标志
 uint8_t scan_finish = 0;    // 扫码任务完成标志
 uint8_t catch_finish = 0;   // 抓取任务完成标志
 uint8_t put_finish = 0;     // 放置任务完成标志
 uint8_t pick_finish = 0;    // 拿起任务完成标志
 
+// 雷达扫描状态
+static uint8_t lidar_scan_parking = 0;   // 1=离开启停区后的扫描，0=工作点扫描
+static uint8_t lidar_scan_done = 0;      // 当前点位是否已扫描
+
 // 结构体定义
 Control_Variate my_control;
 
 // 声明变量
 extern volatile uint8_t stretch_pos_valid;
+
+
+// ======================== 初始化 ======================== //
 
 // 目标点顺序初始化
 static void target_pos_init(void)
@@ -74,6 +85,8 @@ void control_variate_init(void)
 }
 
 
+// ======================== 启停区执行步骤 ======================== //
+
 // 离开启停区 步骤2
 void leave_parking(void)
 {
@@ -95,7 +108,6 @@ void leave_parking(void)
                 break;
             case 2:
                 leave_step = 0;
-                task_state.odom_on = 1;
                 my_control.step = my_control.target_pos[my_control.target_index];
                 break;
             default:
@@ -184,6 +196,8 @@ void back_parking(void)
 
 }
 
+
+// ======================== 路径规划步骤 ======================== //
 
 // 规划去往某个目的地
 static void track_to_pos(uint8_t pos_x, uint8_t pos_y)
@@ -275,6 +289,8 @@ void track_to_process(void)
 }
 
 
+// ======================== 行驶、姿态、扫描步骤 ======================== //
+
 // 约定：车头朝 (1,0)=0°，顺时针 my_yaw 减小
 static float track_dir_to_yaw(int8_t dx, int8_t dy)
 {
@@ -299,6 +315,162 @@ static float track_rotate_target(float target_yaw)
     while (delta > 180.0f)  delta -= 360.0f;
     while (delta <= -180.0f) delta += 360.0f;
     return my_yaw + delta;
+}
+// 雷达0°=车头朝向，90°=左，180°=后，270°=右；返回车头(hx,hy)下指向地图方向(dx,dy)的雷达角度
+uint16_t lidar_dir_to_angle(int8_t hx, int8_t hy, int8_t dx, int8_t dy)
+{
+    if (dx == hx && dy == hy)    return 0;    // 前
+    if (dx == -hy && dy == hx)   return 90;   // 左
+    if (dx == -hx && dy == -hy)  return 180;  // 后
+    if (dx == hy && dy == -hx)   return 270;  // 右
+    return 0;
+}
+// 工作区节点（比赛保证不会有障碍）：启停区2(0,0)、启停区1(4,0)、粗加工区(0,2)、原料区(4,2)、暂存区(2,4)
+static uint8_t lidar_is_work_area(uint8_t gx, uint8_t gy)
+{
+    return (gx == 0 && gy == 0) || (gx == 4 && gy == 0) ||
+           (gx == 0 && gy == 2) || (gx == 4 && gy == 2) ||
+           (gx == 2 && gy == 4);
+}
+// 判断雷达角度是否落在车体/车轮遮挡范围（这些角度扫到的是自己，要跳过）
+// 实测遮挡角度：左前轮36-62° 右前轮302-314° 左后轮125-140° 右后轮218-236° 车体315-325°
+static uint8_t lidar_angle_blocked(uint16_t angle)
+{
+    return (angle >= 36  && angle <= 62)  ||   // 左前轮
+           (angle >= 302 && angle <= 314) ||   // 右前轮
+           (angle >= 125 && angle <= 140) ||   // 左后轮
+           (angle >= 218 && angle <= 236) ||   // 右后轮
+           (angle >= 315 && angle <= 325);     // 车体
+}
+
+// 扫描 center_deg 为中心的 ±3° 角度范围，返回有效点的中位距离；无有效点返回 0（当作杂点）
+uint16_t lidar_scan_window(const lidar_scan_t *scan, uint16_t center_deg, uint16_t range_mm)
+{
+    uint16_t dists[91];
+    uint16_t count = 0;
+
+    for (int16_t off = -3; off <= 3; off++) {
+        int32_t a = (int32_t)center_deg + off;
+        if (a < 0) a += 360;
+        uint16_t angle = (uint16_t)a;
+
+        if (lidar_angle_blocked(angle)) continue;   // 跳过车轮/车体遮挡角度
+        if (scan->valid[angle] == 0) continue;
+        uint16_t d = scan->distance[angle];
+        if (d < 220 || d > range_mm) continue;   // 220mm 是最小有效测距，以下/超范围当作杂点
+        dists[count++] = d;
+    }
+
+    if (count < 3) {
+        return 0;
+    }
+
+    // 排序取中位数，抵抗杂点
+    for (uint16_t i = 0; i + 1 < count; i++) {
+        for (uint16_t j = i + 1; j < count; j++) {
+            if (dists[j] < dists[i]) {
+                uint16_t tmp = dists[i];
+                dists[i] = dists[j];
+                dists[j] = tmp;
+            }
+        }
+    }
+    return dists[count / 2];
+}
+
+// 把车头(hx,hy)下、地图方向(dx,dy)扫描到的点集中位距离换算成栅格，标记或撤除障碍
+static void lidar_mark_dir(const lidar_scan_t *scan, int8_t hx, int8_t hy,
+                           int8_t dx, int8_t dy, uint16_t range_mm)
+{
+    uint16_t center = lidar_dir_to_angle(hx, hy, dx, dy);
+    uint16_t dist = lidar_scan_window(scan, center, range_mm);
+    if (dist == 0) {
+        return;
+    }
+
+    // 距离 -> 格数（每格45cm，四舍五入）
+    int16_t cells = (int16_t)((dist + 215) / 450);
+    int16_t gx = (int16_t)(task_state.cur_x + (int16_t)dx * cells);
+    int16_t gy = (int16_t)(task_state.cur_y + (int16_t)dy * cells);
+
+    if (gx < 0 || gx >= BFS_MAP_SIZE || gy < 0 || gy >= BFS_MAP_SIZE) {
+        return;
+    }
+
+    if (lidar_is_work_area((uint8_t)gx, (uint8_t)gy)) {
+        bfs_set_obstacle((uint8_t)gx, (uint8_t)gy, 0);     // 工作区强制无碍
+        printf("障碍坐标(%d,%d)为工作区，工作区无障碍！删除！ \n", gx, gy);  // 输出扫描到的障碍坐标
+    } else {
+        bfs_set_obstacle((uint8_t)gx, (uint8_t)gy, 1);    // 标记障碍
+        printf("扫描到障碍坐标(%d,%d) \n", gx, gy);                     // 输出扫描到的障碍坐标
+    }
+}
+// 雷达扫描赛道障碍并标记坐标 步骤16，扫描约1s
+void lidar_get_obstacle(void)
+{
+    static uint32_t scan_start = 0;
+    const lidar_scan_t *scan = lidar_get_scan();
+
+    // 等雷达出第一圈数据
+    if (scan == NULL) {
+        return;
+    }
+
+    // 扫描开始时刻
+    if (scan_start == 0) {
+        scan_start = HAL_GetTick();
+    }
+
+    // 车头朝向（扫描时车已停稳、朝向已校准）
+    int8_t hx, hy;
+    if (lidar_scan_parking) {
+        hx = 1; hy = 0;   // 离开启停区时车头朝东
+    } else {
+        hx = my_control.tx;
+        hy = my_control.ty;
+    }
+
+    // 根据当前位置确定扫描方向与范围
+    if (lidar_scan_parking) {           // 刚离开启停区
+        if (start_location == 1) {      // 启停区1：北、西2.4m
+            lidar_mark_dir(scan, hx, hy, 0, 1, LIDAR_LARGE_SCALE);
+            lidar_mark_dir(scan, hx, hy, -1, 0, LIDAR_LARGE_SCALE);
+        } else {                        // 启停区2：北、东2.4m
+            lidar_mark_dir(scan, hx, hy, 0, 1, LIDAR_LARGE_SCALE);
+            lidar_mark_dir(scan, hx, hy, 1, 0, LIDAR_LARGE_SCALE);
+        }
+    } else {
+        switch (task_state.task_location) {
+            case MATERIAL:              // 原料区：北、南1.2m，西2.4m
+                lidar_mark_dir(scan, hx, hy, 0, 1, LIDAR_SMALL_SCALE);
+                lidar_mark_dir(scan, hx, hy, 0, -1, LIDAR_SMALL_SCALE);
+                lidar_mark_dir(scan, hx, hy, -1, 0, LIDAR_LARGE_SCALE);
+                break;
+            case PROCESS:               // 粗加工区：北、南1.2m，东2.4m
+                lidar_mark_dir(scan, hx, hy, 0, 1, LIDAR_SMALL_SCALE);
+                lidar_mark_dir(scan, hx, hy, 0, -1, LIDAR_SMALL_SCALE);
+                lidar_mark_dir(scan, hx, hy, 1, 0, LIDAR_LARGE_SCALE);
+                break;
+            case TEMPORARY:             // 暂存区：东、西1.2m，南2.4m
+                lidar_mark_dir(scan, hx, hy, 1, 0, LIDAR_SMALL_SCALE);
+                lidar_mark_dir(scan, hx, hy, -1, 0, LIDAR_SMALL_SCALE);
+                lidar_mark_dir(scan, hx, hy, 0, -1, LIDAR_LARGE_SCALE);
+                break;
+            default:
+                break;
+        }
+    }
+
+    // 扫描约1s后结束
+    if ((int32_t)(HAL_GetTick() - scan_start) >= 1000) {
+        scan_start = 0;
+        lidar_scan_done = 1;
+        if (lidar_scan_parking) {
+            my_control.step = TARGET_SCAN_STEP;   // 扫描完去扫码区
+        } else {
+            my_control.step = CALIBRATE_YAW_STEP; // 扫描完回校准，继续工作判断
+        }
+    }
 }
 
 // 校准该点角度 到点才校准
@@ -362,6 +534,15 @@ void calibrate_yaw(void)
         }
     }
 
+    // 原料区/粗加工区/暂存区 先扫描障碍再工作 不用雷达则注释
+    // if ((task_state.task_location == MATERIAL ||
+    //      task_state.task_location == PROCESS ||
+    //      task_state.task_location == TEMPORARY) && !lidar_scan_done) {
+    //     lidar_scan_parking = 0;
+    //     my_control.step = LIDAR_GET_OBSTACLE_STEP;
+    //     return;
+    // }
+
     // 根据对物料的完成情况何当前坐标 决定是规划离开还是开始工作
     if (task_state.task_location == SCAN && scan_finish == 0) { // 到达扫码区且扫码任务未完成
         my_control.step = SCAN_GET_TASK_STEP;   // 切换到扫码步骤
@@ -382,6 +563,7 @@ void calibrate_yaw(void)
     catch_finish = 0;
     put_finish = 0;
     pick_finish = 0;
+    lidar_scan_done = 0;   // 下一目标点重新扫描
 
     // 根据目标数组 开始规划下一目标点
     my_control.target_index += 1;
@@ -554,6 +736,8 @@ void final_road_move(void)
     my_control.step = CALIBRATE_YAW_STEP;
 }
 
+
+// ======================== 任务辅助函数 ======================== //
 
 // 目标状态获取 将摄像头所捕获的状态转化成车辆状态
 void target_state_get(void)
@@ -803,6 +987,8 @@ void follow_stretch_target(int16_t target_y)
 }
 
 
+// ======================== 扫码任务 ======================== //
+
 // 扫码获取任务
 void scan_get_task(void)
 {
@@ -875,6 +1061,8 @@ void scan_send_task_hmi(void)
     printf("已发送至串口屏\r\n");
 }
 
+
+// ======================== 抓取、放置任务 ======================== //
 
 // 抓取物料 原料区->转盘
 uint8_t catch_step = 0;
@@ -1047,12 +1235,21 @@ void catch_material(void)
                 }
             }
             break;
-        case 11:     // 夹爪夹住
+        case 11:     // 夹爪夹住 加上高度判断
             if (!lift_is_busy()) {
-                claw_ctrl(CLAW_CATCH);
-                servo_wait_ms(CLAW_WAIT);
-                catch_num += 1;
-                catch_step = 12;
+                if (task_state.cur_height > LIFT_CATCH - 0.5f &&
+                    task_state.cur_height < LIFT_CATCH + 0.5f) {    // 判断实际高度是否真的到位
+                    claw_ctrl(CLAW_CATCH);
+                    servo_wait_ms(CLAW_WAIT);
+                    catch_num += 1;
+                    catch_step = 12;
+                }
+                else {  // 实际高度不在合适范围 说明夹爪又没下放
+                    if (task_state.index > 0) {
+                        task_state.index -= 1;  // 索引回退
+                    }
+                    catch_step = 3;   // 重新给maix发指令锁物料
+                }
             }
             break;
         case 12:     // 待夹爪夹取完全时 上升
@@ -1649,6 +1846,9 @@ void pick_material(void)
     }
 }
 
+
+// ======================== 整套流程 ======================== //
+
 // 整套控制流程
 void control_process(void)
 {
@@ -1773,6 +1973,10 @@ void control_process(void)
 
         case PICK_MATERIAL_STEP:    // 拿起物料
             pick_material();
+            break;
+
+        case LIDAR_GET_OBSTACLE_STEP:    // 雷达扫描障碍
+            lidar_get_obstacle();
             break;
 
         case 99:

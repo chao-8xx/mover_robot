@@ -1418,3 +1418,62 @@ void chassis_encoder_test(void)
             break;
     }
 }
+
+// 雷达障碍扫描测试：模拟在原料区(4,2)、车头朝南，扫描1s后打印扫描到的障碍坐标
+// 放入10ms中断即可，执行一遍后保持
+void lidar_get_obstacle_test(void)
+{
+    static uint8_t step = 0;
+    static uint32_t scan_start = 0;
+
+    const lidar_scan_t *scan = lidar_get_scan();
+
+    switch (step) {
+        case 0:     // 等雷达出第一圈数据
+            if (scan != NULL) {
+                scan_start = HAL_GetTick();
+                step = 1;
+            }
+            break;
+        case 1:     // 扫描1s
+            if ((int32_t)(HAL_GetTick() - scan_start) >= 1000) {
+                step = 2;
+            }
+            break;
+        case 2:     // 打印结果
+        {
+            uint8_t found = 0;
+            int8_t hx = 0, hy = -1;         // 原料区车头朝南
+            uint8_t cur_x = 4, cur_y = 2;   // 原料区(4,2)
+
+            // 北1.2m、南1.2m、西2.4m
+            const int8_t dirs[3][2] = {{0, 1}, {0, -1}, {-1, 0}};
+            const uint16_t ranges[3] = {1000, 1000, 1500};
+            const char *names[3] = {"北", "南", "西"};
+
+            for (uint8_t i = 0; i < 3; i++) {
+                uint16_t angle = lidar_dir_to_angle(hx, hy, dirs[i][0], dirs[i][1]);
+                uint16_t dist = lidar_scan_window(scan, angle, ranges[i]);
+                if (dist == 0) continue;
+
+                int16_t cells = (int16_t)((dist + 215) / 450);
+                int16_t gx = (int16_t)(cur_x + (int16_t)dirs[i][0] * cells);
+                int16_t gy = (int16_t)(cur_y + (int16_t)dirs[i][1] * cells);
+                if (gx < 0 || gx >= BFS_MAP_SIZE || gy < 0 || gy >= BFS_MAP_SIZE) continue;
+
+                printf("[雷达] %s方向 距离%umm 障碍坐标(%d,%d)\r\n",
+                       names[i], dist, (int)gx, (int)gy);
+                found++;
+            }
+
+            if (found == 0) {
+                printf("[雷达] 未扫描到障碍\r\n");
+            }
+            step = 3;
+            break;
+        }
+        case 3:     // 执行一遍后保持
+        default:
+            break;
+    }
+}
