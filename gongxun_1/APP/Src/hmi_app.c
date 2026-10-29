@@ -64,7 +64,7 @@ void hmi_solve(UART_HandleTypeDef *huart, uint16_t Size)
                     (touch.page_id == 0x04 && touch.obj_id == 0x02)) {
                     hmi_stop();     // 停车事件触发
                     }
-                else if (touch.page_id == 0x08 && touch.obj_id == 0x01) {
+                else if (touch.page_id == 0x07 && touch.obj_id == 0x01) {
                     hmi_start();    // 发车事件触发
                 }
                 else if (touch.page_id == 0x06 && touch.obj_id == 0x0F) {

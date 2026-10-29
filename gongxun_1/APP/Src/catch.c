@@ -17,8 +17,8 @@
     (PULSE_PER_CIRCLE / (3.14159265f * GEAR_DIAMETER / 10.0f))  // 绝对位置命令的脉冲/cm
 #define STRETCH_TOL_CM         0.1f  // 伸缩绝对定位容差 cm
 #define STRETCH_READ_PERIOD_MS 20    // 绝对定位读反馈周期
-#define STRETCH_TIMEOUT_MS     3000  // 绝对定位单次超时
-#define STRETCH_RETRY_MAX      3     // 最多重发次数
+#define STRETCH_TIMEOUT_MS     2600  // 绝对定位单次超时
+#define STRETCH_RETRY_MAX      1     // 最多重发次数
 
 // 电机速度
 #define STEP_MOVE_SPEED     1500      // 丝杆电机位置模式移动速度（原1650，降速防过冲，保证升降到位稳定）
@@ -65,15 +65,15 @@ static volatile uint32_t stretch_start_tick = 0; // 本次绝对定位开始时�
 static volatile uint8_t stretch_retry_times = 0; // 当前重发次数
 
 // PID参数
-#define X_KP            0.7f    // x轴坐标与麦轮闭环
+#define X_KP            0.8f    // x轴坐标与麦轮闭环
 #define X_KD            0.2f
 #define X_MAX_I         50.0f
 #define X_MAX_OUT       180
-#define Y_KP            0.7f    // y轴坐标与麦轮闭环
+#define Y_KP            0.8f    // y轴坐标与麦轮闭环
 #define Y_KD            0.2f
 #define Y_MAX_I         50.0f
 #define Y_MAX_OUT       180
-#define FOLLOW_KP       1.2f    // 物料y轴坐标与齿轮齿条伸缩闭环
+#define FOLLOW_KP       1.4f    // 物料y轴坐标与齿轮齿条伸缩闭环
 #define FOLLOW_KD       0.4f
 #define FOLLOW_MAX_I    10.0f
 #define FOLLOW_MAX_OUT  50
@@ -208,7 +208,7 @@ void catch_stretch_distance(float distance)
     static float acc = (float)STEP_MOTOR_CATCH_ACC; // 加速度
 
     // 超限和忙保护
-    if (stretch_busy || distance < 0.0f || distance > 35.0f) return;
+    if (stretch_busy || distance < 0.2f || distance > 35.0f) return;
 
     // 距离 → 绝对位置
     pos = stretch_dist_to_pos(distance);
@@ -386,7 +386,7 @@ void catch_lift(float delta_cm)
 void catch_lift_to_height(float height)
 {
     // 超限和忙保护（同伸缩 catch_stretch_distance）
-    if (lift_busy || height < -2.0f || height > 16.5f) {
+    if (lift_busy || height < -2.0f || height > 17.5f) {
         return;
     }
 

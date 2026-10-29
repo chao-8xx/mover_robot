@@ -7,7 +7,7 @@
 #define CHASSIS_CM_PER_PULSE         ((3.14159265f * CHASSIS_WHEEL_DIAM_CM) / CHASSIS_MOTOR_PULSE_PER_REV)  // cm/脉冲
 #define CHASSIS_CM_PER_FEEDBACK      ((3.14159265f * CHASSIS_WHEEL_DIAM_CM) / 65536.0f)  // 位置反馈与控制脉冲的单位不同
 #define CHASSIS_YAW_SETTLE     50        // 50 个 10ms = 稳定 500ms 后才算转到位
-#define CHASSIS_MOVE_MARGIN_MS 500       // 位置移动结束的额外余量ms
+#define CHASSIS_MOVE_MARGIN_MS 300       // 位置移动结束的额外余量ms
 #define CHASSIS_ARRIVE_TOL_CM  0.5f      // 底盘到位容差 cm（编码器反馈提前判到位）
 
 // 偏航 PID：输出是电机速度(RPM)，正负方向按实际转向调整

@@ -9,17 +9,17 @@
 #define LEAVE_PARK_DX     15.0f       // 离开启停区的横向距离
 #define LEAVE_PARK_DY     15.5f       // 离开启停区的纵向距离
 
-#define LOCK_CAR_CALI    (0.28f)      // 抓物料时锁定小车的x轴位置的系数
-#define LOCK_CAR_DY      (90)         // 抓物料时锁定小车的DY目标 小车横向锁转盘中心
+#define LOCK_CAR_CALI    (0.20f)      // 抓物料时锁定小车的x轴位置的系数
+#define LOCK_CAR_DY      (82)         // 抓物料时锁定小车的DY目标 小车横向锁转盘中心
 
 #define MOVE_SPEED        470         // 底盘非任务区运行速度
 
 // 根据格子数量对于行走距离 cm
 #define NUM_DELTA_DIST    14.0f       // 暂存区、粗加工区圆环间距
 #define ONE_BLOCK_DIST    43.5f       // 一格
-#define TWO_BLOCK_DIST    88.0f       // 两格
+#define TWO_BLOCK_DIST    89.0f       // 两格
 #define THREE_BLOCK_DIST  127.5f      // 三格
-#define FOUR_BLOCK_DIST   179.0f      // 四格
+#define FOUR_BLOCK_DIST   175.5f      // 四格
 
 // 舵机等待时间 ms
 #define CLAW_WAIT         400         // 等待夹爪
@@ -977,7 +977,7 @@ void follow_stretch_target(int16_t target_y)
     // 只有读到过有效位置，才做超限保护
     if (stretch_pos_valid) {
         if ((task_state.cur_stretch >= STRETCH_MAX_CM && follow_out < 0.0f) ||  // 伸到头 只让缩
-        (task_state.cur_stretch <= 0.0f && follow_out > 0.0f)) {                // 缩到头 只让伸
+        (task_state.cur_stretch <= 0.3f && follow_out > 0.0f)) {                // 缩到头 只让伸
             follow_out = 0.0f;
         }
     }
@@ -1214,6 +1214,7 @@ void catch_material(void)
             if (clear_zero_time >= 180) {
                 clear_zero_time = 0;
                 if (catch_finish == 1) {
+                    car_run_distance(50,5.0f,0.0f); // 离转盘远一点 怕撞
                     catch_step = 20;   // 抓取结束步骤
                 }
                 else {
@@ -1237,18 +1238,22 @@ void catch_material(void)
             break;
         case 11:     // 夹爪夹住 加上高度判断
             if (!lift_is_busy()) {
-                if (task_state.cur_height > LIFT_CATCH - 0.5f &&
-                    task_state.cur_height < LIFT_CATCH + 0.5f) {    // 判断实际高度是否真的到位
+                if (task_state.cur_height < LIFT_CATCH + 1.5f &&
+                    task_state.cur_height > 0.0f) {    // 判断实际高度是否下降到合适位置
                     claw_ctrl(CLAW_CATCH);
                     servo_wait_ms(CLAW_WAIT);
                     catch_num += 1;
                     catch_step = 12;
                 }
                 else {  // 实际高度不在合适范围 说明夹爪又没下放
-                    if (task_state.index > 0) {
+                    if (task_state.index > 0 && task_state.index < 5) {
                         task_state.index -= 1;  // 索引回退
                     }
-                    catch_step = 3;   // 重新给maix发指令锁物料
+                    else if (task_state.index == 5) {
+                        task_state.index = 5;  // 索引回退
+                    }
+                    catch_a_ok = 1;   // 算刚抓完一个物料
+                    catch_step = 8;   // 底盘电机回零
                 }
             }
             break;
@@ -1871,6 +1876,7 @@ void control_process(void)
     if (my_control.lift_state == 1) {
         if (!lift_is_busy()) {
             my_control.lift_state = 0;
+            printf("cur_height: %.2f \n", task_state.cur_height);
         }
         return;
     }

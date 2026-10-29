@@ -19,22 +19,22 @@
 #define HOLDER_PUT      242.0f   // 云台放置物料角度
 #define HOLDER_CATCH    92.0f    // 云台抓取中间物料角度
 #define HOLDER_RIGHT    50.0f    // 云台抓取右侧物料角度
-#define HOLDER_LEFT     142.0f   // 云台抓取左侧物料角度
+#define HOLDER_LEFT     138.0f   // 云台抓取左侧物料角度
 
 // 升降装置目标高度
-#define LIFT_ZERO_CM    16.0f   // 编码器清零时对应的物理高度，固定不动
-#define LIFT_NORMAL     15.7f   // 默认高度
-#define LIFT_PUT        12.0f   // 放置高度 放入转盘
-#define LIFT_CATCH      7.0f    // 从原料区抓取高度
-#define LIFT_PUT_ONE    (0.0f)  // 一次放置 放在圆环
+#define LIFT_ZERO_CM    17.0f   // 编码器清零时对应的物理高度，固定不动
+#define LIFT_NORMAL     16.7f   // 默认高度
+#define LIFT_PUT        13.0f   // 放置高度 放入转盘
+#define LIFT_CATCH      8.5f    // 从原料区抓取高度
+#define LIFT_PUT_ONE    (1.1f)  // 一次放置 放在圆环
 #define LIFT_PUT_TWO    5.5f    // 二次放置 叠在一次放置处
 
 // 伸缩装置目标位置
 #define STRETCH_NORMAL   0.0f   // 默认位置
 #define STRETCH_CATCH    12.5f  // 抓取位置 从原料区
-#define STRETCH_PUT      1.0f   // 放置位置 放入转盘
+#define STRETCH_PUT      0.5f   // 放置位置 放入转盘
 #define STRETCH_PUT_MID  5.0f   // 放置中心圆环位置
-#define STRETCH_PUT_SIDE 11.8f   // 放置两边圆环位置
+#define STRETCH_PUT_SIDE 10.2f   // 放置两边圆环位置
 #define STRETCH_SAFE     8.0f   // 安全长度
 
 // 夹爪当前模式：夹住/松开
