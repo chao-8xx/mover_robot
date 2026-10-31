@@ -17,7 +17,7 @@
     (PULSE_PER_CIRCLE / (3.14159265f * GEAR_DIAMETER / 10.0f))  // 绝对位置命令的脉冲/cm
 #define STRETCH_TOL_CM         0.1f  // 伸缩绝对定位容差 cm
 #define STRETCH_READ_PERIOD_MS 20    // 绝对定位读反馈周期
-#define STRETCH_TIMEOUT_MS     2600  // 绝对定位单次超时
+#define STRETCH_TIMEOUT_MS     5000  // 绝对定位单次超时
 #define STRETCH_RETRY_MAX      1     // 最多重发次数
 
 // 电机速度
@@ -145,14 +145,13 @@ void catch_init(void)
     servo_init();
 
     // 舵机复位
-    // holder_rotate(HOLDER_CATCH);     // 云台舵机
-    holder_rotate(HOLDER_SAFE);     // 云台舵机
-    turntable_rotate(ONE_LOCATION); // 转盘舵机
-    claw_ctrl(CLAW_LOOSE);          // 夹爪舵机
+    holder_rotate(HOLDER_SAFE);      // 云台舵机
+    turntable_rotate(SAFE_LOCATION); // 转盘舵机
+    claw_ctrl(CLAW_CATCH);           // 夹爪舵机
     HAL_Delay(500);
 
     // 伸缩到合规位置
-    // catch_stretch_distance(STRETCH_SAFE);
+    catch_stretch_distance(STRETCH_SAFE);
 
     // 初始化PID参数 定位物料
     Positional_PID_Init(&x_pid,X_KP,0.0f,X_KD,
@@ -208,7 +207,7 @@ void catch_stretch_distance(float distance)
     static float acc = (float)STEP_MOTOR_CATCH_ACC; // 加速度
 
     // 超限和忙保护
-    if (stretch_busy || distance < 0.2f || distance > 35.0f) return;
+    if (stretch_busy || distance < 0.0f || distance > 35.0f) return;
 
     // 距离 → 绝对位置
     pos = stretch_dist_to_pos(distance);

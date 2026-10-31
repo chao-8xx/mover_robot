@@ -22,8 +22,8 @@
 #define FOUR_BLOCK_DIST   175.5f      // 四格
 
 // 舵机等待时间 ms
-#define CLAW_WAIT         400         // 等待夹爪
-#define HOLDER_WAIT       850         // 等待云台
+#define CLAW_WAIT         500         // 等待夹爪
+#define HOLDER_WAIT       900         // 等待云台
 
 // 雷达扫描范围mm
 #define LIDAR_SMALL_SCALE   1000      // 小距离
@@ -1215,6 +1215,7 @@ void catch_material(void)
                 clear_zero_time = 0;
                 if (catch_finish == 1) {
                     car_run_distance(50,5.0f,0.0f); // 离转盘远一点 怕撞
+                    my_control.move_state = 1;
                     catch_step = 20;   // 抓取结束步骤
                 }
                 else {
@@ -1316,6 +1317,7 @@ void catch_material(void)
                 }
                 else if (catch_num >= 3) {  // 已抓完
                     catch_finish = 1;
+                    catch_stretch_distance(STRETCH_SAFE);   // 伸缩到安全位置
                     catch_step = 8; // 底盘回零后再走
                 }
             }
@@ -1332,7 +1334,7 @@ void catch_material(void)
             task_state.car_work = RUNNING; // 小车结束夹取状态 去往下一个点位
             my_control.step = CALIBRATE_YAW_STEP;   // 跳到校准角度步骤 校准完再离开
             holder_rotate(HOLDER_SAFE);        // 云台转回安全位置
-            catch_stretch_distance(STRETCH_SAFE);   // 伸缩到安全位置
+            claw_ctrl(CLAW_CATCH);             // 夹爪夹紧
             turntable_rotate(SAFE_LOCATION);   // 转盘转到安全位置
             catch_step = 0;
             break;
@@ -1530,19 +1532,19 @@ void put_material(void)
             switch (put_num) {
                 case 0:     // 1号圆环
                     holder_rotate(HOLDER_LEFT);
-                    catch_stretch_distance(STRETCH_PUT_SIDE);  // 伸缩到置放置两侧圆环位置
+                    catch_stretch_distance(STRETCH_PUT_LEFT);  // 伸缩到置放置两侧圆环位置
                     break;
                 case 1:     // 2号圆环
                     holder_rotate(HOLDER_CATCH);
-                    catch_stretch_distance(STRETCH_PUT_MID);  // 伸缩到置放置中间圆环位置
+                    catch_stretch_distance(STRETCH_PUT_MID);    // 伸缩到置放置中间圆环位置
                     break;
                 case 2:     // 3号圆环
                     holder_rotate(HOLDER_RIGHT);
-                    catch_stretch_distance(STRETCH_PUT_SIDE);  // 伸缩到置放置两侧圆环位置
+                    catch_stretch_distance(STRETCH_PUT_RIGHT);  // 伸缩到置放置两侧圆环位置
                     break;
                 default:    // 默认
                     holder_rotate(HOLDER_CATCH);
-                    catch_stretch_distance(STRETCH_PUT_SIDE);  // 伸缩到置放置两侧圆环位置
+                    catch_stretch_distance(STRETCH_PUT_MID);    // 伸缩到置放置中间圆环位置
                     break;
             }
             servo_wait_ms(HOLDER_WAIT); // 等云台转到目标位置
@@ -1580,6 +1582,7 @@ void put_material(void)
             }
             else if (put_num >= 3) {
                 if (!car_is_busy()) {
+                    catch_stretch_distance(STRETCH_SAFE);   // 伸缩到安全位置
                     put_step = 19;  // 结束放置
                 }
             }
@@ -1592,10 +1595,10 @@ void put_material(void)
             servo_reset_step = 0;
             find_cir_ok = 0;
             task_state.odom_on = 1;     // 重启全局位姿
-            holder_rotate(HOLDER_SAFE);        // 云台转回安全位置
-            catch_stretch_distance(STRETCH_SAFE);   // 伸缩到安全位置
             if (task_state.task_location == PROCESS) {    // 如果放在粗加工区
-                task_state.car_work = PICKING;      // 小车结束放置状态 把物料从粗加工区拿起
+                task_state.car_work = PICKING;          // 小车结束放置状态 把物料从粗加工区拿起
+                holder_rotate(HOLDER_CATCH);       // 云台抓取位置
+                claw_ctrl(CLAW_LOOSE);             // 夹爪松开
                 my_control.step = PICK_MATERIAL_STEP;   // 跳到拿起物料步骤
                 if ((!task_state.one_finish && !task_state.two_finish) ||
                     (task_state.one_finish && task_state.two_finish)) {
@@ -1607,6 +1610,9 @@ void put_material(void)
             }
             else if (task_state.task_location == TEMPORARY) {   // 如果放在暂存区
                 task_state.car_work = RUNNING;     // 小车结束放置状态 去往下一个点位
+                claw_ctrl(CLAW_CATCH);             // 夹爪夹紧
+                holder_rotate(HOLDER_SAFE);        // 云台转回安全位置
+                turntable_rotate(SAFE_LOCATION);   // 转盘转到安全位置
                 my_control.step = CALIBRATE_YAW_STEP;   // 跳到校准角度步骤 校准完再离开
                 if (!task_state.one_finish) {
                     task_state.one_finish = 1;
@@ -1752,22 +1758,22 @@ void pick_material(void)
                 case 0:     // 1号圆环
                     holder_rotate(HOLDER_LEFT);
                     turntable_rotate(ONE_LOCATION);
-                    catch_stretch_distance(STRETCH_PUT_SIDE);  // 伸缩到置放置两侧圆环位置
+                    catch_stretch_distance(STRETCH_PUT_LEFT);  // 伸缩到置放置左侧圆环位置
                     break;
                 case 1:     // 2号圆环
                     holder_rotate(HOLDER_CATCH);
                     turntable_rotate(TWO_LOCATION);
-                    catch_stretch_distance(STRETCH_PUT_MID);  // 伸缩到置放置中间圆环位置
+                    catch_stretch_distance(STRETCH_PUT_MID);   // 伸缩到置放置中间圆环位置
                     break;
                 case 2:     // 3号圆环
                     holder_rotate(HOLDER_RIGHT);
                     turntable_rotate(THREE_LOCATION);
-                    catch_stretch_distance(STRETCH_PUT_SIDE);  // 伸缩到置放置两侧圆环位置
+                    catch_stretch_distance(STRETCH_PUT_RIGHT); // 伸缩到置放置又侧圆环位置
                     break;
                 default:    // 默认
                     holder_rotate(HOLDER_CATCH);
                     turntable_rotate(ONE_LOCATION);
-                    catch_stretch_distance(STRETCH_PUT_SIDE);  // 伸缩到置放置两侧圆环位置
+                    catch_stretch_distance(STRETCH_PUT_MID);  // 伸缩到置放置中间圆环位置
                     break;
             }
             servo_wait_ms(HOLDER_WAIT); // 等云台转到目标位置
@@ -1823,6 +1829,7 @@ void pick_material(void)
                 pick_step = 6;  // 继续控制转盘和云台
             }
             else if (pick_num >= 3) {
+                catch_stretch_distance(STRETCH_SAFE);   // 伸缩到安全位置
                 pick_step = 15; // 结束
             }
             task_state.index = temp_index;  // 恢复当前索引
@@ -1834,7 +1841,7 @@ void pick_material(void)
             servo_reset_step = 0;
             task_state.odom_on = 1;     // 重启全局位姿
             turntable_rotate(SAFE_LOCATION);   // 转盘转到安全位置
-            catch_stretch_distance(STRETCH_SAFE);   // 伸缩到安全位置
+            claw_ctrl(CLAW_CATCH);             // 夹爪夹紧
             if (task_state.task_location == PROCESS) {    // 在粗加工区
                 task_state.car_work = RUNNING; // 小车结束拿起状态 去往下一个点位
                 my_control.step = CALIBRATE_YAW_STEP;     // 跳到校准角度步骤 校准完再离开

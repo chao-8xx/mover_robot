@@ -143,6 +143,9 @@ void hmi_solve(UART_HandleTypeDef *huart, uint16_t Size)
                     hmi_stretch_mm = (int16_t)-mm;
                     hmi_stretch_state  = 1;
                 }
+                else if (hmi_rxbuffer[2] == 0x02) { // 回零
+                    catch_stretch_distance(0.0f);
+                }
             }
         }
         else if (hmi_rxbuffer[1] == 0x33) { // 舵机控制  01：云台  02：转盘  03：夹爪
