@@ -31,5 +31,9 @@ void car_follow_put_material_test(void);
 void lift_test(void);
 // 伸缩测试
 void stretch_test(void);
+// 底盘编码器测试
+void chassis_encoder_test(void);
+// 雷达障碍扫描测试
+void lidar_get_obstacle_test(void);
 
 #endif //GONGXUN_1_CHASSIS_TEST_H

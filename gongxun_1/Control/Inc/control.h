@@ -21,6 +21,7 @@
 #define CATCH_MATERIAL_STEP     13   // 抓取物料
 #define PUT_MATERIAL_STEP       14   // 放置物料 从车上放到暂存区、粗加工区
 #define PICK_MATERIAL_STEP      15   // 拿起物料 从粗加工区拿到车上
+#define LIDAR_GET_OBSTACLE_STEP 16   // 雷达扫描障碍
 
 // 控制变量结构体
 typedef struct {
@@ -56,14 +57,17 @@ typedef struct {
 // 结构体声明
 extern Control_Variate my_control;
 
+// ======== 初始化 ======== //
 // 控制变量初始化
 void control_variate_init(void);
 
+// ======== 启停区执行步骤 ======== //
 // 离开启停区 步骤2
 void leave_parking(void);
 // 回到启停区 步骤3
 void back_parking(void);
 
+// ======== 路径规划步骤 ======== //
 // 规划去往启停区 步骤4
 void track_to_parking(void);
 // 规划去往扫码区 步骤5
@@ -75,6 +79,12 @@ void track_to_temporary(void);
 // 规划去往粗加工区 步骤8
 void track_to_process(void);
 
+// ======== 行驶、姿态、扫描步骤 ======== //
+// 雷达扫描辅助（步骤16与雷达测试共用）
+uint16_t lidar_dir_to_angle(int8_t hx, int8_t hy, int8_t dx, int8_t dy);
+uint16_t lidar_scan_window(const lidar_scan_t *scan, uint16_t center_deg, uint16_t range_mm);
+// 雷达扫描障碍 步骤16
+void lidar_get_obstacle(void);
 // 校准该点角度 到点才校准
 void calibrate_yaw(void);
 // 常规道路运行 步骤10
@@ -82,6 +92,7 @@ void normal_road_move(void);
 // 到目标点最后一段道路运行 步骤11
 void final_road_move(void);
 
+// ======== 任务辅助函数 ======== //
 // 目标状态获取 将摄像头所捕获的状态转化成车辆状态
 void target_state_get(void);
 // 确认是否稳定可抓取 1:可抓取
@@ -100,11 +111,13 @@ void follow_target(float target_yaw, int16_t target_x, int16_t target_y);
 // 伸缩齿轮十条 追踪y坐标
 void follow_stretch_target(int16_t target_y);
 
+// ======== 扫码任务 ======== //
 // 扫码获取任务
 void scan_get_task(void);
 // 发送任务码置串口屏上
 void scan_send_task_hmi(void);
 
+// ======== 抓取、放置任务 ======== //
 // 抓取物料 原料区->转盘
 void catch_material(void);
 // 放置物料 转盘->暂存区、粗加工区
@@ -112,6 +125,7 @@ void put_material(void);
 // 拿起物料 暂存区、粗加工区->转盘
 void pick_material(void);
 
+// ======== 整套流程 ======== //
 // 整套控制流程
 void control_process(void);
 

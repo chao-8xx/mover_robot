@@ -32,9 +32,9 @@ void hmi_touch(void) {
 // 触摸串口屏发车事件
 void hmi_start(void)
 {
-    car_run = true;
     hmi_lift_state = 0;
     hmi_stretch_state = 0;
+    car_run = true;
     // 沿用设置发车点时建立的轮子基准  不在离开启停区前丢掉这段位移
 }
 
@@ -62,7 +62,7 @@ void hmi_solve(UART_HandleTypeDef *huart, uint16_t Size)
                     (touch.page_id == 0x04 && touch.obj_id == 0x02)) {
                     hmi_stop();     // 停车事件触发
                     }
-                else if (touch.page_id == 0x01 && touch.obj_id == 0x04) {
+                else if (touch.page_id == 0x07 && touch.obj_id == 0x01) {
                     hmi_start();    // 发车事件触发
                 }
                 else if (touch.page_id == 0x06 && touch.obj_id == 0x0F) {
@@ -94,14 +94,14 @@ void hmi_solve(UART_HandleTypeDef *huart, uint16_t Size)
             if (hmi_rxbuffer[1] == 0x00) {  // 启停区2
                 hmi_start_x = 0;
                 hmi_start_y = 0;
-                chassis_odom_origin_set(240.0f - 15.0f, 15.0f);  // 右下启停区2中心 cm
+                chassis_odom_origin_set(15.0f, 15.0f);  // 左下启停区2中心 cm
                 task_state.task_location = PARKING_2;
                 start_location = 0; // 0:启停区2发车
             }
             else if (hmi_rxbuffer[1] == 0x01) { // 启停区1
                 hmi_start_x = 4;
                 hmi_start_y = 0;
-                chassis_odom_origin_set(240.0f - 15.0f, 240.0f - 15.0f);  // 右上启停区1中心 cm
+                chassis_odom_origin_set(240.0f - 15.0f, 15.0f);  // 右下启停区1中心 cm
                 task_state.task_location = PARKING_1;
                 start_location = 1; // 1:启停区1发车
             }
@@ -140,6 +140,9 @@ void hmi_solve(UART_HandleTypeDef *huart, uint16_t Size)
                 else if (hmi_rxbuffer[2] == 0x00) { // 为负
                     hmi_stretch_mm = (int16_t)-mm;
                     hmi_stretch_state  = 1;
+                }
+                else if (hmi_rxbuffer[2] == 0x02) { // 回零
+                    catch_stretch_distance(0.0f);
                 }
             }
         }

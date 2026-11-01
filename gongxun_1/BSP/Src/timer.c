@@ -42,9 +42,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
     }
     else if (htim ->Instance == TIM2) {    // 10ms中断
         system_control();
-        // lift_test();
         debug_printf_task();    // DMA启动失败时重试已存在的数据   缓冲区仍由 debug_printf 模块统一管理
         // hmi_rx_task();          // 串口屏常规模式DMA接收失败后重试 不等待
-        // lift_test();
     }
 }

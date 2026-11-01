@@ -37,8 +37,6 @@ void system_init(void)
     // 变量初始化
     openmv_end = 0;
     car_reset = true;           // 系统完成初始化/复位
-
-    // obstacle_map_init();
 }
 
 // 整车系统控制 10ms中断
