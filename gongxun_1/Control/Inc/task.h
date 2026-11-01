@@ -86,7 +86,7 @@ typedef struct {
     Area_Code  area_buf_two[3];
     uint8_t turntable_seq[3];       // 堆放码垛时控制转盘
     // 将放置的物料颜色按照任务顺序排列成数组
-    Color_Code color_buf[6];        // 总顺序
+    Color_Code color_buf[7];        // 总顺序
     uint8_t index;      // 总顺序索引
     // 第一二组完成情况
     uint8_t one_finish;     // 第一组物料搬运是否完成(放到暂存区) 0:未完成 1:完成
