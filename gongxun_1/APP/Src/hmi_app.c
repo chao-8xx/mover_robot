@@ -32,11 +32,9 @@ void hmi_touch(void) {
 // 触摸串口屏发车事件
 void hmi_start(void)
 {
-    hwt101_yaw_reset();     // 陀螺仪偏航角复位
-    my_yaw = 0.0f;
-    car_run = true;
     hmi_lift_state = 0;
     hmi_stretch_state = 0;
+    car_run = true;
     // 沿用设置发车点时建立的轮子基准  不在离开启停区前丢掉这段位移
 }
 

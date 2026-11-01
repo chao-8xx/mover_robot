@@ -6,10 +6,10 @@
 #define TARGET_CIRCLE_DX (2)     // 圆环目标dx
 #define TARGET_CIRCLE_DY (3)     // 圆环目标dy
 
-#define LEAVE_PARK_DX     15.0f       // 离开启停区的横向距离
+#define LEAVE_PARK_DX     14.0f       // 离开启停区的横向距离
 #define LEAVE_PARK_DY     15.5f       // 离开启停区的纵向距离
 
-#define LOCK_CAR_CALI    (0.20f)      // 抓物料时锁定小车的x轴位置的系数
+#define LOCK_CAR_CALI    (0.18f)      // 抓物料时锁定小车的x轴位置的系数
 #define LOCK_CAR_DY      (82)         // 抓物料时锁定小车的DY目标 小车横向锁转盘中心
 
 #define MOVE_SPEED        470         // 底盘非任务区运行速度
@@ -17,12 +17,12 @@
 // 根据格子数量对于行走距离 cm
 #define NUM_DELTA_DIST    14.0f       // 暂存区、粗加工区圆环间距
 #define ONE_BLOCK_DIST    43.5f       // 一格
-#define TWO_BLOCK_DIST    89.0f       // 两格
+#define TWO_BLOCK_DIST    90.0f       // 两格
 #define THREE_BLOCK_DIST  127.5f      // 三格
 #define FOUR_BLOCK_DIST   175.5f      // 四格
 
 // 舵机等待时间 ms
-#define CLAW_WAIT         500         // 等待夹爪
+#define CLAW_WAIT         650         // 等待夹爪
 #define HOLDER_WAIT       900         // 等待云台
 
 // 雷达扫描范围mm
@@ -882,7 +882,7 @@ void send_color_conduct(void)
             break;
     }
     if (task_state.index > 5) {
-        task_state.index = 0;
+        task_state.index = 5;
     }
 }
 
@@ -1024,6 +1024,7 @@ void scan_get_task(void)
             scan_finish = 1;                        // 扫码完成
             my_control.step = CALIBRATE_YAW_STEP;   // 校准角度
             openmv_send_stop_scan();                // 结束扫码
+            task_state.openmv_task_get_ok = 1;      // 允许给串口屏发任务
             task_state.send_task_hmi_ok = 1;        // 允许给串口屏发任务
             scan_step = 0;                          // 复位，供下一轮使用
             break;
@@ -1251,7 +1252,7 @@ void catch_material(void)
                         task_state.index -= 1;  // 索引回退
                     }
                     else if (task_state.index == 5) {
-                        task_state.index = 5;  // 索引回退
+                        task_state.index = 5;  // 索引保持
                     }
                     catch_a_ok = 1;   // 算刚抓完一个物料
                     catch_step = 8;   // 底盘电机回零
@@ -1883,7 +1884,6 @@ void control_process(void)
     if (my_control.lift_state == 1) {
         if (!lift_is_busy()) {
             my_control.lift_state = 0;
-            printf("cur_height: %.2f \n", task_state.cur_height);
         }
         return;
     }
@@ -1910,6 +1910,7 @@ void control_process(void)
         case 0:
             if (car_run) {
                 hwt101_yaw_reset();
+                my_yaw = 0.0f;
                 if (start_location == 0) {
                     task_state.cur_x = 0;
                     task_state.cur_y = 0;

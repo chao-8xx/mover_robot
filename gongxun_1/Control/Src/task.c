@@ -53,23 +53,23 @@ void task_init()
     openmv_end = 0;
 
     // 没码时 手动设置任务 后续可删 默认任务
-    task_state.color_buf_one[0] = TASK_RED; // 第一组 红黄蓝
+    task_state.color_buf_one[0] = TASK_YELLOW; // 第一组 红黄蓝
     task_state.color_buf_one[1] = TASK_GREEN;
     task_state.color_buf_one[2] = TASK_BLUE;
     task_state.area_buf_one[0] = AREA_1;
     task_state.area_buf_one[1] = AREA_2;
     task_state.area_buf_one[2] = AREA_3;
     task_state.color_buf_two[0] = TASK_BLUE; // 第二组 蓝红黄
-    task_state.color_buf_two[1] = TASK_RED;
+    task_state.color_buf_two[1] = TASK_YELLOW;
     task_state.color_buf_two[2] = TASK_GREEN;
     task_state.area_buf_two[0] = AREA_1;
     task_state.area_buf_two[1] = AREA_2;
     task_state.area_buf_two[2] = AREA_3;
-    task_state.color_buf[0] = TASK_RED;      // 总顺序
+    task_state.color_buf[0] = TASK_YELLOW;      // 总顺序
     task_state.color_buf[1] = TASK_GREEN;
     task_state.color_buf[2] = TASK_BLUE;
     task_state.color_buf[3] = TASK_BLUE;
-    task_state.color_buf[4] = TASK_RED;
+    task_state.color_buf[4] = TASK_YELLOW;
     task_state.color_buf[5] = TASK_GREEN;
 
     // 用 color_buf[3+f]（第二组按位置排好序）而不是 color_buf_two[e]（扫描原始顺序）

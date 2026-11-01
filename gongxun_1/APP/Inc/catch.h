@@ -2,11 +2,11 @@
 #define GONGXUN_1_CATCH_H
 
 // 伸缩运行的最大距离
-#define STRETCH_MAX_CM   15.5f    // 伸缩最大允许伸出距离
+#define STRETCH_MAX_CM   16.0f    // 伸缩最大允许伸出距离
 
 // 夹爪舵机角度定义
-#define CLAW_CATCH  3.0f     // 夹爪夹取角度
-#define CLAW_LOOSE  80.0f    // 夹爪松开角度
+#define CLAW_CATCH  18.0f     // 夹爪夹取角度
+#define CLAW_LOOSE  90.0f    // 夹爪松开角度
 
 // 转盘舵机角度定义
 #define ONE_LOCATION    10.0f   // 一号物料存放角度
@@ -24,8 +24,8 @@
 // 升降装置目标高度
 #define LIFT_ZERO_CM    17.0f   // 编码器清零时对应的物理高度，固定不动
 #define LIFT_NORMAL     16.7f   // 默认高度
-#define LIFT_PUT        14.0f   // 放置高度 放入转盘
-#define LIFT_CATCH      9.5f    // 从原料区抓取高度
+#define LIFT_PUT        13.5f   // 放置高度 放入转盘
+#define LIFT_CATCH      9.6f    // 从原料区抓取高度
 #define LIFT_PUT_ONE    (1.2f)  // 一次放置 放在圆环
 #define LIFT_PUT_TWO    5.5f    // 二次放置 叠在一次放置处
 
