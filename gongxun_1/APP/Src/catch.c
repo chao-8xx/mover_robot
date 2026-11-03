@@ -17,12 +17,12 @@
     (PULSE_PER_CIRCLE / (3.14159265f * GEAR_DIAMETER / 10.0f))  // 绝对位置命令的脉冲/cm
 #define STRETCH_TOL_CM         0.1f  // 伸缩绝对定位容差 cm
 #define STRETCH_READ_PERIOD_MS 20    // 绝对定位读反馈周期
-#define STRETCH_TIMEOUT_MS     5000  // 绝对定位单次超时
+#define STRETCH_TIMEOUT_MS     3000  // 绝对定位单次超时
 #define STRETCH_RETRY_MAX      1     // 最多重发次数
 
 // 电机速度
-#define STEP_MOVE_SPEED     1500      // 丝杆电机位置模式移动速度（原1650，降速防过冲，保证升降到位稳定）
-#define STEP_SPEED          80        // 齿轮齿条电机位置模式移动速度
+#define STEP_MOVE_SPEED     1800      // 丝杆电机位置模式移动速度（降速防过冲，保证升降到位稳定）
+#define STEP_SPEED          140       // 齿轮齿条电机位置模式移动速度
 
 // 伸缩齿轮齿条速度模式
 uint8_t stretch_speed_on = 0;         // 启动速度模式

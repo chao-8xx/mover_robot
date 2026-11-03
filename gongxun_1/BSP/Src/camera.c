@@ -423,7 +423,8 @@ void maix_filter_handle(const maix_vision_t *raw)
             valid_dx[valid_count] = maix_filter[i].dx;
             valid_dy[valid_count] = maix_filter[i].dy;
             valid_count++;
-            if (raw->cmd != MAIX_CMD_BLOB || maix_filter[i].ok == 2)
+            // if (raw->cmd != MAIX_CMD_BLOB || maix_filter[i].ok == 2)
+            if (maix_filter[i].ok != 0)
             {
                 stable_dx[stable_count] = maix_filter[i].dx;
                 stable_dy[stable_count] = maix_filter[i].dy;
@@ -433,8 +434,10 @@ void maix_filter_handle(const maix_vision_t *raw)
     }
 
     // 单帧无效不清历史  B2当前OK=1也保留窗口  但本帧不报稳定
-    if (raw->ok == 0 || (raw->cmd == MAIX_CMD_BLOB && raw->ok != 2))
+    // if (raw->ok == 0 || (raw->cmd == MAIX_CMD_BLOB && raw->ok != 2))
+    if (raw->ok == 0) {
         stable_count = 0;
+    }
 
     // 填充结果结构体
     maix_result.cmd = raw->cmd;

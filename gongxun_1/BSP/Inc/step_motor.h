@@ -5,7 +5,7 @@
 #define MAX_SPEED              3500
 #define STEP_ANGLE_DIV         16.0f
 #define STEP_MOTOR_COUNT       6
-#define STEP_MOTOR_CHASSIS_ACC 150   // 底盘加速度
+#define STEP_MOTOR_CHASSIS_ACC 180   // 底盘加速度
 #define STEP_MOTOR_CATCH_ACC   0     // 夹取装置加速度
 
 // ---- 定义结构体和枚举 ---- //

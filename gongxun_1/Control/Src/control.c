@@ -3,26 +3,31 @@
 #define TARGET_DX   (0)          // 目标dx
 #define TARGET_DY   (-1)         // 目标dy
 
-#define TARGET_CIRCLE_DX (-10)   // 圆环目标dx
-#define TARGET_CIRCLE_DY (-2)     // 圆环目标dy
+#define TARGET_CIRCLE_DX (-13)   // 圆环目标dx
+#define TARGET_CIRCLE_DY (0)     // 圆环目标dy
 
-#define LEAVE_PARK_DX     12.5f       // 离开启停区的横向距离
-#define LEAVE_PARK_DY     11.0f       // 离开启停区的纵向距离
+#define LEAVE_PARK_DX     20.0f       // 离开启停区的横向距离
+#define LEAVE_PARK_DY     20.0f       // 离开启停区的纵向距离
 
-#define LOCK_CAR_CALI    (0.17f)      // 抓物料时锁定小车的x轴位置的系数
-#define LOCK_UP_DY       (25)         // 抓物料时锁定小车的DY目标 物料在上方离中心点的距离
-#define LOCK_DOWN_DY     (60)         // 抓物料时锁定小车的DY目标 物料在下方离中心点的距离
-#define LOCK_UP_DX       (60)         // 抓物料时锁定小车的DX目标 物料在上方离中心点的距离
+#define LOCK_CAR_CALI    (0.18f)      // 抓物料时锁定小车的x轴位置的系数
+#define LOCK_UP_DY       (32)         // 抓物料时锁定小车的DY目标 物料在上方离中心点的距离
+#define LOCK_DOWN_DY     (76)         // 抓物料时锁定小车的DY目标 物料在下方离中心点的距离
+#define LOCK_UP_DX       (62)         // 抓物料时锁定小车的DX目标 物料在上方离中心点的距离
 #define LOCK_DOWN_DX     (0)          // 抓物料时锁定小车的DX目标 物料在上方离中心点的距离
 
-#define MOVE_SPEED        470         // 底盘非任务区运行速度
+#define MOVE_SPEED        500         // 底盘非任务区运行速度
 
 // 根据格子数量对于行走距离 cm
 #define NUM_DELTA_DIST    14.0f       // 暂存区、粗加工区圆环间距
 #define ONE_BLOCK_DIST    43.5f       // 一格
-#define TWO_BLOCK_DIST    90.0f       // 两格
+#define TWO_BLOCK_DIST    85.0f       // 两格
 #define THREE_BLOCK_DIST  127.5f      // 三格
-#define FOUR_BLOCK_DIST   172.5f      // 四格
+#define FOUR_BLOCK_DIST   170.0f      // 四格
+
+// 小车X轴离工作区远离距离
+#define META_LEAVE_DIST   3.2f       // 小车离转盘多退的距离
+#define PROC_LEAVE_DIST   0.8f       // 小车离粗加工多退的距离(与暂存区共用)
+#define DELTA_DIST        6.8f       // 为了抓到转盘，多走的距离
 
 // 舵机等待时间 ms
 #define CLAW_WAIT         650         // 等待夹爪
@@ -48,6 +53,10 @@ Control_Variate my_control;
 // 声明变量
 extern volatile uint8_t stretch_pos_valid;
 
+// 提前声明：leave_parking 里要用来转正车头（函数定义在本文件后面）
+static float track_dir_to_yaw(int8_t dx, int8_t dy);
+static uint8_t track_yaw_ok(float target);
+static float track_rotate_target(float target_yaw);
 
 // ======================== 初始化 ======================== //
 
@@ -110,6 +119,12 @@ void leave_parking(void)
                 leave_step = 2;
                 break;
             case 2:
+                // 横移会带偏航角，离开后先把车头转回当前朝向
+                my_control.target_yaw = track_dir_to_yaw(my_control.head_x, my_control.head_y);
+                if (!track_yaw_ok(my_control.target_yaw)) {
+                    my_control.target_yaw = track_rotate_target(my_control.target_yaw);
+                    my_control.rotate_state = 1;
+                }
                 leave_step = 0;
                 my_control.step = my_control.target_pos[my_control.target_index];
                 break;
@@ -133,6 +148,12 @@ void leave_parking(void)
                 leave_step = 2;
                 break;
             case 2:
+                // 横移会带偏航角，离开后先把车头转回当前朝向
+                my_control.target_yaw = track_dir_to_yaw(my_control.head_x, my_control.head_y);
+                if (!track_yaw_ok(my_control.target_yaw)) {
+                    my_control.target_yaw = track_rotate_target(my_control.target_yaw);
+                    my_control.rotate_state = 1;
+                }
                 leave_step = 0;
                 my_control.step = my_control.target_pos[my_control.target_index];
                 break;
@@ -157,7 +178,7 @@ void back_parking(void)
                 back_step = 1;
                 break;
             case 1:
-                car_run_distance(my_control.speed, 0.0f, -(LEAVE_PARK_DY-5.0f));
+                car_run_distance(my_control.speed, 0.0f, -(LEAVE_PARK_DY));
                 my_control.move_state = 1;
                 back_step = 2;
                 break;
@@ -177,7 +198,7 @@ void back_parking(void)
         switch (back_step)
         {
             case 0:
-                car_run_distance(my_control.speed, LEAVE_PARK_DX, 0.0f);
+                car_run_distance(my_control.speed, LEAVE_PARK_DX - 5.0f, 0.0f);
                 my_control.move_state = 1;
                 back_step = 1;
                 break;
@@ -551,12 +572,12 @@ void calibrate_yaw(void)
         my_control.step = SCAN_GET_TASK_STEP;   // 切换到扫码步骤
         return;
     }
-    else if (task_state.task_location == MATERIAL && catch_finish == 0) {   // 到达原料区且扫码任务未完成
+    else if (task_state.task_location == MATERIAL && catch_finish == 0) {   // 到达原料区且抓取任务未完成
         my_control.step = CATCH_MATERIAL_STEP;  // 切换到抓取物料步骤
         return;
     }
     else if ((task_state.task_location == PROCESS && put_finish == 0) ||
-        (task_state.task_location == TEMPORARY && put_finish == 0)) {      // 到达粗加工区且扫码任务未完成
+        (task_state.task_location == TEMPORARY && put_finish == 0)) {      // 到达粗加工区且放置任务未完成
         my_control.step = PUT_MATERIAL_STEP;    // 切换到放置物料步骤
         return;
     }
@@ -652,10 +673,7 @@ void normal_road_move(void)
         // 反向时距离取负 = 倒车
         // float dist = (float)run_len * BLOCK_DISTANCE;
         float dist = block_to_distance(run_len);
-        if (task_state.cur_x == 2 && task_state.cur_y == 4 &&   // 距离校准，临时存在
-            run_len == 4) {
-            dist = dist + 4.0f;
-        }
+
         if (dot == -1) {
             dist = -dist;
         }
@@ -692,7 +710,7 @@ void final_road_move(void)
         // 0:垂直 1:同向 -1:反向（和“要求朝向”比，不要和会变的当前车头比）
         int8_t dot = (int8_t)(my_control.last_dx * hx +
                               my_control.last_dy * hy);
-        if (dot == 0 && my_control.final_run_len > 2) {
+        if (dot == 0 && my_control.final_run_len > 1) {
             hx = my_control.last_dx;    // 目标姿态改成路径方向
             hy = my_control.last_dy;
         }
@@ -797,8 +815,8 @@ uint8_t catch_is_ok(void)
     static uint8_t lost_frame = 0;
 
     // 确认目标是否跟踪到可抓取位置附近 发现且稳定时
-    if ((task_state.follow_x < TARGET_DX + 3 && task_state.follow_x > TARGET_DX - 3) &&
-        (task_state.follow_y < TARGET_DY + 3 && task_state.follow_y > TARGET_DY - 3) &&
+    if ((task_state.follow_x < TARGET_DX + 4 && task_state.follow_x > TARGET_DX - 4) &&
+        (task_state.follow_y < TARGET_DY + 4 && task_state.follow_y > TARGET_DY - 4) &&
         task_state.is_find_target) {
         stable_frame += 1;
         lost_frame = 0;
@@ -980,7 +998,7 @@ void follow_stretch_target(int16_t target_y)
     // 只有读到过有效位置，才做超限保护
     if (stretch_pos_valid) {
         if ((task_state.cur_stretch >= STRETCH_MAX_CM && follow_out < 0.0f) ||  // 伸到头 只让缩
-        (task_state.cur_stretch <= 0.3f && follow_out > 0.0f)) {                // 缩到头 只让伸
+        (task_state.cur_stretch <= 0.2f && follow_out > 0.0f)) {                // 缩到头 只让伸
             follow_out = 0.0f;
         }
     }
@@ -1068,7 +1086,7 @@ void scan_send_task_hmi(void)
 // ======================== 抓取、放置任务 ======================== //
 
 // 抓取物料 原料区->转盘
-uint8_t catch_step = 0;
+int8_t catch_step = -1;
 void catch_material(void)
 {
     static uint8_t serve_wait_time = 0;     // 舵机复位等待时间
@@ -1080,8 +1098,9 @@ void catch_material(void)
     static uint16_t clear_zero_time = 0;    // 编码器清零计时
     static uint8_t find_meta = 0;           // 是否发现过物料
     static uint8_t lock_step = 0;           // 锁定与转盘相对位置步骤
-    static float dist_cali_y = 0.0f;               // y轴距离 用于锁定位置
-    static float dist_cali_x = 0.0f;               // x轴距离 用于锁定位置
+    static float dist_cali_y = 0.0f;        // y轴距离 用于锁定位置
+    static float dist_cali_x = 0.0f;        // x轴距离 用于锁定位置
+    static uint32_t lift_bus_settle = 0;    // 升降命令前总线静默计时
 
     // 不在原料区 退出
     if (task_state.task_location != MATERIAL) {
@@ -1090,11 +1109,14 @@ void catch_material(void)
 
     switch (catch_step)
     {
-        case 0:     // 复位升降高度
-            // car_stop();     // 先停车稳住
+        case -1:
             catch_finish = 0;
-            catch_lift_to_height(LIFT_NORMAL);
             task_state.car_work = CATCHING; // 小车当前处于夹取物料状态
+            car_run_distance(50,-DELTA_DIST,0.0f); // 离转盘近一点
+            catch_step = 0;
+            break;
+        case 0:     // 复位升降高度
+            catch_lift_to_height(LIFT_NORMAL);
             catch_step = 1;
             break;
         case 1:     // 伸缩到搜寻位置 看三个
@@ -1128,7 +1150,8 @@ void catch_material(void)
             break;
         case 4:     // 发现目标且目标稳定时 进入目标校准(第一次到达原料区)
             target_state_get(); // 获取状态
-            if (task_state.is_find_target) {
+            if (task_state.is_find_target == 1 &&
+                task_state.is_stable_target == 1) {     // 发现目标且目标稳定时
                 if (catch_y_ok == 1) {
                     catch_step = 8; // 锁x
                 }
@@ -1244,10 +1267,10 @@ void catch_material(void)
             break;
         case 10:     // 等待底盘电机回零
             clear_zero_time ++;
-            if (clear_zero_time >= 180) {
+            if (clear_zero_time >= 130) {
                 clear_zero_time = 0;
                 if (catch_finish == 1) {
-                    car_run_distance(50,5.0f,0.0f); // 离转盘远一点 怕撞
+                    car_run_distance(50,DELTA_DIST+META_LEAVE_DIST,0.0f); // 离转盘远一点 怕撞
                     my_control.move_state = 1;
                     catch_step = 21;   // 抓取结束步骤
                 }
@@ -1265,8 +1288,18 @@ void catch_material(void)
         case 11:     // 下降高度准备抓取
             if (!lift_is_busy()) {
                 if (Emm_V5_Tx_Count() == 0) {
-                    catch_lift_to_height(LIFT_CATCH);
-                    catch_step = 12;
+                    // 避免升降绝对位置命令撞上总线上的应答数据
+                    if (lift_bus_settle == 0) {
+                        lift_bus_settle = HAL_GetTick() + 5;    // 队列空后再多等 5ms，让伸缩跟随阶段最后一个读请求的应答帧发完，
+                    }
+                    if ((int32_t)(HAL_GetTick() - lift_bus_settle) >= 0) {
+                        lift_bus_settle = 0;
+                        catch_lift_to_height(LIFT_CATCH);
+                        catch_step = 12;
+                    }
+                }
+                else {
+                    lift_bus_settle = 0;   // 队列又忙起来，重新等空闲
                 }
             }
             break;
@@ -1369,7 +1402,7 @@ void catch_material(void)
             holder_rotate(HOLDER_SAFE);        // 云台转回安全位置
             claw_ctrl(CLAW_CATCH);             // 夹爪夹紧
             turntable_rotate(SAFE_LOCATION);   // 转盘转到安全位置
-            catch_step = 0;
+            catch_step = -1;
             break;
         default:
             break;
@@ -1399,7 +1432,6 @@ void put_material(void)
     {
         case 0:     // 复位升降高度
             put_finish = 0;
-            // car_stop();     // 先停车稳住
             catch_lift_to_height(LIFT_NORMAL);
             task_state.car_work = PUTTING;  // 小车当前处于放置物料状态
             put_step = 1;
@@ -1450,6 +1482,13 @@ void put_material(void)
                         task_state.remindState = GREEN_REMIND;   // 闪灯提示
                         task_state.index = temp_index;  // 恢复之前索引
                         put_step = 7;   // 控制转盘
+                        if (find_cir_ok == 1) {
+                            printf("中间码垛锁定! 准备放物料! \n");
+                            put_step = 6;   // 上升夹爪准备放物料
+                        }
+                        else {
+                            put_step = 5;   // 下降云台去锁圆环
+                        }
                     }
                 }
                 else {  // 二号圆环
@@ -1473,11 +1512,11 @@ void put_material(void)
             else {  // 目标丢失 进入保护 回退步骤继续等待发现目标
                 car_stop();
                 PID_Clear();    // 清除误差和积分
-                if (++lose_time >= 1000) { // 超时
+                if (++lose_time >= 1600) { // 超时
                     lose_time = 0;
                     task_state.index = temp_index;  // 恢复之前索引
                     task_state.remindState = RED_REMIND;   // 闪灯提示
-                    printf("2号圆环没找到! 算了! \n");
+                    printf("2号圆环或中间码垛没找到! 算了! \n");
                     light_off();     // 关灯
                     put_step = 7;    // 超时直接跑路
                 }
@@ -1561,19 +1600,34 @@ void put_material(void)
                 put_step = 14;
             }
             break;
-        case 14:    // 根据已经放置的个数决定云台位置
+        case 14:    // 根据已经放置的个数决定云台位置和伸缩长度
             switch (put_num) {
                 case 0:     // 1号圆环
                     holder_rotate(HOLDER_LEFT);
-                    catch_stretch_distance(STRETCH_PUT_LEFT);  // 伸缩到置放置两侧圆环位置
+                    if (task_state.one_finish && task_state.two_finish) {
+                        catch_stretch_distance(STRETCH_PUT_LEFT - 1.1f);  // 伸缩到置放置两侧圆环位置
+                    }
+                    else {
+                        catch_stretch_distance(STRETCH_PUT_LEFT);  // 伸缩到置放置两侧圆环位置
+                    }
                     break;
                 case 1:     // 2号圆环
                     holder_rotate(HOLDER_CATCH);
-                    catch_stretch_distance(STRETCH_PUT_MID);    // 伸缩到置放置中间圆环位置
+                    if (task_state.one_finish && task_state.two_finish) {
+                        catch_stretch_distance(STRETCH_PUT_MID - 1.1f);    // 伸缩到置放置中间圆环位置
+                    }
+                    else {
+                        catch_stretch_distance(STRETCH_PUT_MID);    // 伸缩到置放置中间圆环位置
+                    }
                     break;
                 case 2:     // 3号圆环
                     holder_rotate(HOLDER_RIGHT);
-                    catch_stretch_distance(STRETCH_PUT_RIGHT);  // 伸缩到置放置两侧圆环位置
+                    if (task_state.one_finish && task_state.two_finish) {
+                        catch_stretch_distance(STRETCH_PUT_RIGHT - 1.1f);  // 伸缩到置放置两侧圆环位置
+                    }
+                    else {
+                        catch_stretch_distance(STRETCH_PUT_RIGHT);  // 伸缩到置放置两侧圆环位置
+                    }
                     break;
                 default:    // 默认
                     holder_rotate(HOLDER_CATCH);
@@ -1616,11 +1670,18 @@ void put_material(void)
             else if (put_num >= 3) {
                 if (!car_is_busy()) {
                     catch_stretch_distance(STRETCH_SAFE);   // 伸缩到安全位置
-                    put_step = 19;  // 结束放置
+                    put_step = 19;  // 退一点 离工作区远点
                 }
             }
             break;
-        case 19:    // 结束放置
+        case 19:    // 退一点 离工作区远点
+            if (task_state.task_location == TEMPORARY) {
+                car_run_distance(50,PROC_LEAVE_DIST,0.0f); // 离转盘远一点 怕撞
+                my_control.move_state = 1;
+            }
+            put_step = 20;  // 结束放置
+            break;
+        case 20:    // 结束放置
             maix_stop();    // maix停止视觉任务
             put_num = 0;
             put_pos_num = put_num;
@@ -1712,7 +1773,8 @@ void pick_material(void)
                     servo_reset_step = 0;
                     serve_wait_time = 0;
                     temp_index = task_state.index;  // 暂存当前索引
-                    pick_step = 3;
+                    // pick_step = 3;  // 先识别中间码垛
+                    pick_step = 5;  // 直接抓
                 }
             }
             break;
@@ -1734,8 +1796,8 @@ void pick_material(void)
         case 4:     // 锁中间码垛
             target_state_get(); // 获取状态
             if (task_state.is_find_target == 1) {   // 目标丢失 进入保护 回退步骤继续等待发现目标
-                follow_target(temp_yaw, TARGET_DX, TARGET_DY);
-                if (catch_is_ok() == 1) {  // 达到抓取条件
+                follow_target(temp_yaw, TARGET_CIRCLE_DX, TARGET_CIRCLE_DX);
+                if (put_is_ok() == 1) {  // 达到抓取条件 只是命名为put
                     car_stop();
                     PID_Clear();    // 清除误差和积分
                     task_state.remindState = GREEN_REMIND;   // 闪灯提示
@@ -1744,7 +1806,7 @@ void pick_material(void)
                     pick_step = 5;   // 底盘电机编码器清零
                 }
                 else {
-                    if (++lock_time >= 800) {  // 超时直接抓
+                    if (++lock_time >= 1200) {  // 超时直接抓
                         car_stop();
                         PID_Clear();    // 清除误差和积分
                         task_state.remindState = RED_REMIND;   // 闪灯提示
@@ -1757,7 +1819,7 @@ void pick_material(void)
             else {
                 car_stop();
                 light_off();     // 关灯
-                if (++lose_time >= 1000) { // 超时
+                if (++lose_time >= 1300) { // 超时
                     lose_time = 0;
                     pick_step = 5;  // 超时直接抓，随缘
                 }
@@ -1835,39 +1897,49 @@ void pick_material(void)
             break;
         case 10:     // 伸缩到放置位置 云台转到放置位置
             catch_stretch_distance(STRETCH_PUT);
-            holder_rotate(HOLDER_PUT);
-            servo_wait_ms(HOLDER_WAIT); // 等待云台转到目标位置
             pick_step = 11;
             break;
-        case 11:     // 待位置稳定
+        case 11:
+            holder_rotate(HOLDER_PUT);
+            servo_wait_ms(HOLDER_WAIT); // 等待云台转到目标位置
+            pick_step = 12;
+            break;
+        case 12:     // 待位置稳定
             if (!servo_is_busy()) {
                 catch_lift_to_height(LIFT_PUT); // 下降放置
-                pick_step = 12;
+                pick_step = 13;
             }
             break;
-        case 12:     // 夹爪松开放置
+        case 13:     // 夹爪松开放置
             pick_num += 1;
             claw_ctrl(CLAW_LOOSE);
             servo_wait_ms(CLAW_WAIT);
-            pick_step = 13;
+            pick_step = 14;
             break;
-        case 13:    // 夹爪松开后 上升
+        case 14:    // 夹爪松开后 上升
             if (!servo_is_busy()) {
                 catch_lift_to_height(LIFT_NORMAL);
-                pick_step = 14;
+                pick_step = 15;
             }
             break;
-        case 14:    // 根据已经放好的物料数决定是否结束
+        case 15:    // 根据已经放好的物料数决定是否结束
             if (pick_num < 3) {
                 pick_step = 6;  // 继续控制转盘和云台
             }
             else if (pick_num >= 3) {
                 catch_stretch_distance(STRETCH_SAFE);   // 伸缩到安全位置
-                pick_step = 15; // 结束
+                pick_step = 16; // 离工作区远点
             }
             task_state.index = temp_index;  // 恢复当前索引
             break;
-        case 15:
+        case 16:    // 离工作区远点
+            if (task_state.task_location != TEMPORARY) {
+                car_run_distance(50,PROC_LEAVE_DIST,0.0f); // 离工作区远一点 怕撞
+                my_control.move_state = 1;
+            }
+            pick_step = 17; // 结束
+            break;
+        case 17:
             maix_stop();    // maix停止视觉任务
             pick_num = 0;
             serve_wait_time = 0;

@@ -210,12 +210,12 @@ uint8_t task_receive(void)
     }
 
     // 计算第二批的颜色 → 第一批的位置
-    // color_buf[0..2] 是第一批按位置排序的颜色，索引就是位置(0=1号位)
-    for (e = 0; e < 3; e++) {
-        task_state.turntable_seq[e] = 0;                    // 默认 1 号位
-        for (f = 0; f < 3; f++) {
-            if (task_state.color_buf[f] == task_state.color_buf_two[e]) {
-                task_state.turntable_seq[e] = f;            // 找到同色位置
+    // 用 color_buf[3+f]（第二组按位置排好序）而不是 color_buf_two[e]（扫描原始顺序）
+    for (e = 0; e < 3; e++) {          // e = put_num = 环位置
+        task_state.turntable_seq[e] = 0;
+        for (f = 0; f < 3; f++) {      // f = 转盘槽
+            if (task_state.color_buf[3 + f] == task_state.color_buf[e]) {
+                task_state.turntable_seq[e] = f;
                 break;
             }
         }
