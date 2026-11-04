@@ -1,7 +1,7 @@
 #ifndef GONGXUN_1_CHASSIS_H
 #define GONGXUN_1_CHASSIS_H
 
-#define YAW_THRESH   0.4f   // 转到目标角的限制范围
+#define YAW_THRESH   0.3f   // 转到目标角的限制范围
 
 // ---- 结构体和枚举定义 ---- //
 // 底盘运动目标：x/y 平移速度 + omega 旋转角速度

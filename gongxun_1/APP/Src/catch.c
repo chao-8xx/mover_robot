@@ -21,8 +21,8 @@
 #define STRETCH_RETRY_MAX      1     // 最多重发次数
 
 // 电机速度
-#define STEP_MOVE_SPEED     1800      // 丝杆电机位置模式移动速度（降速防过冲，保证升降到位稳定）
-#define STEP_SPEED          140       // 齿轮齿条电机位置模式移动速度
+#define STEP_MOVE_SPEED     2350      // 丝杆电机位置模式移动速度
+#define STEP_SPEED          160       // 齿轮齿条电机位置模式移动速度
 
 // 伸缩齿轮齿条速度模式
 uint8_t stretch_speed_on = 0;         // 启动速度模式
@@ -65,16 +65,16 @@ static volatile uint32_t stretch_start_tick = 0; // 本次绝对定位开始时�
 static volatile uint8_t stretch_retry_times = 0; // 当前重发次数
 
 // PID参数
-#define X_KP            0.8f    // x轴坐标与麦轮闭环
+#define X_KP            1.0f    // x轴坐标与麦轮闭环
 #define X_KD            0.2f
 #define X_MAX_I         50.0f
 #define X_MAX_OUT       180
-#define Y_KP            0.8f    // y轴坐标与麦轮闭环
+#define Y_KP            1.0f    // y轴坐标与麦轮闭环
 #define Y_KD            0.2f
 #define Y_MAX_I         50.0f
 #define Y_MAX_OUT       180
-#define FOLLOW_KP       1.4f    // 物料y轴坐标与齿轮齿条伸缩闭环
-#define FOLLOW_KD       0.4f
+#define FOLLOW_KP       1.8f    // 物料y轴坐标与齿轮齿条伸缩闭环
+#define FOLLOW_KD       0.2f
 #define FOLLOW_MAX_I    10.0f
 #define FOLLOW_MAX_OUT  50
 

@@ -5,8 +5,8 @@
 #define STRETCH_MAX_CM   16.1f    // 伸缩最大允许伸出距离
 
 // 夹爪舵机角度定义
-#define CLAW_CATCH  6.0f     // 夹爪夹取角度
-#define CLAW_LOOSE  90.0f    // 夹爪松开角度
+#define CLAW_CATCH  8.0f     // 夹爪夹取角度
+#define CLAW_LOOSE  90.0f     // 夹爪松开角度
 
 // 转盘舵机角度定义
 #define ONE_LOCATION    10.0f   // 一号物料存放角度
@@ -17,14 +17,14 @@
 // 云台舵机角度定义
 #define HOLDER_SAFE     245.0f   // 云台安全角度
 #define HOLDER_PUT      248.0f   // 云台放置物料角度
-#define HOLDER_CATCH    98.0f    // 云台抓取中间物料角度
-#define HOLDER_RIGHT    59.0f    // 云台抓取右侧物料角度
-#define HOLDER_LEFT     137.0f   // 云台抓取左侧物料角度
+#define HOLDER_CATCH    100.0f   // 云台抓取中间物料角度
+#define HOLDER_RIGHT    61.0f    // 云台抓取右侧物料角度
+#define HOLDER_LEFT     140.0f   // 云台抓取左侧物料角度
 
 // 升降装置目标高度
 #define LIFT_ZERO_CM    17.0f   // 编码器清零时对应的物理高度，固定不动
 #define LIFT_NORMAL     16.7f   // 默认高度
-#define LIFT_PUT        14.3f   // 放置高度 放入转盘
+#define LIFT_PUT        14.5f   // 放置高度 放入转盘
 #define LIFT_CATCH      9.9f    // 从原料区抓取高度
 #define LIFT_PUT_ONE    (1.3f)  // 一次放置 放在圆环
 #define LIFT_PUT_TWO    6.2f    // 二次放置 叠在一次放置处
@@ -34,8 +34,8 @@
 #define STRETCH_CATCH      12.5f  // 抓取位置 从原料区
 #define STRETCH_PUT        0.8f   // 放置位置 放入转盘
 #define STRETCH_PUT_MID    6.0f   // 放置中心圆环位置
-#define STRETCH_PUT_LEFT   11.0f   // 放置左边圆环位置
-#define STRETCH_PUT_RIGHT  11.5f   // 放置右边圆环位置
+#define STRETCH_PUT_LEFT   11.8f   // 放置左边圆环位置
+#define STRETCH_PUT_RIGHT  10.8f   // 放置右边圆环位置
 #define STRETCH_SAFE       8.0f   // 安全长度
 
 // 夹爪当前模式：夹住/松开

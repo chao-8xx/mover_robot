@@ -72,6 +72,9 @@ float last_yaw = 0.0f;          // 上次偏航角角度
 float my_yaw = 0.0f;            // 解算后求得的偏航角角度
 int32_t yaw_change_flag = 0;    // 角度变换标志
 
+// 去除零漂
+static float sum_yaw = 0.0f;
+static float aver_yaw = 0.0f;
 
 // 陀螺仪初始化
 void hwt101_init(UART_HandleTypeDef *huart)
@@ -419,20 +422,27 @@ void my_hwt101_init(void)
     if (hwt101_data_valid()) {
         hwt101_yaw_reset_request();   // 非阻塞，1ms 中断里自动执行完整复位流程
     }
+    HAL_Delay(100);
+
+    // 去除零漂
+    for (int i = 0; i < 600; i++) {
+        sum_yaw += hwt101_get_yaw();
+    }
+    aver_yaw = sum_yaw / 600;
 }
 
 // 获取陀螺仪数据
 void imu_get(void)
 {
-    yaw_rate = hwt101_get_yaw_rate();  // 偏航角角速度
-    now_yaw = hwt101_get_yaw();         // 偏航角
+    yaw_rate = hwt101_get_yaw_rate();         // 偏航角角速度
+    now_yaw = hwt101_get_yaw() - aver_yaw ;   // 偏航角
     if (now_yaw - last_yaw > 180.0f) {
         yaw_change_flag --;
     }
     else if (now_yaw - last_yaw < -180.0f) {
         yaw_change_flag ++;
     }
-    my_yaw = now_yaw + (float)yaw_change_flag * 360.0f;
-    last_yaw = now_yaw;
+    my_yaw = now_yaw + (float)yaw_change_flag * 360.0f ;
+    last_yaw = now_yaw ;
 }
 

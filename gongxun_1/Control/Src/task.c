@@ -247,6 +247,8 @@ void cam_task(void) {
         cam_rx_handle();
     }
     maix_result_task();  // 维护5帧VALID/STABLE 并处理视觉数据超时
+
+    send_conduct_task();      // 给maix发数据处理任务
 }
 // // OpenMV扫码处理任务
 // void mv_task(void)
@@ -297,6 +299,8 @@ void mv_task(void)
         openmv_start = 0;
         openmv_end = 1;
     }
+
+    scan_send_task_hmi();     // 给串口屏发送任务（写死，后续要删除）
 }
 
 // 给maix发数据处理任务
