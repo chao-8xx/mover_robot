@@ -300,7 +300,7 @@ void mv_task(void)
         openmv_end = 1;
     }
 
-    scan_send_task_hmi();     // 给串口屏发送任务（写死，后续要删除）
+    // scan_send_task_hmi();     // 给串口屏发送任务（写死，后续要删除）
 }
 
 // 给maix发数据处理任务

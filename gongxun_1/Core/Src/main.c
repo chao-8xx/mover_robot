@@ -59,7 +59,7 @@ void SystemClock_Config(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-
+uint8_t perfect_ok = 0;  // 完赛标志
 /* USER CODE END 0 */
 
 /**
@@ -108,6 +108,7 @@ int main(void)
 
   // 系统整体初始化
   system_init();
+  perfect_ok = 0;
 
   // maix 任务一测试
   // maix_b2_test();
@@ -123,6 +124,13 @@ int main(void)
   {
     cam_task();               // 解析摄像头数据
     mv_task();                // OpenMV扫码处理任务
+
+    if (perfect_ok == 1) {
+      HAL_Delay(10);
+      hmi_ChangePage("end");
+      perfect_ok = 0;
+      HAL_Delay(10);
+    }
 
     // hmi_get_car_state_task(); // 非阻塞式发送小车当前状态至串口屏任务
     // lidar_process();          // 雷达DMA数据解析

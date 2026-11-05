@@ -6,14 +6,15 @@
 #define CHASSIS_MOTOR_PULSE_PER_REV  3200       // 多少脉冲一圈
 #define CHASSIS_CM_PER_PULSE         ((3.14159265f * CHASSIS_WHEEL_DIAM_CM) / CHASSIS_MOTOR_PULSE_PER_REV)  // cm/脉冲
 #define CHASSIS_CM_PER_FEEDBACK      ((3.14159265f * CHASSIS_WHEEL_DIAM_CM) / 65536.0f)  // 位置反馈与控制脉冲的单位不同
-#define CHASSIS_YAW_SETTLE     30        // 30 个 10ms = 稳定 300ms 后才算转到位
+#define CHASSIS_YAW_SETTLE     40        // 40 个 10ms = 稳定 400ms 后才算转到位
 #define CHASSIS_MOVE_MARGIN_MS 300       // 位置移动结束的额外余量ms
 #define CHASSIS_ARRIVE_TOL_CM  0.5f      // 底盘到位容差 cm（编码器反馈提前判到位）
 
 // 偏航 PID：输出是电机速度(RPM)，正负方向按实际转向调整
-#define CHASSIS_YAW_KP         3.5f
-#define CHASSIS_YAW_KD         0.2f
-#define CHASSIS_YAW_MAX_I      50.0f
+#define CHASSIS_YAW_KP         3.6f
+#define CHASSIS_YAW_KI         0.000001f
+#define CHASSIS_YAW_KD         1.8f
+#define CHASSIS_YAW_MAX_I      3.0f
 #define CHASSIS_YAW_MAX_OUT    120
 
 // 转向电机死区速度
@@ -71,7 +72,7 @@ void chassis_init(void)
 {
     Positional_PID_Init(&yaw_pid,
                         CHASSIS_YAW_KP,
-                        0.0f,
+                        CHASSIS_YAW_KI,
                         CHASSIS_YAW_KD,
                         CHASSIS_YAW_MAX_I,
                         -CHASSIS_YAW_MAX_OUT,
@@ -243,11 +244,12 @@ void car_rotate_yaw(float target_yaw)
         car_rotate((int16_t)(yaw_pid.output));
     }
     else {
-        // 误差小：先停住，连续稳定 100 帧（1000ms）才算到位
+        // 误差小：先停住，连续稳定一定帧才算到位
         car_rotate(0);   // 只发 0 速度，保持 CHASSIS_ROTATE，直到稳定计数满
         chassis_settle++;
         if (chassis_settle >= CHASSIS_YAW_SETTLE) {
             car_stop();
+            PID_Reset(&yaw_pid);
             chassis_mode = CHASSIS_IDLE;    // 底盘空闲
         }
     }
