@@ -11,8 +11,8 @@
 #define CHASSIS_ARRIVE_TOL_CM  0.5f      // 底盘到位容差 cm（编码器反馈提前判到位）
 
 // 偏航 PID：输出是电机速度(RPM)，正负方向按实际转向调整
-#define CHASSIS_YAW_KP         3.6f
-#define CHASSIS_YAW_KI         0.000001f
+#define CHASSIS_YAW_KP         3.7f
+#define CHASSIS_YAW_KI         0.00001f
 #define CHASSIS_YAW_KD         1.8f
 #define CHASSIS_YAW_MAX_I      3.0f
 #define CHASSIS_YAW_MAX_OUT    120

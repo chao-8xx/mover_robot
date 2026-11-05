@@ -109,6 +109,7 @@ int main(void)
   // 系统整体初始化
   system_init();
   perfect_ok = 0;
+  // uint32_t tim = HAL_GetTick();
 
   // maix 任务一测试
   // maix_b2_test();
@@ -131,6 +132,11 @@ int main(void)
       perfect_ok = 0;
       HAL_Delay(10);
     }
+
+    // if (HAL_GetTick() - tim >= 700) {
+    //   tim = HAL_GetTick();
+    //   printf("偏航角：%.2f \n",my_yaw);
+    // }
 
     // hmi_get_car_state_task(); // 非阻塞式发送小车当前状态至串口屏任务
     // lidar_process();          // 雷达DMA数据解析

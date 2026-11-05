@@ -3,8 +3,8 @@
 #define TARGET_DX   (0)               // 目标dx
 #define TARGET_DY   (-1)              // 目标dy
 
-#define TARGET_CIRCLE_DX (-10)        // 圆环目标dx
-#define TARGET_CIRCLE_DY (-1)         // 圆环目标dy
+#define TARGET_CIRCLE_DX (-9)        // 圆环目标dx
+#define TARGET_CIRCLE_DY (-1)        // 圆环目标dy
 
 #define LEAVE_PARK_DX     19.0f       // 离开启停区的横向距离
 #define LEAVE_PARK_DY     20.0f       // 离开启停区的纵向距离
@@ -26,13 +26,13 @@
 #define FOUR_BLOCK_DIST   170.0f      // 四格
 
 // 小车X轴离工作区远离距离
-#define META_LEAVE_DIST   3.0f       // 小车离转盘多退的距离
+#define META_LEAVE_DIST   1.0f       // 小车离转盘多退的距离
 #define PROC_LEAVE_DIST   0.8f       // 小车离粗加工多退的距离(与暂存区共用)
 #define DELTA_DIST        7.5f       // 为了抓到转盘，多走的距离
 
 // 舵机等待时间 ms
 #define CLAW_WAIT         650         // 等待夹爪
-#define HOLDER_WAIT       900         // 等待云台
+#define HOLDER_WAIT       1500         // 等待云台
 
 // 雷达扫描范围mm
 #define LIDAR_SMALL_SCALE   1000      // 小距离
@@ -1459,6 +1459,7 @@ void put_material(void)
     static uint8_t temp_index = 0;          // 暂存索引
     static uint8_t find_cir_ok = 0;         // 是否发现二号圆环
     static uint8_t clear_zero_time = 0;     // 编码器清零计时
+    static uint8_t temp_step = 0;           // 防止伸缩与云台同时进行导致打物料步骤
     uint8_t slot = 0;
 
     // 不在粗加工区或暂存区 退出
@@ -1516,6 +1517,7 @@ void put_material(void)
             }
             light_on();     // 开灯
             // light_off();     // 关灯
+            PID_Clear();      // 追圆环前清掉上一轮残留的误差和积分
             put_step = 4;
             break;
         case 4:     // 跟踪2号圆环或中间码垛
@@ -1653,44 +1655,78 @@ void put_material(void)
             break;
         case 14:    // 根据已经放置的个数决定云台位置和伸缩长度
             if (!stretch_is_busy() && Emm_V5_Tx_Count() == 0) {
-                switch (put_num) {
-                    case 0:     // 1号圆环
-                        if (task_state.one_finish && task_state.two_finish) {
-                            holder_rotate(HOLDER_LEFT - 2.0f);
-                            catch_stretch_distance(STRETCH_PUT_LEFT - 3.5f);  // 伸缩到置放置两侧码垛位置
+                switch (temp_step)
+                {
+                    case 0:   // 先云台
+                        switch (put_num) {
+                            case 0:     // 1号圆环
+                                if (task_state.one_finish && task_state.two_finish) {
+                                    holder_rotate(HOLDER_LEFT - 1.2f);
+                                }
+                                else {
+                                    holder_rotate(HOLDER_LEFT);
+                                }
+                                break;
+                            case 1:     // 2号圆环
+                                if (task_state.one_finish && task_state.two_finish) {
+                                    holder_rotate(HOLDER_CATCH - 8.5f);
+                                }
+                                else {
+                                    holder_rotate(HOLDER_CATCH);
+                                }
+                                break;
+                            case 2:     // 3号圆环
+                                if (task_state.one_finish && task_state.two_finish) {
+                                    holder_rotate(HOLDER_RIGHT - 6.0f);
+                                }
+                                else {
+                                    holder_rotate(HOLDER_RIGHT);
+                                }
+                                break;
+                            default:    // 默认
+                                holder_rotate(HOLDER_CATCH);
+                                break;
                         }
-                        else {
-                            holder_rotate(HOLDER_LEFT);
-                            catch_stretch_distance(STRETCH_PUT_LEFT);  // 伸缩到置放置两侧圆环位置
+                        servo_wait_ms(HOLDER_WAIT); // 等云台转到目标位置
+                        temp_step = 1;
+                    case 1:     // 后伸缩
+                        if (!servo_is_busy()) {
+                            switch (put_num) {
+                                case 0:     // 1号圆环
+                                    if (task_state.one_finish && task_state.two_finish) {
+                                        catch_stretch_distance(STRETCH_PUT_LEFT - 2.7f);  // 伸缩到置放置两侧码垛位置
+                                    }
+                                    else {
+                                        catch_stretch_distance(STRETCH_PUT_LEFT);  // 伸缩到置放置两侧圆环位置
+                                    }
+                                    break;
+                                case 1:     // 2号圆环
+                                    if (task_state.one_finish && task_state.two_finish) {
+                                        catch_stretch_distance(STRETCH_PUT_MID - 1.2f);    // 伸缩到置放置中间码垛位置
+                                    }
+                                    else {
+                                        catch_stretch_distance(STRETCH_PUT_MID);    // 伸缩到置放置中间圆环位置
+                                    }
+                                    break;
+                                case 2:     // 3号圆环
+                                    if (task_state.one_finish && task_state.two_finish) {
+                                        catch_stretch_distance(STRETCH_PUT_RIGHT + 1.8f);  // 伸缩到置放置两侧码垛位置
+                                    }
+                                    else {
+                                        catch_stretch_distance(STRETCH_PUT_RIGHT);  // 伸缩到置放置两侧圆环位置
+                                    }
+                                    break;
+                                default:    // 默认
+                                    catch_stretch_distance(STRETCH_PUT_MID);    // 伸缩到置放置中间圆环位置
+                                    break;
+                            }
+                            temp_step = 0;
+                            put_step = 15;
                         }
                         break;
-                    case 1:     // 2号圆环
-                        if (task_state.one_finish && task_state.two_finish) {
-                            holder_rotate(HOLDER_CATCH - 8.5f);
-                            catch_stretch_distance(STRETCH_PUT_MID - 2.2f);    // 伸缩到置放置中间码垛位置
-                        }
-                        else {
-                            holder_rotate(HOLDER_CATCH);
-                            catch_stretch_distance(STRETCH_PUT_MID);    // 伸缩到置放置中间圆环位置
-                        }
-                        break;
-                    case 2:     // 3号圆环
-                        if (task_state.one_finish && task_state.two_finish) {
-                            holder_rotate(HOLDER_RIGHT - 8.0f);
-                            catch_stretch_distance(STRETCH_PUT_RIGHT + 0.8f);  // 伸缩到置放置两侧码垛位置
-                        }
-                        else {
-                            holder_rotate(HOLDER_RIGHT);
-                            catch_stretch_distance(STRETCH_PUT_RIGHT);  // 伸缩到置放置两侧圆环位置
-                        }
-                        break;
-                    default:    // 默认
-                        holder_rotate(HOLDER_CATCH);
-                        catch_stretch_distance(STRETCH_PUT_MID);    // 伸缩到置放置中间圆环位置
+                    default:
                         break;
                 }
-                servo_wait_ms(HOLDER_WAIT); // 等云台转到目标位置
-                put_step = 15;
             }
             break;
         case 15:    // 云台转到位置 下放夹爪放置
@@ -1852,7 +1888,7 @@ void pick_material(void)
         case 4:     // 锁中间码垛
             target_state_get(); // 获取状态
             if (task_state.is_find_target == 1) {   // 目标丢失 进入保护 回退步骤继续等待发现目标
-                follow_target(temp_yaw, TARGET_CIRCLE_DX, TARGET_CIRCLE_DX);
+                follow_target(temp_yaw, TARGET_CIRCLE_DX, TARGET_CIRCLE_DY);
                 if (put_is_ok() == 1) {  // 达到抓取条件 只是命名为put
                     car_stop();
                     PID_Clear();    // 清除误差和积分
@@ -2036,7 +2072,9 @@ void control_process(void)
     // 旋转进行中：car_rotate_yaw 必须每拍持续调用
     if (my_control.rotate_state == 1) {
         car_rotate_yaw(my_control.target_yaw);
-        if (!car_is_busy()) my_control.rotate_state = 0;   // 内部到位稳定后已置 IDLE
+        if (!car_is_busy()) {
+            my_control.rotate_state = 0;   // 内部到位稳定后已置 IDLE
+        }
         return;
     }
 
