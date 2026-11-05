@@ -161,3 +161,30 @@ void motor_pos_set(Motor_Num motor_num, int32_t pos)
         return;
     step_motor_pos[motor_num] = pos;
 }
+
+// 电机定速定位置控制 多机协同
+void motor_set_speedPos_sync(Motor_Num motor_num, int16_t speed, int32_t pulse)
+{
+    uint8_t addr = step_motor_get_addr(motor_num);
+    uint8_t dir;
+    uint16_t vel;
+    uint32_t clk;
+
+    if (addr == 0) {
+        return;
+    }
+
+    vel = (speed < 0) ? (uint16_t)(-(int32_t)speed) : (uint16_t)speed;
+    if (vel > 5000) {
+        vel = 5000;
+    }
+
+    dir = (pulse < 0) ? 1 : 0;
+    clk = (pulse < 0) ? (uint32_t)(-(int32_t)pulse) : (uint32_t)pulse;
+
+    // snF = true：装填目标，不立即启动
+    if (Emm_V5_Pos_Control(addr, dir, vel, STEP_MOTOR_CHASSIS_ACC, clk, false, true)) {
+        step_motor_pos[motor_num] += pulse;
+    }
+    step_motor_update_speed(motor_num, speed);
+}

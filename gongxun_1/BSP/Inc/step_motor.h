@@ -32,6 +32,9 @@ void motor_set_speed_Pos(Motor_Num motor_num,int16_t speed,int32_t pos);
 
 void motor_pos_set(Motor_Num motor_num, int32_t pos);
 
+// 电机定速定位置控制 相对 + 多机同步装填（只装填目标，不启动，等触发）
+void motor_set_speedPos_sync(Motor_Num motor_num, int16_t speed, int32_t pulse);
+
 // ---- 变量声明 ---- //
 extern int16_t motor1_speed;
 extern int16_t motor2_speed;

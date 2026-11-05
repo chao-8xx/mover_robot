@@ -34,8 +34,8 @@
 #define STRETCH_CATCH      12.5f  // 抓取位置 从原料区
 #define STRETCH_PUT        0.8f   // 放置位置 放入转盘
 #define STRETCH_PUT_MID    6.0f   // 放置中心圆环位置
-#define STRETCH_PUT_LEFT   10.9f  // 放置左边圆环位置
-#define STRETCH_PUT_RIGHT  11.4f  // 放置右边圆环位置
+#define STRETCH_PUT_LEFT   11.2f  // 放置左边圆环位置
+#define STRETCH_PUT_RIGHT  11.2f  // 放置右边圆环位置
 #define STRETCH_SAFE       8.0f   // 安全长度
 
 // 夹爪当前模式：夹住/松开
