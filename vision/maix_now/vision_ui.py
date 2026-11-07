@@ -494,7 +494,7 @@ class VisionUI:
             )
 
     def _draw_ring_home(self, canvas, preview_bgr, result):
-        self._header(canvas, "任务二 圆环中心定位", back=True)
+        self._header(canvas, "任务二 数字2圆环定位", back=True)
         if self.portrait:
             rect = self._preview(canvas, preview_bgr, (8, 55, self.screen_w - 16, 292))
             y = rect[1] + rect[3] + 8
@@ -511,7 +511,7 @@ class VisionUI:
             panel_w = self.screen_w - panel_x - 8
             self._draw_ring_view_buttons(canvas, 66, panel_x, panel_w)
             self._button(canvas, "START_RING_RUN", (panel_x, 128, panel_w, 64),
-                         "定位圆心", active=True, font="small")
+                         "识别2并定位", active=True, font="small")
             self._button(canvas, "OPEN_RING_CALIBRATE", (panel_x, 204, panel_w, 64),
                          "任务二调参", font="small")
 
@@ -1159,8 +1159,9 @@ class VisionUI:
             cv2.rectangle(canvas, (x + 4, y + 27), (x + w - 5, y + 48), (16, 19, 24), -1)
             cv2.putText(canvas, info, (x + 9, y + 43), cv2.FONT_HERSHEY_SIMPLEX, 0.43, color, 1)
         if self.selected_task == TASK_RING:
-            info = "C:{} LOCK:{} {}".format(
+            info = "C:{} DIG:{} LOCK:{} {}".format(
                 result.get("candidate_count", 0),
+                result.get("recognized_digit", 0),
                 1 if result.get("target_confirmed", False) else 0,
                 result.get("state", "SEARCH"),
             )

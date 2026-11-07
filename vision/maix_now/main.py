@@ -1,4 +1,4 @@
-# 校赛后独立入口：B2单色LAB/可裁剪与屏蔽 / B3纯圆心 / B4单色码垛。
+# 校赛后独立入口：B2单色LAB/可裁剪与屏蔽 / B3确认数字2后跟踪圆心 / B4单色码垛。
 # 参数只在vision_config.py或触屏菜单修改；没有第二套旧阈值。
 # 协议不变：AA 55 CMD 06 FRAME_ID RAW_OK dxL dxH dyL dyH SUM。
 
@@ -17,14 +17,15 @@ from vision_tasks import (
     TASK_NONE, TASK_MATERIAL, TASK_RING, TASK_STACK, TASK_LABELS, TaskManager,
 )
 from vision_ui import TouchInput, VisionUI
+from vision_ocr import B3_OCR_BUILD, warmup_two_templates
 from vision_runtime import B2_SEND_TIME_MS, SEND_TIME_MS, B2DebugLog, ResultSender, PerfStats, pack_xy_frame, send_interval_ms, color_diagnostic_line
 
-BUILD = "NOW_COLOR_TUNING_V13"
+BUILD = "NOW_B3_DIGIT_TWO_V14"
 CMD_NONE, CMD_BLOB, CMD_RING, CMD_ONUP = 0xB0, 0xB2, 0xB3, 0xB4
 COLOR_NONE, SUM_2 = 0xC0, 0xD2
 COLOR_CODE_TO_KEY = {0xC0 + number: key for key, number in COLOR_NUMBERS.items()}
 MAX_RX_DATA_LEN = 32
-DISPLAY_TIME_MS = 100  # 调试期UI/RUN均显示实时画面，最多约10次/秒；不限制检测/发送。
+DISPLAY_TIME_MS = 100  # 调试期UI/RUN均显示实时画面，最多约10次/秒；不限制检测/发送 喵。
 SERIAL_DEVICE, SERIAL_BAUD = "/dev/serial0", 115200
 UART_TX_PIN, UART_TX_GPIO, UART_TX_FUNCTION = "A16", "GPIOA16", "UART0_TX"
 
@@ -56,7 +57,7 @@ def check_b2_modules():
     colors = tuple(getattr(config_module, "COLOR_ORDER", ()))
     schema = getattr(config_module, "SCHEMA_VERSION", 0)
     print("[VISION B2 MODULE] vision_config", getattr(config_module, "__file__", "?"), colors, "schema=", schema)
-    if colors != ("red", "yellow", "blue", "green", "black", "light_blue") or schema != 13:
+    if colors != ("red", "yellow", "blue", "green", "black", "light_blue") or schema != 14:
         mismatch.append("vision_config")
     if mismatch:
         raise RuntimeError("B2 module mismatch: " + ",".join(mismatch) +
@@ -67,7 +68,7 @@ def uart_tx_release():
     """共享RX总线时，空闲Maix TX切为GPIO输入高阻；不能重复申请GPIO。"""
     global uart_tx_gpio, uart_tx_owned
     if uart_tx_owned:
-        time.sleep_ms(3)  # 115200下11字节约1ms，留出发送完成余量。
+        time.sleep_ms(3)  # 115200下11字节约1ms，留出发送完成余量喵。
     err.check_raise(pinmap.set_pin_function(UART_TX_PIN, UART_TX_GPIO),
                     "release A16 failed")
     if uart_tx_gpio is None:
@@ -97,7 +98,7 @@ def clear_color_target(value):
 
 
 def handle_cmd(cmd, data):
-    """B3只接受2/D2。纯几何版本不能承诺识别数字1或3。"""
+    """B3只接受2/D2，确认数字2后输出圆心偏差。"""
     global mode, target, control_revision
     if cmd == CMD_NONE and len(data) == 0:
         next_mode, next_target = CMD_NONE, COLOR_NONE
@@ -110,7 +111,7 @@ def handle_cmd(cmd, data):
         next_mode, next_target = CMD_RING, SUM_2
     else:
         return
-    # 所有权切换失败就不进入新模式；停止也会立即禁止后续坐标发送。
+    # 所有权切换失败就不进入新模式；停止也会立即禁止后续坐标发送喵。
     try:
         if next_mode == CMD_NONE:
             mode, target = next_mode, next_target
@@ -130,7 +131,7 @@ def handle_cmd(cmd, data):
 
 def rx_handle():
     global uart_control_active
-    # 正式模式开关：注释主循环标记处的一行即可本地触屏调试。
+    # 正式模式开关：注释主循环标记处的一行即可本地触屏调试喵。
     uart_control_active = True
     if serial is None:
         return
@@ -210,7 +211,7 @@ def send_result(cmd, tx):
 
 def run():
     global serial
-    # 尽量先释放TX；Python启动前的系统UART日志不受此程序控制。
+    # 尽量先释放TX；Python启动前的系统UART日志不受此程序控制喵。
     uart_tx_release()
     cam, native_bgr = open_camera()
     disp = display.Display()
@@ -223,7 +224,7 @@ def run():
         data_dir = app.get_app_data_path()
     except Exception:
         data_dir = "./data"
-    # 新app id和新文件名隔离参数，避免覆盖校赛版本的现场配置。
+    # 新app id和新文件名隔离参数，避免覆盖校赛版本的现场配置喵。
     store = VisionConfigStore(data_dir, filename="vision_now_config.json")
     config, status = store.load()
     ui = VisionUI(screen_w, screen_h, config, status)
@@ -245,7 +246,13 @@ def run():
     print("[VISION UI] display: {}x{}".format(screen_w, screen_h))
     print("[VISION RATE] B2={}ms ({:.1f}Hz); B3/B4={}ms ({:.1f}Hz); verify FPS/TXHZ separately".format(
         B2_SEND_TIME_MS, 1000.0 / B2_SEND_TIME_MS, SEND_TIME_MS, 1000.0 / SEND_TIME_MS))
-    print("[VISION RING] geometric center only; F407 must approach slot 2 first")
+    if (getattr(tasks_module, "B3_TASK_BUILD", "OLD") != B3_OCR_BUILD or
+            getattr(config_module, "SCHEMA_VERSION", 0) != 14):
+        raise RuntimeError("B3 module mismatch; upload ALL app.yaml Python files and restart")
+    print("[VISION RING] digit 2 only; command AA 55 B3 01 D2 86")
+    print("[VISION OCR]", B3_OCR_BUILD, warmup_two_templates())
+    r, c = config["ring"]["roi"], config["ring"]["center"]
+    print("[VISION RING CONFIG] ROI=", r, "REFERENCE=", (r["x"]+c["x"], r["y"]+c["y"]))
     print("[VISION DISPLAY] UI/RUN live preview interval={}ms; verify actual FPS/LCD/TXHZ".format(DISPLAY_TIME_MS))
 
     previous_signature = None
@@ -254,14 +261,14 @@ def run():
     next_color_diag_ms = 0
     fps = 0.0
     tx_hz = display_fps = 0.0
-    # copy=False会忽略ensure_bgr，只有原生BGR才允许借用内存。
-    # 回退到默认RGB相机时必须copy=True，否则红蓝会互换。
+    # copy=False会忽略ensure_bgr，只有原生BGR才允许借用内存喵。
+    # 回退到默认RGB相机时必须copy=True，否则红蓝会互换喵。
     zero_copy = native_bgr
     try:
         while not app.need_exit():
             loop_start = now_ms()
-            # 本地触屏调试只注释下一行；下面第二次接收受此开关控制。
-            rx_handle()
+            # 本地触屏调试只注释下一行；下面第二次接收受此开关控制喵。
+            # rx_handle()
 
             event = touch.poll()
             if event is not None:
@@ -301,7 +308,7 @@ def run():
             tasks.switch(task_id, active_target)
             if changed:
                 tasks.reset_current()
-                # 切任务先选择本任务周期，再清空旧调度，不让B2的28ms带到B3/B4。
+                # 切任务先选择本任务周期，再清空旧调度，不让B2的28ms带到B3/B4喵。
                 sender.interval_ms = send_interval_ms(task_id)
                 sender.reset(now_ms())
                 b2_debug.reset()
@@ -318,7 +325,7 @@ def run():
 
             capture_start = now_ms()
             camera_image = cam.read()
-            # 相机对象在本轮处理结束前始终保留，不跨线程借用这块内存。
+            # 相机对象在本轮处理结束前始终保留，不跨线程借用这块内存喵。
             try:
                 cv_bgr = image.image2cv(camera_image, ensure_bgr=True, copy=not zero_copy)
             except TypeError:
@@ -408,3 +415,4 @@ def run():
 
 if __name__ == "__main__":
     run()
+# 激光雷达搞不出来我就摆烂 ！！！

@@ -4,13 +4,14 @@ files:
   - main.py
   - vision_blob.py
   - vision_config.py
+  - vision_ocr.py
   - vision_ring.py
   - vision_runtime.py
   - vision_tasks.py
   - vision_ui.py
 id: gongxun_now
 name: 工训视觉_NOW
-version: 2.3.4
+version: 2.4.0
 author: chao
 icon: app.png
-desc: 黑色首轮参数调整、夹爪屏蔽位置校正、低频诊断、三任务实时预览
+desc: 任务二扩大ROI保持对准点，确认数字2后跟踪圆心，三任务实时预览

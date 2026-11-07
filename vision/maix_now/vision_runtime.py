@@ -154,7 +154,7 @@ class PerfStats:
         if display_ms > 0:
             self.display_count += 1
         for key in ("conversion_ms", "threshold_ms", "morph_ms", "blob_ms",
-                    "mask_ms", "group_ms", "contour_ms", "filter_ms", "resize_ms", "coverage_ms"):
+                    "mask_ms", "group_ms", "contour_ms", "filter_ms", "resize_ms", "coverage_ms", "ocr_ms"):
             self.totals[key] = self.totals.get(key, 0.0) + result.get(key, 0.0)
         if tx is not None:
             self.tx_count += 1
@@ -180,11 +180,14 @@ class PerfStats:
         if task_id == 2:
             roi = result.get("process_roi", (0, 0, 0, 0))
             text += (" MASK:{:.1f} GRP:{:.1f} CTR:{:.1f} FLT:{:.1f} "
-                     "ROI:{}x{} LAYER:{} CAND:{} LOCK:{} LOST:{} STATE:{}").format(
+                     "ROI:{}x{} LAYER:{} CAND:{} LOCK:{} LOST:{} STATE:{} "
+                     "OCR:{:.1f} DIG:{} OCR_N:{} WHY:{}").format(
                 avg("mask_ms"), avg("group_ms"), avg("contour_ms"), avg("filter_ms"),
                 roi[2], roi[3], int(result.get("layers_checked", False)),
                 result.get("candidate_count", 0), int(result.get("target_confirmed", False)),
-                result.get("lost_frames", 0), result.get("state", "SEARCH"))
+                result.get("lost_frames", 0), result.get("state", "SEARCH"),
+                avg("ocr_ms"), result.get("recognized_digit", 0),
+                result.get("ocr_calls", 0), result.get("ocr_reason", "NONE"))
         else:
             text += " CVT:{:.1f} THR:{:.1f} MORPH:{:.1f} BLOB:{:.1f} COLORS:{}".format(
                 avg("conversion_ms"), avg("threshold_ms"), avg("morph_ms"), avg("blob_ms"),

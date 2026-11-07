@@ -55,21 +55,27 @@ def color_frame(cfg, colors=("red", "yellow", "blue")):
     return frame
 
 
-def ring_frame(centers=((40, 120), (160, 120), (280, 120)), axes=None, angle=0):
+def ring_frame(centers=((40, 120), (160, 120), (280, 120)), axes=None, angle=0, digits=2):
     frame = np.full((240, 320, 3), 255, np.uint8)
     for center in centers:
         # 小到单像素的圆周在斜向射线会混叠；使用可解析的环带样本。
-        for radius in (32, 27, 22, 17):
+        # 留出数字裁剪区，环带不穿过字形；仍保留4层几何确认。
+        for radius in (32, 28, 24, 20):
             if axes is None:
                 cv2.circle(frame, center, radius, (0, 0, 0), 2)
             else:
                 cv2.ellipse(frame, center, (radius, int(radius * axes)),
                             angle, 0, 360, (0, 0, 0), 2)
+        if digits is not None:
+            cv2.putText(frame, str(digits), (center[0]-6, center[1]+7),
+                        cv2.FONT_HERSHEY_SIMPLEX, .55, (0, 0, 0), 2, cv2.LINE_AA)
     return frame
 
 
 def ring_config():
     cfg = config()
+    cfg["ring"]["roi"] = dict(x=0, y=0, w=320, h=240)
+    cfg["ring"]["center"] = dict(x=160, y=120, custom=True)
     cfg["ring"]["min_diameter"] = 24
     cfg["ring"]["min_contour_area"] = 45
     return cfg
@@ -147,7 +153,7 @@ class ConfigTests(unittest.TestCase):
     def test_default_store_returns_normalized_stack_center(self):
         with tempfile.TemporaryDirectory() as path:
             value, _ = VisionConfigStore(path).load()
-        self.assertEqual(value["stack"]["center"], dict(x=67, y=67, custom=False))
+        self.assertEqual(value["stack"]["center"], validate_config(DEFAULT_CONFIG)["stack"]["center"])
 
     def test_save_load_preserves_calibration_and_separate_ring_geometry(self):
         cfg = config()
@@ -496,14 +502,19 @@ class RingTrackingTests(unittest.TestCase):
         self.assertEqual(value["state"], "TRACK")
         return value
 
-    def test_geometric_confirmation_without_ocr_even_blank_center(self):
+    def test_digit_two_is_required_before_tracking(self):
+        for _ in range(3):
+            value = self.task.process(ring_frame(digits=None), self.cfg)["result"]
+        self.assertFalse(value["found"])
+        self.assertFalse(value["target_confirmed"])
+        self.assertGreater(value["ocr_calls"], 0)
+        self.task.enter(0xD2)
         for index in range(3):
             value = self.task.process(ring_frame(), self.cfg)["result"]
             self.assertEqual(value["found"], index == 2)
-            self.assertNotIn("recognized_digit", value)
-            self.assertNotIn("ocr_calls", value)
+            self.assertEqual(value["ocr_calls"], 1 if index == 2 else 0)
         self.assertEqual((value["cx"], value["cy"]), (160, 120))
-        self.assertNotIn("vision_ocr", sys.modules)
+        self.assertEqual(value["recognized_digit"], 2)
 
     def test_lock_roi_shrinks_and_center_reference_does_not_move(self):
         self.track()

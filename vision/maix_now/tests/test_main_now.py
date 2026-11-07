@@ -8,7 +8,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from test_ui_v9 import _FakeImageModule, VisionUI
-from test_vision_v9 import MODULE_DIR, config, color_frame
+from test_vision_v9 import MODULE_DIR, config, color_frame, ring_frame
 from vision_tasks import TASK_MATERIAL
 from vision_config import VisionConfigStore
 
@@ -42,9 +42,9 @@ class MainLoopTests(unittest.TestCase):
         return env
 
     def hardware(self, env, path, chunks, loops=4, local=False, bgr=True, local_run=True,
-                 clock_step=2):
+                 clock_step=2, frame=None):
         cam = Mock()
-        cam.read.return_value = color_frame(config())
+        cam.read.return_value = color_frame(config()) if frame is None else frame
         disp = Mock()
         disp.width.return_value, disp.height.return_value = 640, 480
         serial = Mock()
@@ -97,6 +97,22 @@ class MainLoopTests(unittest.TestCase):
         self.assertEqual(packet[5], 1)
         self.assertTrue(all(not call.kwargs["copy"] for call in convert.call_args_list))
         cam.close.assert_called_once()
+
+    def test_b3_d2_only_sends_valid_coordinates_after_digit_two_confirmation(self):
+        for digit in (1,2,3,None):
+            env = self.load_entry()
+            start = self.command(0xB3,[0xD2])
+            self.assertEqual(start,bytes.fromhex("AA 55 B3 01 D2 86"))
+            with tempfile.TemporaryDirectory() as path:
+                _,_,serial,_ = self.hardware(env,path,[start],loops=8,
+                    frame=ring_frame(((163,120),),digits=digit))
+            packets = [call.args[0] for call in serial.write.call_args_list]
+            self.assertTrue(packets)
+            self.assertTrue(all(packet[2] == 0xB3 and len(packet) == 11 for packet in packets))
+            valid = [packet for packet in packets if packet[5] == 1]
+            self.assertEqual(bool(valid),digit == 2)
+            if digit == 2:
+                self.assertEqual(valid[-1][6:10],bytes([246,255,6,0]))
 
     def save_grasp_config(self, path):
         cfg = config()

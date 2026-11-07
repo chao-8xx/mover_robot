@@ -28,11 +28,11 @@ def build():
             compile(data.decode("utf-8"), name, "exec")
         content[name] = data
     main_source = content["main.py"].decode("utf-8")
-    if "NOW_COLOR_TUNING_V13" not in main_source:
+    if "NOW_B3_DIGIT_TWO_V14" not in main_source:
         raise ValueError("unexpected build marker")
-    # 核对所有运行模块的本地依赖；OCR/数字模板及旧入口不允许进入新包。
+    # 包含本应用的轻量数字2确认模块；不部署旧入口或外部OCR模型。
     allowed = {"app.png", "app.yaml", "main.py", "vision_blob.py", "vision_config.py",
-               "vision_runtime.py", "vision_ring.py", "vision_tasks.py", "vision_ui.py"}
+               "vision_runtime.py", "vision_ring.py", "vision_tasks.py", "vision_ui.py", "vision_ocr.py"}
     if set(names) != allowed:
         raise ValueError("unexpected NOW runtime files")
     for name, data in content.items():

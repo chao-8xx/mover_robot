@@ -159,7 +159,7 @@ class RoiConfigTests(unittest.TestCase):
     def test_crop_and_masks_round_trip_with_absolute_reference(self):
         cfg = config()
         cfg["roi"] = dict(x=60, y=20, w=190, h=190)
-        cfg["exclude_rois"] = copy.deepcopy(DEFAULT_CONFIG["exclude_rois"])
+        cfg["exclude_rois"] = [dict(x=80, y=140, w=30, h=40)]
         original = copy.deepcopy(cfg)
         for _ in range(3):
             cfg = validate_config(cfg)
@@ -187,7 +187,7 @@ class RoiConfigTests(unittest.TestCase):
         value = validate_config(old)
         for k in old.keys() - {"schema_version"}:
             self.assertEqual(value[k], old[k])
-        self.assertEqual(value["exclude_rois"], DEFAULT_CONFIG["exclude_rois"])
+        self.assertEqual(value["exclude_rois"], validate_config(DEFAULT_CONFIG)["exclude_rois"])
 
     def test_b2_center_editor_uses_absolute_coordinates_after_crop(self):
         cfg = config()

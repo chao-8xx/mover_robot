@@ -9,7 +9,7 @@ import json
 import os
 
 
-SCHEMA_VERSION = 13
+SCHEMA_VERSION = 14
 IMAGE_WIDTH = 320
 IMAGE_HEIGHT = 240
 
@@ -61,7 +61,8 @@ DEFAULT_CONFIG = {
     # 按本轮实拍移至盘内的夹爪暗面；须检查全行程，目标不能被屏蔽切掉。[]可关闭。
     "exclude_rois": [
         {"x": 0, "y": 0, "w": 0, "h": 0},   # 左夹爪暗面
-        {"x": 0, "y": 0, "w": 0, "h": 0},  # 右夹爪暗面
+        {"x": 246, "y": 117, "w": 27, "h": 55},  # 右夹爪暗面
+        # {"x": 0, "y": 0, "w": 0, "h": 0},   # 右夹爪暗面
     ],
     # B2多边形屏蔽：每个列表是一块封闭区域，顶点沿边界顺序填写[x,y]。
     # 圆弧用多个顶点近似：沿外弧走，再沿内弧反向返回，形成有厚度的弧带。
@@ -82,7 +83,7 @@ DEFAULT_CONFIG = {
         "custom": True,
     },
     # 面积范围同样按 320x240 等效面积保存，RUN 内部会自动按像素比例换算。
-    "blob": {"min_area": 500, "max_area": 1800},
+    "blob": {"min_area": 350, "max_area": 1800},
     # B2抓取判定区：只判定覆盖，不裁剪全图搜索、不改变dx/dy参考点。
     # 320x240原图坐标；40x40/60%只是初试值，新镜头/夹爪必须实物标定。
     "grasp": {
@@ -93,32 +94,32 @@ DEFAULT_CONFIG = {
     "stack": {
         "roi": {"x": 121, "y": 74, "w": 105, "h": 80},
         "center": {
-            "x": 163,
-            "y": 116,
-            "custom": False,
+            "x": 63,
+            "y": 49,
+            "custom": True,
         },
         "blob": {"min_area": 300, "max_area": 800},
     },
     "thresholds": {
         # 按用户提供的maix_main现场配置迁入六色LAB；B2/B4共享此表。
         "LAB": {
-            "red": {"lower": [75, 170, 130], "upper": [210, 220, 170]},
+            "red": {"lower": [60, 150, 120], "upper": [255, 220, 180]},
             "yellow": {"lower": [150, 100, 155], "upper": [245, 130, 220]},
-            "blue": {"lower": [35, 135, 50], "upper": [138, 185, 110]},
+            "blue": {"lower": [35, 135, 50], "upper": [225, 185, 120]},
             "green": {"lower": [102, 70, 128], "upper": [205, 120, 170]},
             "black": {"lower": [0, 118, 116], "upper": [135, 140, 140]},
-            "light_blue": {"lower": [85, 100, 70], "upper": [255, 130, 125]},
+            "light_blue": {"lower": [85, 100, 70], "upper": [255, 130, 118]},
         },
     },
-    # F407先到2号附近，B3只定位几何圆心，不识别数字。
+    # B3扩大搜索范围，先确认数字2，再沿用原圆心跟踪。
     "ring": {
-        # 任务位置约定为2，但这不是OCR识别结果。
+        # 只接受2/D2；原图对准点保持(173,114)，center仍为ROI内相对坐标。
         "target_number": 2,
-        "roi": {"x": 121, "y": 74, "w": 105, "h": 80},
+        "roi": {"x": 40, "y": 20, "w": 240, "h": 200},
         "center": {
-            "x": 163,
-            "y": 116,
-            "custom": False,
+            "x": 133,
+            "y": 94,
+            "custom": True,
         },
         # 灰度值不高于该值的像素作为黑色候选。
         "black_v_max": 125,
@@ -147,6 +148,20 @@ _LEGACY_JOINED_POLYGON = [
 
 def clone_config(config):
     return copy.deepcopy(config)
+
+
+def _expand_ring_roi(ring):
+    """旧JSON扩展搜索区时保持其实际原图对准点，不覆盖其他现场参数。"""
+    roi, center = ring["roi"], ring["center"]
+    wanted = DEFAULT_CONFIG["ring"]["roi"]
+    x, y = min(roi["x"], wanted["x"]), min(roi["y"], wanted["y"])
+    right = max(roi["x"] + roi["w"], wanted["x"] + wanted["w"])
+    bottom = max(roi["y"] + roi["h"], wanted["y"] + wanted["h"])
+    expanded = dict(x=x, y=y, w=right-x, h=bottom-y)
+    if expanded != roi:
+        ring["center"] = dict(x=roi["x"]+center["x"]-x,
+                              y=roi["y"]+center["y"]-y, custom=True)
+        ring["roi"] = expanded
 
 
 def _clamp(value, low, high):
@@ -369,7 +384,7 @@ def validate_config(value):
     if not isinstance(ring_source, dict):
         ring_source = {}
     ring_result = result["ring"]
-    # 2是F407约定的任务位置；视觉端不再通过OCR确认身份。
+    # 只识别数字2，旧JSON的1/3目标不进入新任务。
     ring_result["target_number"] = 2
 
     # 圆环ROI坐标属于完整320x240画面；center是ROI内相对坐标。
@@ -408,6 +423,9 @@ def validate_config(value):
     if not ring_result["center"]["custom"]:
         ring_result["center"]["x"] = ring_w // 2
         ring_result["center"]["y"] = ring_h // 2
+
+    if _clamp(source.get("schema_version", 0), 0, 9999) < 14 and "ring" in source:
+        _expand_ring_roi(ring_result)
 
     ring_result["black_v_max"] = _clamp(
         ring_source.get("black_v_max", ring_result["black_v_max"]), 0, 255

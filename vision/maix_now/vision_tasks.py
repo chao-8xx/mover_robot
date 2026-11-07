@@ -1,4 +1,4 @@
-"""校赛后视觉：B2全图单色、B3纯圆心、B4复用单色LAB识别。"""
+"""校赛后视觉：B2单色、B3确认数字2后跟踪圆心、B4复用单色LAB。"""
 
 import cv2
 from time import perf_counter
@@ -12,6 +12,9 @@ from vision_config import (
     RUN_PROCESS_HEIGHT, RUN_PROCESS_WIDTH,
 )
 from vision_ring import detect_ring_candidates
+from vision_ocr import confirm_digit_two
+
+B3_TASK_BUILD = "B3_DIGIT_TWO_V1"
 
 
 TASK_NONE = 0
@@ -162,9 +165,10 @@ MaterialTask = ColorTracker
 
 
 class RingTask:
-    """已到2号附近后，以几何确认圆环；不加载或执行OCR。"""
+    """稳定圆环中确认数字2；确认后沿用动态窗口、圆心跟踪和丢失恢复。"""
 
     STABLE_FRAMES_REQUIRED = 3
+    OCR_RETRY_COOLDOWN_FRAMES = 8
     REACQUIRE_FRAME_LIMIT = 15
     REACQUIRE_DISTANCE = 48
 
@@ -192,6 +196,10 @@ class RingTask:
         self.target_radius = 0
         self.lost_frames = 0
         self.frames_since_layers = 0
+        self.ocr_retry_cooldown = 0
+        self.last_ocr_reason = "NONE"
+        self.last_ocr_score = 1.0
+        self.last_ocr_margin = 0.0
 
     @staticmethod
     def _distance2(left, right):
@@ -228,6 +236,7 @@ class RingTask:
 
     def process(self, cv_bgr, config, run_mode=False, need_mask=True):
         ring = config["ring"]
+        ocr_ms, ocr_calls = 0.0, 0
         check_layers = True
         process_ring = ring
         if self.target_confirmed and self.state == "TRACK":
@@ -263,6 +272,7 @@ class RingTask:
                 self.state = "SEARCH"
                 self.stable_frames = 0
                 self.pending_center = None
+                self.ocr_retry_cooldown = 0
             else:
                 position = (selected["cx"], selected["cy"])
                 if (self.pending_center is not None and
@@ -270,11 +280,33 @@ class RingTask:
                     self.stable_frames += 1
                 else:
                     self.stable_frames = 1
+                    self.ocr_retry_cooldown = 0
                 self.pending_center = position
                 self.state = "CONFIRM"
-                if self.stable_frames >= self.STABLE_FRAMES_REQUIRED:
-                    self.target_confirmed = True
-                    self.state = "TRACK"
+                if self.ocr_retry_cooldown > 0:
+                    self.ocr_retry_cooldown -= 1
+                elif self.stable_frames >= self.STABLE_FRAMES_REQUIRED:
+                    # 沿用旧版按参考点远近确认候选的流程，避免最近的1/3挡住真正的2。
+                    matched = None
+                    reference = (roi["x"] + center["x"], roi["y"] + center["y"])
+                    for candidate in sorted(candidates, key=lambda c: self._distance2(
+                            (c["cx"], c["cy"]), reference)):
+                        decision = confirm_digit_two(cv_bgr, candidate)
+                        ocr_ms += float(decision.get("ocr_ms", 0.0))
+                        ocr_calls += 1
+                        self.last_ocr_reason = decision.get("reason", "UNKNOWN")
+                        self.last_ocr_score = float(decision.get("score", 1.0))
+                        self.last_ocr_margin = float(decision.get("margin", 0.0))
+                        candidate["digit"] = 2 if decision.get("is_two", False) else 0
+                        if candidate["digit"] == 2:
+                            matched = candidate
+                            break
+                    if matched is not None:
+                        selected = matched
+                        self.target_confirmed = True
+                        self.state = "TRACK"
+                    else:
+                        self.ocr_retry_cooldown = self.OCR_RETRY_COOLDOWN_FRAMES
 
         if selected is not None and self.state == "TRACK":
             self.target_center = (selected["cx"], selected["cy"])
@@ -287,12 +319,19 @@ class RingTask:
             })
         for candidate in candidates:
             candidate["selected"] = candidate is selected
+            if candidate is selected and self.target_confirmed:
+                candidate["digit"] = 2
         result.update({
             "state": self.state, "stage": self.state, "target_number": 2,
             "target_confirmed": self.target_confirmed,
             "stable_frames": self.stable_frames, "lost_frames": self.lost_frames,
             "selected_present": selected is not None, "process_roi": roi_rect,
             "layers_checked": check_layers,
+            "recognized_digit": 2 if self.target_confirmed else 0,
+            "is_two_confirmed": self.target_confirmed,
+            "ocr_ms": ocr_ms, "ocr_calls": ocr_calls,
+            "ocr_reason": self.last_ocr_reason, "ocr_score": self.last_ocr_score,
+            "ocr_margin": self.last_ocr_margin,
         })
         return {"result": result, "mask_roi": mask if need_mask else None,
                 "roi_rect": roi_rect, "config": config}

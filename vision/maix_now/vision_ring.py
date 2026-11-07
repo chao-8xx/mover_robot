@@ -1,6 +1,6 @@
 """任务二：可调ROI黑色MASK、严格圆形过滤和同心环带确认。
 
-本模块只生成圆形候选。RingTask负责纯几何确认和圆心跟踪，不执行OCR。
+本模块只生成圆形候选。RingTask确认数字2后跟踪圆心。
 """
 
 import math
@@ -355,14 +355,15 @@ def make_ring_preview(cv_bgr, mask_roi, result, ring_config, view_mode="OVERLAY"
         for candidate in result.get("candidates", ()):
             cx, cy = candidate["cx"], candidate["cy"]
             radius = candidate["radius"]
-            selected = bool(candidate.get("selected", False))
+            selected = bool(candidate.get("selected", False) and result.get("target_confirmed", False))
             color = (0, 255, 80) if selected else (255, 190, 40)
             cv2.circle(preview, (cx, cy), radius, color, 2)
             cv2.circle(preview, (cx, cy), 3, (0, 0, 255), -1)
             cv2.putText(
                 preview,
                 "{} L{} P{}".format(
-                    "T" if selected else "C" + str(candidate["candidate_index"]),
+                    "2" if selected and candidate.get("digit") == 2 else
+                    "C" + str(candidate["candidate_index"]),
                     candidate["layer_count"] if candidate["layer_count"] >= 0 else "-",
                     candidate.get("layer_pass_count", 0)
                     if candidate.get("layer_pass_count", 0) >= 0 else "-",

@@ -1,7 +1,41 @@
 # 工训视觉 NOW：校赛后独立版本
 
-入口：main.py。应用名：工训视觉_NOW；id：gongxun_now；版本：2.3.3。
-启动标记：NOW_COLOR_TUNING_V13。
+入口：main.py。应用名：工训视觉_NOW；id：gongxun_now；版本：2.4.0。
+启动标记：NOW_B3_DIGIT_TWO_V14。
+
+### 2.4.0：任务二扩大ROI，确认数字2后跟踪
+
+只改任务二及配套部署/测试。当前源码原图对准点(173,114)保持不变：
+
+```python
+"ring": {
+    "target_number": 2,
+    "roi": {"x": 40, "y": 20, "w": 240, "h": 200},
+    "center": {"x": 133, "y": 94, "custom": True},
+    # 其他几何筛选、跟踪参数沿用当前现场值。
+}
+```
+
+center仍是ROI内相对坐标，原图参考点=ROI起点+center。schema14加载旧JSON时，
+先计算原来实际生效的参考点，再将搜索区扩到至少覆盖上述范围并换算局部中心；
+旧范围更大时保留更大的范围。只迁移B3的ROI/局部中心，其他现场参数不覆盖。
+例如旧JSON实际对准点若为(152,115)，升级后仍是(152,115)，不会强制改成源码默认点。
+原JSON会在本应用保存参数时写回新版本，不需要删除整份标定。
+
+复用maix_main的OpenCV字形归一化和模板匹配，在圆环连续3帧几何稳定后尝试确认2。
+输出只接受2；1/3模板保留为内部拒识对照，数字1、3、空白及不确定结果不进入TRACK。
+未确认时每隔8个中间帧再尝试；确认后只跟踪圆心，不逐帧重复识字。
+原同心几何、动态跟踪窗口、周期层数复核及丢失恢复保持；没有新增外部OCR模型或现场调参项。
+模板在启动时缓存，第一次确认仍可能增加检测耗时；帧率/发送频率须真机测量。
+
+F407或串口测试端发送：`AA 55 B3 01 D2 86`。
+返回仍为`AA 55 B3 06 FRAME_ID OK dxL dxH dyL dyH SUM`，OK只取0/1。
+确认2且当前帧合格才返回有效坐标，丢失/过期返回0和零坐标；B0停止沿用原协议。
+本机代码已保留启用的rx_handle接收入口；此处只是提供命令和完成电脑模拟，没有向实物发送。
+UI显示DIG:0/2、LOCK和状态，绿色候选标注2；PERF增加OCR耗时、DIG、OCR_N、WHY。
+
+必须同步完整安装包的8个Python模块，包括新加入的vision_ocr.py，不能只上传main.py。
+模板对真实印刷字形、拍摄角度和反光的可靠性仍须真机确认，不宣称已通过实物识别或40Hz验收。
 
 ### 2.3.3：黑色/浅蓝调试准备
 
@@ -207,13 +241,13 @@ RUN仍全图缩至240×180，抓取框左上向下、右下向上取整，分子
 青色逐像素计数预览只在UI显示时创建；RUN显示现有框/重心、覆盖率和PIX，不额外提取这份计数预览掩膜。
 OK=2不是夹取指令、不是顶面识别、不是连续稳定确认；后续由F407决定连续确认和执行。
 
-### B3：纯圆环中心
+### B3：数字2确认及圆环中心
 
-- 不识别数字、不加载OCR模板、不做椭圆修正。
-- F407必须先把龙门架送到2号附近；纯几何视觉不能证明眼前圆环就是数字2。
+- 仅确认数字2，不提供1/3目标入口，不做椭圆修正。
+- F407先到作业区域，视觉在扩大后的ROI里寻找并确认数字2。
 - 下位机只应发B3 + 2或D2。1/D1、3/D3被忽略，不会切换视觉任务或取得TX所有权。
 - 搜索阶段在可调ring.roi中筛选严格近圆、面积/外径合格、满足同心黑带层数的候选；
-  优先选距离标定对准中心最近的候选，连续3帧几何位置一致后进入TRACK。
+  连续3帧几何位置一致后，按离对准点远近检查数字，确认2后进入TRACK。
 - TRACK阶段在上次圆心附近的动态窗口处理，只跟随48px以内的当前目标。
   动态窗口改变不改变dx/dy的原始标定参考点。
 - 默认每5帧复核一次同心黑带，其他跟踪帧仍检查面积、尺寸及近圆程度。
@@ -221,8 +255,8 @@ OK=2不是夹取指令、不是顶面识别、不是连续稳定确认；后续�
   干扰多时把layer_check_interval改为1（帧率以实测为准）。
 - 丢失立即LOST、RAW_OK=0、dx=dy=0；短时丢失保留锁定位置，
   下一帧回到标定ROI搜索；连续15帧丢失清空锁定重新确认。
-- 为避免误认旁边槽位，现场应把B3的ROI框住2号附近且留足移动余量。
-  不宜把三个圆环全放入过宽的ROI后期待程序识别编号。
+- 搜索ROI可包含多个圆环，近处的1/3不阻止继续检查其他候选中的2。
+  真机仍需检查数字2在全部作业姿态下是否足够清晰完整。
 
 ### B4：单色码垛
 
@@ -230,7 +264,7 @@ OK=2不是夹取指令、不是顶面识别、不是连续稳定确认；后续�
 因此这次迁入main的共享LAB同时作用于B2和B4；B4的ROI、中心和面积不跟随B2改动。
 B4只检测指定颜色，独立使用stack.roi / stack.center / stack.blob，不跑三色。
 只负责2号位置的码垛对准，另外两个位置由龙门架按标定位置移动，不识别层数。
-源码现有stack.blob为1000～12000，stack.roi为(110,25,135,135)，本次未改变数值。
+当前现场源码stack.blob为300～800，stack.roi为(121,74,105,80)，本次未改变数值。
 设备vision_now_config.json中已保存的面积、ROI和中心优先使用，尤其不覆盖降低后的最小面积。
 
 ## 性能和串口
@@ -277,16 +311,17 @@ Python启动之前的系统串口日志不由本程序控制。
 直接运行/上传main.py不能作为其他Python模块已经更新的证据。
 2.3.3的B2/B4首页选择和阈值调参应有原六色，进入B2时打印模块版本和实际文件路径。
 配置颜色列表应为('red', 'yellow', 'blue', 'green', 'black', 'light_blue')，UI标记B2_LIVE_RUN_UI_V4。
-配置模块检查应显示schema=13；blob/tasks标记B2_COLOR_DIAG_V6，runtime标记B2_COLOR_DIAG_V4。
+配置模块检查应显示schema=14；blob/tasks的B2标记仍为B2_COLOR_DIAG_V6，runtime标记B2_COLOR_DIAG_V4。
+B3任务/OCR标记为B3_DIGIT_TWO_V1，启动RING CONFIG打印实际搜索ROI及原图REFERENCE。
 启动RATE显示B2=28ms (35.7Hz)、B3/B4=25ms (40.0Hz)，DISPLAY显示100ms实时预览间隔。
-若显示OLD或module mismatch，停止当前程序，将新包解压后的以下7个Python文件
+若显示OLD或module mismatch，停止当前程序，将新包解压后的以下8个Python文件
 上传到同一个设备目录，再重新启动main.py，避免继续混用不同版本：
 
-main.py、vision_blob.py、vision_config.py、vision_runtime.py、vision_ring.py、vision_tasks.py、vision_ui.py。
+main.py、vision_blob.py、vision_config.py、vision_runtime.py、vision_ring.py、vision_tasks.py、vision_ui.py、vision_ocr.py。
 
-不要覆盖设备data/vision_now_config.json。vision_ring.py只是同步部署依赖，本轮源码未变。
-本次源码保留用户当前的本地调试设置：主循环第一处rx_handle()已注释，TX保持高阻。
-正式与F407通信时再恢复该行；本地触屏RUN日志TXHZ=0不说明识别失败。
+不要手工覆盖设备data/vision_now_config.json，升级按上述规则迁移B3搜索区且保留原图对准点。
+本次保留用户当前启用的rx_handle()；正式接收B3/D2后识别2，等待命令时TX仍为高阻。
+需要本地触屏调试时再按下述方式注释接收；本地RUN日志TXHZ=0不说明识别失败。
 
 1. 本地调试：只注释main.py主循环标记处第一行rx_handle()，由首页选择任务；
    后面条件调用自动关闭，TX继续高阻，本地RUN不会给F407发送数据。
@@ -388,11 +423,11 @@ FRAME_ID按处理帧递增、按8位回绕；发送限频或切任务可能造�
 python -B -m unittest discover -s tests -v
 python -B tools/build_package.py
 
-安装包：dist/maix-gongxun_now-v2.3.3.zip。
-只打包app.yaml清单文件，逐文件核对ZIP内容及CRC，排除OCR模块、测试和缓存。
-已删除maix_now内遗留vision_ocr.py；清单及全部运行模块不依赖OCR、字体数字模板或旧入口。
-dist中较早版本仅作为历史回退包，本次部署只使用2.3.3，不要误装gongxun_1或较早NOW版本。
-必须同步全部7个运行Python模块，不能只上传main.py或vision_config.py。
+安装包：dist/maix-gongxun_now-v2.4.0.zip。
+只打包app.yaml清单文件，逐文件核对ZIP内容及CRC，包含本应用的数字2确认模块，排除测试和缓存。
+vision_ocr.py来自旧版模板算法的独立副本，仅开放确认2的入口；无外部模型和旧main入口。
+dist中较早版本仅作为历史回退包，本次部署使用2.4.0。
+必须同步全部8个运行Python模块，不能只上传main.py或vision_config.py。
 
 电脑检查覆盖单色选择/单次处理、全图四角、几何跟踪、坐标映射、LAB迁移与参数持久化、
 UART分包/粘包/坏校验/停止、B2的28ms与B3/B4的25ms调度、RUN实时预览限频、相机兼容回退。

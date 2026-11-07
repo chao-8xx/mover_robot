@@ -1,5 +1,34 @@
 # 单色LAB简化验证记录
 
+## 2.4.0：任务二扩大ROI和数字2确认（2026-11-06）
+
+开始时vision分支f095360，已有vision_config.py、2.3.4包及F407 pid.c修改；未覆盖这些现场改动。
+仅修改maix_now及配套测试/说明/打包，不修改F407、maix_main、maix_last或OpenMV，不提交/推送。
+默认B3 ROI从(80,40,145,150)扩大至(40,20,240,200)，原图对准点保持(173,114)，
+局部center从(93,74)换算为(133,94)，custom=True。
+schema14对旧JSON取新旧搜索区并集，保留旧配置实际参考点及B2/B4/六色LAB/几何阈值等参数。
+
+vision_ocr.py复用maix_main的字形提取、模板、Dice评分和拒识门槛；对外只确认2，
+1/3仅作负样本对照；启动缓存模板。RingTask保持原几何筛选和动态跟踪结构，
+3帧稳定后低频确认2，再进入TRACK；当前帧丢失即无效，15帧丢失清锁并重新识字。
+UI增加DIG和确认2的标记，PERF增加OCR字段；保留现有RX启用、B3/D2命令、25ms调度和超时。
+
+157项电脑测试通过，包括数字1/3/空白拒识、确认2、最近候选非2时继续找2、确认后停OCR、
+重试限频、丢失/切任务重置、旧JSON扩区保留参考点和保存幂等、UI/RUN坐标一致、
+AA55 B3 01 D2 86整条入口模拟、有效/无效/过期打包和原B2/B4回归。
+20个Python文件语法检查、git diff --check及2.4.0包10文件（8个Python模块）的
+清单/依赖/源码逐字节/CRC核对通过。与本轮开始副本比较，除B3 ROI/局部中心及schema外，
+其他默认参数完全相同；ColorTracker、TaskManager、结果有效性/打包和发送调度实现未改。
+原合成环带夹具调整内圈留出字形区；修正依赖旧现场默认ROI/屏蔽点位的测试预期，未为测试修改现场参数。
+仍待真机：数字2字体/角度/反光，周围1/3排除，扩区后的实际偏差与物理对准点，
+首次OCR检测耗时、跟踪FPS、实际TXHZ及无目标/断流行为；电脑测试不等于硬件验收。
+
+本轮文件：vision_config.py（ROI/中心/迁移），vision_ocr.py（数字2确认），
+vision_tasks.py（确认后跟踪），vision_ring.py/vision_ui.py（显示），vision_runtime.py（OCR日志），
+main.py（模板预热/版本及命令说明），app.yaml/tools/build_package.py（完整包），README.md/本文件，
+tests/test_ring_digit_two.py、test_main_now.py、test_vision_v9.py及旧现场预期相关的
+test_ui_v9.py、test_roi_exclusions.py、test_color_diagnostics.py。
+
 ## 2.3.3：四角屏蔽和颜色诊断（2026-10-25）
 
 开始核对vision分支9741e97及未提交改动；仅修改maix_now。保留开始时main.py的本地调试接收注释、

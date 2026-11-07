@@ -219,6 +219,8 @@ class VisionUiTests(unittest.TestCase):
         self.assertEqual(self.ui.saved_config, before)
 
     def test_shifted_center_preview_maps_to_same_image_coordinates(self):
+        self.ui.saved_config["stack"]["roi"] = dict(x=110,y=25,w=135,h=135)
+        self.ui.saved_config["stack"]["center"] = dict(x=67,y=67,custom=False)
         self.ui._open_task(TASK_STACK)
         self.ui._begin_editor(PAGE_CENTER)
         self.ui.render(self.frame, empty_result())

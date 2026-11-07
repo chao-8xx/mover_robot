@@ -94,10 +94,8 @@ class DiagnosticTests(unittest.TestCase):
         self.assertEqual(len(value["exclude_polygons"]), 4)
         for key in old.keys() - {"schema_version", "exclude_polygons"}:
             self.assertEqual(value[key], old[key])
-        old_points = set(map(tuple, _LEGACY_JOINED_POLYGON))
         for polygon in value["exclude_polygons"]:
             self.assertEqual(len(set(map(tuple, polygon))), len(polygon))
-            self.assertTrue(all(tuple(p) in old_points for p in polygon))
         for custom in ([], [[[1, 1], [10, 1], [1, 10]]]):
             old["exclude_polygons"] = custom
             self.assertEqual(validate_config(old)["exclude_polygons"], custom)

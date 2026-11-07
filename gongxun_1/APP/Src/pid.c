@@ -20,7 +20,7 @@ void Incremental_PID_Cal(PID *pid, float set_value,float get_value)
 		pid->lastError = pid->error;	           											// 保存上一次偏差
 
 		if (pid->output > pid->maxOutput)
-			pid->output = pid->maxOutput;                                           // 输出限幅
+			pid->output = pid->maxOutput;													// 输出限幅
 		else if (pid->output < pid->minOutput)
 			pid->output = pid->minOutput;													//输出限幅
 }
@@ -40,7 +40,8 @@ void Positional_PID_Init (PID *pid, float p, float i, float d, float maxI,float 
 // 位置式PID控制器
 void Positional_PID_Cal(PID *pid,float set_value, float get_value)
 {
-		float dout,pout;
+	float dout,pout;
+
     // 更新数据
     pid->lastError = pid->error; 				// 将旧error存起来
     pid->error = set_value - get_value; 		// 计算新error
