@@ -57,15 +57,14 @@ void hmi_solve(UART_HandleTypeDef *huart, uint16_t Size)
             touch = hmi_GetTouch(hmi_rxbuffer[i]);
 
             if (touch.is_valid && touch.event_type == 0x00) {   // 事件有效且按键弹起
-                if ((touch.page_id == 0x01 && touch.obj_id == 0x06) ||
-                    (touch.page_id == 0x03 && touch.obj_id == 0x02) ||
-                    (touch.page_id == 0x04 && touch.obj_id == 0x02)) {
+                if ((touch.page_id == 0x01 && touch.obj_id == 0x04) ||
+                    (touch.page_id == 0x03 && touch.obj_id == 0x02)) {
                     hmi_stop();     // 停车事件触发
                     }
-                else if (touch.page_id == 0x07 && touch.obj_id == 0x01) {
+                else if (touch.page_id == 0x06 && touch.obj_id == 0x01) {
                     hmi_start();    // 发车事件触发
                 }
-                else if (touch.page_id == 0x06 && touch.obj_id == 0x0F) {
+                else if (touch.page_id == 0x04 && touch.obj_id == 0x0E) {
                     hwt101_yaw_reset();     // 陀螺仪偏航角复位
                     my_yaw = 0.0f;
                 }

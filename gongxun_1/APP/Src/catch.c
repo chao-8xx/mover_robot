@@ -15,14 +15,14 @@
 #define STRETCH_FEEDBACK_PER_CM 26.2f  // S_CPOS 原始读数：伸出 1cm 对应多少单位
 #define STRETCH_CMD_PULSE_PER_CM \
     (PULSE_PER_CIRCLE / (3.14159265f * GEAR_DIAMETER / 10.0f))  // 绝对位置命令的脉冲/cm
-#define STRETCH_TOL_CM         0.1f  // 伸缩绝对定位容差 cm
+#define STRETCH_TOL_CM         0.05f // 伸缩绝对定位容差 cm
 #define STRETCH_READ_PERIOD_MS 20    // 绝对定位读反馈周期
-#define STRETCH_TIMEOUT_MS     5000  // 绝对定位单次超时
+#define STRETCH_TIMEOUT_MS     2000  // 绝对定位单次超时
 #define STRETCH_RETRY_MAX      1     // 最多重发次数
 
 // 电机速度
-#define STEP_MOVE_SPEED     1500      // 丝杆电机位置模式移动速度（原1650，降速防过冲，保证升降到位稳定）
-#define STEP_SPEED          80        // 齿轮齿条电机位置模式移动速度
+#define STEP_MOVE_SPEED     2350      // 丝杆电机位置模式移动速度
+#define STEP_SPEED          160       // 齿轮齿条电机位置模式移动速度
 
 // 伸缩齿轮齿条速度模式
 uint8_t stretch_speed_on = 0;         // 启动速度模式
@@ -65,17 +65,20 @@ static volatile uint32_t stretch_start_tick = 0; // 本次绝对定位开始时�
 static volatile uint8_t stretch_retry_times = 0; // 当前重发次数
 
 // PID参数
-#define X_KP            0.8f    // x轴坐标与麦轮闭环
+#define X_KP            1.0f    // x轴坐标与麦轮闭环
+#define X_KI            0.001f
 #define X_KD            0.2f
-#define X_MAX_I         50.0f
+#define X_MAX_I         5.0f
 #define X_MAX_OUT       180
-#define Y_KP            0.8f    // y轴坐标与麦轮闭环
+#define Y_KP            1.0f    // y轴坐标与麦轮闭环
+#define Y_KI            0.001f
 #define Y_KD            0.2f
-#define Y_MAX_I         50.0f
+#define Y_MAX_I         5.0f
 #define Y_MAX_OUT       180
-#define FOLLOW_KP       1.4f    // 物料y轴坐标与齿轮齿条伸缩闭环
-#define FOLLOW_KD       0.4f
-#define FOLLOW_MAX_I    10.0f
+#define FOLLOW_KP       1.8f    // 物料y轴坐标与齿轮齿条伸缩闭环
+#define FOLLOW_KI       0.001f
+#define FOLLOW_KD       0.2f
+#define FOLLOW_MAX_I    1.0f
 #define FOLLOW_MAX_OUT  50
 
 // float 绝对值
@@ -154,11 +157,11 @@ void catch_init(void)
     catch_stretch_distance(STRETCH_SAFE);
 
     // 初始化PID参数 定位物料
-    Positional_PID_Init(&x_pid,X_KP,0.0f,X_KD,
+    Positional_PID_Init(&x_pid,X_KP,X_KI,X_KD,
         X_MAX_I,-X_MAX_OUT,X_MAX_OUT);
-    Positional_PID_Init(&y_pid,Y_KP,0.0f,Y_KD,
+    Positional_PID_Init(&y_pid,Y_KP,Y_KI,Y_KD,
         Y_MAX_I,-Y_MAX_OUT,Y_MAX_OUT);
-    Positional_PID_Init(&follow_pid,FOLLOW_KP,0.0f,FOLLOW_KD,
+    Positional_PID_Init(&follow_pid,FOLLOW_KP,FOLLOW_KI,FOLLOW_KD,
         FOLLOW_MAX_I,-FOLLOW_MAX_OUT,FOLLOW_MAX_OUT);
 
     // 清除pid误差与积分

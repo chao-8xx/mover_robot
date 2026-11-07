@@ -59,7 +59,7 @@ void SystemClock_Config(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-
+uint8_t perfect_ok = 0;  // 完赛标志
 /* USER CODE END 0 */
 
 /**
@@ -108,6 +108,8 @@ int main(void)
 
   // 系统整体初始化
   system_init();
+  perfect_ok = 0;
+  // uint32_t tim = HAL_GetTick();
 
 
   // maix 任务一测试
@@ -125,8 +127,18 @@ int main(void)
   {
     cam_task();               // 解析摄像头数据
     mv_task();                // OpenMV扫码处理任务
-    send_conduct_task();      // 给maix发数据处理任务
-    scan_send_task_hmi();     // 给串口屏发送任务（写死，后续要删除）
+
+    if (perfect_ok == 1) {
+      HAL_Delay(10);
+      hmi_ChangePage("end");
+      perfect_ok = 0;
+      HAL_Delay(10);
+    }
+
+    // if (HAL_GetTick() - tim >= 700) {
+    //   tim = HAL_GetTick();
+    //   printf("偏航角：%.2f \n",my_yaw);
+    // }
 
     // hmi_get_car_state_task(); // 非阻塞式发送小车当前状态至串口屏任务
     // lidar_process();          // 雷达DMA数据解析

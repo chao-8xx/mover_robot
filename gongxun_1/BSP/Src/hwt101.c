@@ -72,7 +72,6 @@ float last_yaw = 0.0f;          // 上次偏航角角度
 float my_yaw = 0.0f;            // 解算后求得的偏航角角度
 int32_t yaw_change_flag = 0;    // 角度变换标志
 
-
 // 陀螺仪初始化
 void hwt101_init(UART_HandleTypeDef *huart)
 {
@@ -403,6 +402,28 @@ void hwt101_tick(void)
     }
 }
 
+static float wz_bias = 0.0f;      // 静止角速度偏置 °/s
+static uint32_t bias_t0 = 0;      // 补偿计时起点
+
+// 测静止漂移率：车必须停稳，采 1 秒 wz 求平均
+void hwt101_drift_calib(void)
+{
+    float sum = 0.0f;
+    uint32_t n = 0;
+    uint32_t t0 = HAL_GetTick();
+    while (HAL_GetTick() - t0 < 1000) {
+        hwt101_rx_flag = 0;
+        hwt101_rx_handle();        // 解析新帧，刷新 wz
+        sum += hwt101_get_yaw_rate();
+        n++;
+        HAL_Delay(2);
+    }
+    wz_bias = (n > 0) ? (sum / n) : 0.0f;
+    bias_t0 = HAL_GetTick();
+
+    printf("wz_bias=%.4f deg/s\r\n", wz_bias);   // ← 就打印在这里
+}
+
 // HWT101初始化（串口3） 初始化加偏航角复位
 void my_hwt101_init(void)
 {
@@ -419,20 +440,24 @@ void my_hwt101_init(void)
     if (hwt101_data_valid()) {
         hwt101_yaw_reset_request();   // 非阻塞，1ms 中断里自动执行完整复位流程
     }
+    HAL_Delay(100);
+
+    hwt101_drift_calib();   // 车静止，测漂移率，顺便打印
 }
 
 // 获取陀螺仪数据
 void imu_get(void)
 {
-    yaw_rate = hwt101_get_yaw_rate();  // 偏航角角速度
-    now_yaw = hwt101_get_yaw();         // 偏航角
+    yaw_rate = hwt101_get_yaw_rate();         // 偏航角角速度
+    now_yaw = hwt101_get_yaw();   // 偏航角
+    // now_yaw = hwt101_get_yaw() - hwt101_yaw_offset;   // 减软件零点偏移
     if (now_yaw - last_yaw > 180.0f) {
         yaw_change_flag --;
     }
     else if (now_yaw - last_yaw < -180.0f) {
         yaw_change_flag ++;
     }
-    my_yaw = now_yaw + (float)yaw_change_flag * 360.0f;
-    last_yaw = now_yaw;
+    my_yaw = now_yaw + (float)yaw_change_flag * 360.0f ;
+    last_yaw = now_yaw ;
 }
 

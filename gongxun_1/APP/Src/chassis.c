@@ -6,14 +6,15 @@
 #define CHASSIS_MOTOR_PULSE_PER_REV  3200       // 多少脉冲一圈
 #define CHASSIS_CM_PER_PULSE         ((3.14159265f * CHASSIS_WHEEL_DIAM_CM) / CHASSIS_MOTOR_PULSE_PER_REV)  // cm/脉冲
 #define CHASSIS_CM_PER_FEEDBACK      ((3.14159265f * CHASSIS_WHEEL_DIAM_CM) / 65536.0f)  // 位置反馈与控制脉冲的单位不同
-#define CHASSIS_YAW_SETTLE     50        // 50 个 10ms = 稳定 500ms 后才算转到位
+#define CHASSIS_YAW_SETTLE     40        // 40 个 10ms = 稳定 400ms 后才算转到位
 #define CHASSIS_MOVE_MARGIN_MS 300       // 位置移动结束的额外余量ms
 #define CHASSIS_ARRIVE_TOL_CM  0.5f      // 底盘到位容差 cm（编码器反馈提前判到位）
 
 // 偏航 PID：输出是电机速度(RPM)，正负方向按实际转向调整
-#define CHASSIS_YAW_KP         3.8f
-#define CHASSIS_YAW_KD         0.2f
-#define CHASSIS_YAW_MAX_I      50.0f
+#define CHASSIS_YAW_KP         3.7f
+#define CHASSIS_YAW_KI         0.00001f
+#define CHASSIS_YAW_KD         1.8f
+#define CHASSIS_YAW_MAX_I      3.0f
 #define CHASSIS_YAW_MAX_OUT    120
 
 // 转向电机死区速度
@@ -60,6 +61,8 @@ static uint8_t chassis_sending = 0;      // 1 = 还在逐条发送命令
 static float chassis_start_dist[4] = {0};   // 每轮起点累计位移 cm
 static float chassis_target_dist[4] = {0};  // 每轮目标增量 cm
 
+static uint8_t chassis_sync_trig = 0;   // 同步触发
+
 // ======== 初始化 ======== //
 // float 绝对值
 static float my_absf(float data)
@@ -71,7 +74,7 @@ void chassis_init(void)
 {
     Positional_PID_Init(&yaw_pid,
                         CHASSIS_YAW_KP,
-                        0.0f,
+                        CHASSIS_YAW_KI,
                         CHASSIS_YAW_KD,
                         CHASSIS_YAW_MAX_I,
                         -CHASSIS_YAW_MAX_OUT,
@@ -243,11 +246,12 @@ void car_rotate_yaw(float target_yaw)
         car_rotate((int16_t)(yaw_pid.output));
     }
     else {
-        // 误差小：先停住，连续稳定 100 帧（1000ms）才算到位
+        // 误差小：先停住，连续稳定一定帧才算到位
         car_rotate(0);   // 只发 0 速度，保持 CHASSIS_ROTATE，直到稳定计数满
         chassis_settle++;
         if (chassis_settle >= CHASSIS_YAW_SETTLE) {
             car_stop();
+            PID_Reset(&yaw_pid);
             chassis_mode = CHASSIS_IDLE;    // 底盘空闲
         }
     }
@@ -302,6 +306,7 @@ static void car_move_xy(int16_t speed, float x_cm, float y_cm)
     chassis_send_mode = 1;     // 位置模式
     chassis_move_speed = speed;
     chassis_send_index = 0;
+    chassis_sync_trig = 0;
     chassis_sending = 1;
 
     // 按最长轴估算移动耗时，作为 busy 结束时间
@@ -566,6 +571,7 @@ void chassis_odom_tick(void)
 }
 
 // ======== 非阻塞计时发送 ======== //
+
 // 1ms 周期调用：每个周期只发一条电机命令，保证串口上有足够帧间隔
 void car_move_send_tick(void)
 {
@@ -581,15 +587,30 @@ void car_move_send_tick(void)
     static uint16_t move_time_gap = 0;
 
     if (chassis_send_index < 4) {
+        // if (chassis_send_mode == 1) {
+        //     // 位置模式下每条指令隔3ms
+        //     move_time_gap ++;
+        //     if (move_time_gap >= 3) {
+        //         move_time_gap = 0;
+        //         motor_set_speedPos((Motor_Num)chassis_send_index,
+        //                        chassis_move_speed,
+        //                        chassis_wheel_cmd[chassis_send_index]);
+        //         chassis_send_index++;
+        //     }
+        // }
         if (chassis_send_mode == 1) {
-            // 位置模式下每条指令隔3ms
-            move_time_gap ++;
+            move_time_gap++;
             if (move_time_gap >= 3) {
                 move_time_gap = 0;
-                motor_set_speedPos((Motor_Num)chassis_send_index,
-                               chassis_move_speed,
-                               chassis_wheel_cmd[chassis_send_index]);
+                // 只装填，不启动
+                motor_set_speedPos_sync((Motor_Num)chassis_send_index,
+                                        chassis_move_speed,
+                                        chassis_wheel_cmd[chassis_send_index]);
                 chassis_send_index++;
+                // 四个轮子都装填完，广播触发同时起步
+                if (chassis_send_index >= 4) {
+                    chassis_sync_trig = 1;
+                }
             }
         }
         else if (chassis_send_mode == 0) {
@@ -611,6 +632,15 @@ void car_move_send_tick(void)
                             (int16_t)40,(int32_t)0);
                 chassis_send_index++;
             }
+        }
+    }
+    else if (chassis_sync_trig == 1) {
+        // 四条装填完，隔3ms发一条广播触发
+        move_time_gap++;
+        if (move_time_gap >= 3) {
+            move_time_gap = 0;
+            Emm_V5_Synchronous_motion(0);
+            chassis_sync_trig = 0;
         }
     }
     else {
