@@ -1,6 +1,7 @@
 #include "headfile.h"
 
-// 整车系统初始化 不可放入中断
+// 整车系统初始化 不可放入中断。
+// 定时器会在部分机构/任务初始化完成前启动；car_reset 只阻止比赛状态机，不会停掉全部底层服务。
 void system_init(void)
 {
     // 失能定时器
@@ -40,6 +41,7 @@ void system_init(void)
 }
 
 // 整车系统控制 10ms中断
+// 控制入口只在 car_run && car_reset 时执行；停止后的驱动处理不能仅依赖 control_process 的 step=99 分支。
 void system_control(void)
 {
     // 不具备发车条件，不执行

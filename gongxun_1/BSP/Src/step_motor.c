@@ -162,7 +162,8 @@ void motor_pos_set(Motor_Num motor_num, int32_t pos)
     step_motor_pos[motor_num] = pos;
 }
 
-// 电机定速定位置控制 多机协同
+// 电机定速定位置控制 多机协同：仅装填一台电机的目标，四轮装填完由底盘发送广播触发。
+// 此接口未向上层返回入队成功状态；调用完成不等于驱动器已确认装填或已经运动。
 void motor_set_speedPos_sync(Motor_Num motor_num, int16_t speed, int32_t pulse)
 {
     uint8_t addr = step_motor_get_addr(motor_num);

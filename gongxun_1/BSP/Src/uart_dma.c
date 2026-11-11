@@ -1,7 +1,9 @@
 ﻿#include "headfile.h"
 
 
-// UART 串口设备初始化
+// UART 串口设备初始化：1=摄像头，2=电机，3=IMU，4=雷达，5=屏幕，6=调试。
+// USART1 在主循环消费缓存；USART2 在回调中解析反馈；USART3 由 TIM7 服务解析，勿把路径当成完全相同。
+// 波特率和 DMA 配置在 Core/Src/usart.c，协议/状态含义见根目录 docs/interfaces.md。
 void uart_init(void)
 {
     debug_uart_init(&huart6);   // 串口调试
@@ -25,7 +27,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 // DMA空闲接收事件
 void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
 {
-    // OpenMV 与 Maix 共用 USART1
+    // OpenMV 与 Maix 共用 USART1；软件分任务并不证明物理 TX 已隔离，联调需核对发送所有权。
     if (huart->Instance == USART1)
     {
         cam_rx_callback(huart,Size);

@@ -1,5 +1,8 @@
 #include "headfile.h"
 
+// 比赛上层状态机：TIM2 每 10ms 调用 control_process，主循环 task.c 负责大部分视觉启动命令。
+// 路径走 bfs 命名的加权栅格搜索；独立 map_nav 目前未接入此流程。维护入口见根目录 docs/。
+// 下面目标偏差使用图像像素尺度，行驶/机构距离使用 cm，雷达范围使用 mm，勿混用换算。
 #define TARGET_DX   (0)               // 目标dx
 #define TARGET_DY   (-1)              // 目标dy
 
@@ -764,6 +767,8 @@ void final_road_move(void)
 // ======================== 任务辅助函数 ======================== //
 
 // 目标状态获取 将摄像头所捕获的状态转化成车辆状态
+// 跟踪坐标取最新原始帧，稳定标志另取窗口结果；此处没有统一使用滤波后的中位数坐标。
+// 视觉超时由主循环 cam_task 维护，本函数读取状态本身不等于验证收到了新帧。
 void target_state_get(void)
 {
     if (maix_vision.ok != 0) {
@@ -799,7 +804,7 @@ uint8_t catch_x_is_ok(void)
         stable_frame = 0;
     }
 
-    // 稳定20帧，即达到抓取条件
+    // 稳定20个控制调用周期，即达到本函数条件；没有按 FRAME_ID 去重，不代表20张独立新图像。
     if (stable_frame >= 20) {
         stable_frame = 0;
         task_state.is_catch_target = 1;
@@ -825,13 +830,13 @@ uint8_t catch_is_ok(void)
         lost_frame = 0;
     }
     else {
-        // 允许短暂丢 4 帧，避免视觉瞬间抖动就把稳定计数清零
+        // 允许短暂丢 4 个控制周期，避免瞬间抖动就清计数；没有按相机新FRAME_ID计数
         if (++lost_frame >= 5) {
             stable_frame = 0;
         }
     }
 
-    // 稳定一定帧，即达到抓取条件
+    // 累积20次满足条件的控制调用（允许上方短暂丢失），不代表20张独立新图像
     if (stable_frame >= 20) {
         stable_frame = 0;
         lost_frame = 0;
@@ -859,7 +864,7 @@ uint8_t put_is_ok(void)
         stable_frame = 0;
     }
 
-    // 稳定20帧，即达到抓取条件
+    // 连续20个控制调用周期满足本函数的放置条件，不代表20张独立新图像
     if (stable_frame >= 20) {
         stable_frame = 0;
         task_state.is_catch_target = 1;
@@ -911,6 +916,7 @@ void send_color_conduct(void)
 }
 
 // 将当前锁定的圆环编号发给maix
+// 此处保留 D1/D2/D3 分支，但当前 maix_start_ring 只接受 D2；D1/D3 被拒绝且不会替换原视觉任务。
 uint8_t put_pos_num = 0;
 void send_circle_conduct(void)
 {
@@ -971,6 +977,8 @@ void send_stack_conduct(void)
 
 // 追踪目标 物料 圆环
 // 校准车身姿态 追踪x和y坐标
+// 当前相机安装对应“图像 y -> 车体 -x，图像 x -> 车体 -y”；这里是像素误差控制，未转换为毫米。
+// 跟踪期间主动暂停航迹推算；恢复前必须重新确认实际起点，不能继续使用暂停前的旧位姿。
 void follow_target(float target_yaw, int16_t target_x, int16_t target_y)
 {
     // 解算
@@ -2061,6 +2069,8 @@ void pick_material(void)
 // 整套控制流程
 void control_process(void)
 {
+    // 先等待已有动作，再按 step 分派；旋转要每拍继续闭环，位置动作一般只下发一次。
+    // 子流程的 static 计数/步骤跨调用保留，重新发车只改总 step 不等于所有子状态已复位。
     static int8_t wait_time = 80;
 
     // 位移进行中：等结束
@@ -2104,6 +2114,7 @@ void control_process(void)
     }
 
     if (car_run && my_control.step >= 90) {
+        // 当前逻辑将高编号步骤视作重新发车入口，包含 99；它不是不可自动离开的故障锁存。
         my_control.step = 0;
         my_control.path_index = 0;
         my_control.move_state = 0;

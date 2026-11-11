@@ -39,6 +39,8 @@ void hmi_start(void)
 }
 
 // 触摸串口屏停车事件
+// 此处只改发车/步骤标志并请求周期急停；没有在此统一清理全部队列、机构速度与子状态机。
+// car_run清零后system_control不再推进step=99，重新发车的复位语义需结合control_process检查。
 void hmi_stop(void)
 {
     car_run = false;

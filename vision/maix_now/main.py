@@ -268,6 +268,8 @@ def run():
         while not app.need_exit():
             loop_start = now_ms()
             # 本地触屏调试只注释下一行；下面第二次接收受此开关控制喵。
+            # 当前仓库保留本地调试：uart_control_active初始False，后面的门控接收不会自行启用。
+            # 主控联调前人工核对此入口及全部设备模块；维护文档整理不改变现场开关喵。
             # rx_handle()
 
             event = touch.poll()

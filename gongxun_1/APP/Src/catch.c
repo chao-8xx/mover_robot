@@ -1,5 +1,8 @@
 #include "headfile.h"
 
+// 抓放执行层：Motor_5升降丝杆、Motor_6齿轮齿条，另保留伸缩丝杆接口。
+// 命令脉冲、机构旧反馈、底盘完整反馈采用不同换算，维护时按接口分别核对。
+// busy结束可来自计时/反馈/超时，舵机等待没有新增到位反馈；上层不能一概当作机械成功。
 // 电机参数
 #define PULSE_PER_CIRCLE    3200      // 一圈的脉冲数
 
@@ -64,7 +67,8 @@ static volatile uint32_t stretch_read_tick = 0;  // 上次发伸缩读请求时�
 static volatile uint32_t stretch_start_tick = 0; // 本次绝对定位开始时刻
 static volatile uint8_t stretch_retry_times = 0; // 当前重发次数
 
-// PID参数
+// 视觉跟踪PID参数：误差输入为图像偏差，输出是底盘/伸缩速度指令尺度，不是毫米坐标。
+// 这些PID和航向PID均未显式使用dt，整定与控制调用周期有关。
 #define X_KP            1.0f    // x轴坐标与麦轮闭环
 #define X_KI            0.001f
 #define X_KD            0.2f

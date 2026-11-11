@@ -1,6 +1,8 @@
 #ifndef GONGXUN_1_CATCH_H
 #define GONGXUN_1_CATCH_H
 
+// 机械位置集中入口：角度单位度，升降/伸缩位置单位cm；数值保留当前现场标定。
+// 宏名中的SAFE表示预设位置，不等同碰撞检测；busy/计时结束也不统一表示实测到位。
 // 伸缩运行的最大距离
 #define STRETCH_MAX_CM   16.1f    // 伸缩最大允许伸出距离
 
@@ -101,7 +103,7 @@ uint8_t lift_is_busy(void);
 uint8_t stretch_is_busy(void);
 
 // ======== 非阻塞计时 ======== //
-// 1ms 周期调用：升降非阻塞计时，到时间后清除 busy
+// 1ms 周期调用：机构反馈/超时/计时、舵机等待及相关周期服务；不是只处理升降
 void catch_tick(void);
 
 #endif //GONGXUN_1_CATCH_H

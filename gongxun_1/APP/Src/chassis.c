@@ -1,5 +1,7 @@
 #include "headfile.h"
 
+// 本模块把车体运动目标转换成四轮命令，采用驱动器位置模式/速度模式，未在MCU实现电流环。
+// 控制脉冲与完整位置反馈单位不同；busy、发送完成、实际到位也需分别判断，见 docs/motion-control.md。
 // ==================== 机械参数（按实际底盘修改） ====================
 // 轮径(cm) 和电机转一圈对应的脉冲数，决定“距离 -> 脉冲”的换算
 #define CHASSIS_WHEEL_DIAM_CM        7.9f       // 麦轮直径
@@ -95,6 +97,7 @@ static void chassis_clear(void)
     my_chassis.omega = 0;
 }
 // 麦克纳姆轮运动学解算
+// 输入是电机速度指令尺度的分量，并非标准 m/s、rad/s；正负包含当前电机安装方向。
 // wheel[i] 的正负通过 motor_set_speed 转换成方向，绝对值是速度
 static void chassis_solve(void)
 {
@@ -260,6 +263,7 @@ void car_rotate_yaw(float target_yaw)
 // 位置模式：沿 (x_cm, y_cm) 走一段相对距离
 static void car_move_xy(int16_t speed, float x_cm, float y_cm)
 {
+    // 一次下发相对位置目标，后续由1ms发送服务装填四轮并广播启动；这里不等待驱动器到位。
     int32_t px, py;
     int32_t w[4];
     float max_cm, speed_cm_s;
@@ -309,7 +313,7 @@ static void car_move_xy(int16_t speed, float x_cm, float y_cm)
     chassis_sync_trig = 0;
     chassis_sending = 1;
 
-    // 按最长轴估算移动耗时，作为 busy 结束时间
+    // 按最长轴估算移动耗时，作为 busy 结束时间；deadline 不是实时位置反馈或硬件到位确认。
     max_cm = my_absf(x_cm) > my_absf(y_cm) ? my_absf(x_cm) : my_absf(y_cm);
     speed_cm_s = 3.14159265f * CHASSIS_WHEEL_DIAM_CM * my_absf((float)speed) / 60.0f;
     if (speed_cm_s < 0.1f) {
@@ -446,6 +450,8 @@ void chassis_odom_fetch(void)
 // 主循环调用：四轮都有新反馈才积分  不用重复数据刷新地图位姿时间
 void chassis_odom_update(void)
 {
+    // 必须收齐四轮新样本并检查年龄/时间跨度；不把指令位移或旧位置刷新成新的可信测量。
+    // 临界区外计算、提交前校验 epoch，避免中断期间发生复位后仍提交旧数据。
     float dist[4], d[4], x_cm, y_cm, yaw, last_yaw;
     uint32_t now = HAL_GetTick();
     uint32_t oldest_age = 0, newest_age = UINT32_MAX;
@@ -560,7 +566,7 @@ void chassis_odom_arrive_check(void)
     }
     chassis_mode = CHASSIS_IDLE;
 }
-// 底盘全局位姿实时解算tick
+// 底盘全局位姿实时解算tick；当前正式main未周期调用，不能据此认为整车里程计已运行。
 void chassis_odom_tick(void)
 {
     // 航迹推算
@@ -575,6 +581,8 @@ void chassis_odom_tick(void)
 // 1ms 周期调用：每个周期只发一条电机命令，保证串口上有足够帧间隔
 void car_move_send_tick(void)
 {
+    // “多机协同”指四台电机装填后同步启动，不是多机器人协作。
+    // 队列空后才累加发送间隔；实际节拍受UART占用影响，上层未逐轮确认装填是否被接受。
     if (!chassis_sending) {
         return;
     }
@@ -649,7 +657,7 @@ void car_move_send_tick(void)
 }
 
 // 1ms 周期调用（可放在 1ms 定时器里）
-// 只负责移动的非阻塞计时，到时间后清除busy 不做旋转控制
+// 推进移动发送与非阻塞计时，到时间后清除busy；旋转闭环由上层周期调用，不在这里计算
 void car_run_tick(void)
 {
     if (!chassis_inited) {

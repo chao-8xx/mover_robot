@@ -3,9 +3,11 @@
 
 // 位姿参数  超时时间待定位模块接入后按实际周期调整
 #define MAP_POSE_TIMEOUT_MS          500       // 位姿超时时间 ms
-#define MAP_POSE_DEFAULT_YAW_OFFSET    0.0f    // 按赛场图朝北归零  my_yaw=0和地图yaw=0都朝北
+#define MAP_POSE_DEFAULT_YAW_OFFSET    0.0f    // 默认不加角度偏移，实际零点须与积分和地图变换统一标定
 
 // 地图位姿
+// 接口按下方地图变换角约定读取；chassis_odom_update的当前积分按东零解释my_yaw。
+// 二者参考关系尚需联调确认，不能仅凭默认offset=0推导已统一；本次保留公式和默认值。
 typedef struct
 {
     float x_mm;         // 车体原点实际X坐标 mm  地图原点在赛场图左下角 X向右

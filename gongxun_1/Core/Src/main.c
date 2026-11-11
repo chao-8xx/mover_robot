@@ -106,6 +106,7 @@ int main(void)
   MX_TIM4_Init();
   /* USER CODE BEGIN 2 */
 
+  // 整车初始化含等待和机构准备，只在主循环上下文执行；调用关系见根目录 docs/architecture.md。
   // 系统整体初始化
   system_init();
   perfect_ok = 0;
@@ -125,6 +126,8 @@ int main(void)
 
   while (1)
   {
+    // 主循环消费摄像头缓存、维护视觉超时并发送挂起命令；比赛控制由 TIM2 的 10ms 回调推进。
+    // mv_task 内含扫码服务等待，因此这里不是固定周期，也不能保证所有路径完全无阻塞。
     cam_task();               // 解析摄像头数据
     mv_task();                // OpenMV扫码处理任务
 
@@ -140,6 +143,8 @@ int main(void)
     //   printf("偏航角：%.2f \n",my_yaw);
     // }
 
+    // 当前正式入口未周期调用 chassis_odom_tick/map_obstacle_pose_task/map_nav_task。
+    // 下方雷达解析也保持关闭；模块已编译不等于已接入比赛流程，本次注释整理不改变这些开关。
     // hmi_get_car_state_task(); // 非阻塞式发送小车当前状态至串口屏任务
     // lidar_process();          // 雷达DMA数据解析
 

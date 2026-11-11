@@ -1,5 +1,7 @@
 #include "headfile.h"
 
+// 本层保存比赛任务、连接主循环服务与控制状态机；名称中的 task 不是 RTOS 任务。
+// cur_x/cur_y 是比赛栅格索引，x_cm/y_cm 才是航迹推算位置，不能互作定位测量。
 // 车辆总任务状态
 Task_State task_state;
 
@@ -52,14 +54,15 @@ void task_init()
     openmv_start = 0;
     openmv_end = 0;
 
-    // 没码时 手动设置任务 后续可删 默认任务
-    task_state.color_buf_one[0] = TASK_YELLOW; // 第一组 红黄蓝
+    // 没码时 手动设置任务 后续可删 默认任务。
+    // 当前默认两批为黄/绿/蓝、蓝/黄/绿；默认任务跑通不能证明扫码解析链路正确。
+    task_state.color_buf_one[0] = TASK_YELLOW; // 第一组 黄绿蓝
     task_state.color_buf_one[1] = TASK_GREEN;
     task_state.color_buf_one[2] = TASK_BLUE;
     task_state.area_buf_one[0] = AREA_1;
     task_state.area_buf_one[1] = AREA_2;
     task_state.area_buf_one[2] = AREA_3;
-    task_state.color_buf_two[0] = TASK_BLUE; // 第二组 蓝红黄
+    task_state.color_buf_two[0] = TASK_BLUE; // 第二组 蓝黄绿
     task_state.color_buf_two[1] = TASK_YELLOW;
     task_state.color_buf_two[2] = TASK_GREEN;
     task_state.area_buf_two[0] = AREA_1;
@@ -169,7 +172,8 @@ uint8_t task_receive(void)
     // 解析数据
     task_receive_analysis();
 
-    // 将解析后的数组赋值进状态机
+    // 将解析后的数组赋值进状态机。
+    // 维护注意：目标为枚举数组，下方 3 表示字节数而非 3 个枚举元素；当前保留原逻辑，问题见 docs/maintenance.md M04。
     memcpy(task_state.color_buf_one, &analysis_task_data[0], 3);
     memcpy(task_state.area_buf_one, &analysis_task_data[3], 3);
     memcpy(task_state.color_buf_two, &analysis_task_data[6], 3);
@@ -239,6 +243,8 @@ void imu_task(void) {
 }
 
 // 摄像头处理任务
+// 主循环持续调用：既解析接收，又维护 300ms 断流失效，还发送上层挂起的视觉启动命令。
+// 仅有 UART 回调不足以完成这些工作；窗口 valid、当前原始 OK、stable 的含义也不同。
 void cam_task(void) {
     if (cam_rx_flag || cam_error_flag) {
         // 保留错误标志给cam_rx_handle处理  接收通知仍先清除
@@ -266,6 +272,7 @@ void cam_task(void) {
 
 
 // OpenMV -> F407 单项测试：只发送B1并等待一帧BB/LEN=15
+// 此函数被正式主循环调用，内部 service_for/wait_qr 是同步服务等待，不可搬入定时中断。
 void mv_task(void)
 {
     if (openmv_start != 1 && openmv_end == 1) return;

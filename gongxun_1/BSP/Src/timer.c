@@ -28,6 +28,9 @@ void timer_disable(void)
 
 
 // 定时器中断回调函数
+// 调度：TIM6=发送与动作计时，TIM7=IMU/提示，TIM2=比赛状态机。
+// 这些是裸机中断上下文，不是线程；新增阻塞发送/等待会影响周期，不能只按函数名判断是否非阻塞。
+// PID 的 Ki/Kd 和稳定计数依赖调用节拍；改定时周期时同步检查 control/chassis/catch 中的计数与参数。
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
     if (htim ->Instance == TIM6) {    // 1ms中断

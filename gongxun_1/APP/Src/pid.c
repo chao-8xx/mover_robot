@@ -37,7 +37,9 @@ void Positional_PID_Init (PID *pid, float p, float i, float d, float maxI,float 
 	pid->minOutput = minOutput;
 }
 
-// 位置式PID控制器
+// 位置式PID控制器。
+// Ki/Kd 已按调用节拍使用，公式没有显式 dt；改变周期需重新核对整定。
+// 当前输出按 +/-maxOutput 对称限幅，minOutput 虽被初始化但未用于本函数，保留原行为。
 void Positional_PID_Cal(PID *pid,float set_value, float get_value)
 {
 	float dout,pout;

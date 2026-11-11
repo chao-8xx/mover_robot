@@ -4,11 +4,12 @@
 #define YAW_THRESH   0.3f   // 转到目标角的限制范围
 
 // ---- 结构体和枚举定义 ---- //
-// 底盘运动目标：x/y 平移速度 + omega 旋转角速度
+// 底盘运动目标：x/y/omega 是参与四轮合成的指令分量，与电机 RPM 指令同尺度。
+// omega 是旋转控制量，未按车体几何换算为物理角速度(rad/s)；车体 +x 向右、+y 向前。
 typedef struct {
     int16_t x;    			// X轴
     int16_t y;   			// Y轴
-    int16_t omega; 			// 旋转角速度（偏航PID输出）
+    int16_t omega; 			// 旋转指令分量（偏航PID输出）
 } Chassis_Data;
 
 // 底盘当前模式：空闲 / 旋转 / 移动
@@ -29,16 +30,17 @@ void chassis_init(void);
 void car_stop(void);
 // 速度模式：小车平移和旋转
 void car_speed_move (int16_t x_speed, int16_t y_speed, int16_t omega_speed);
-// 原地旋转（速度模式，omega 为旋转角速度）
+// 原地旋转（速度模式，omega 为电机指令尺度的旋转分量）
 void car_rotate(int16_t omega);
 // 一次调用：设置小车要转到的目标角度（°）
-// 实际闭环由 car_rotate_ctrl() 在 10ms 周期里驱动
+// 设置后仍需调用者周期执行 car_rotate_ctrl()；当前正式 timer.c 没有自动调用该函数
 void car_rotate_angle(float target_angle);
-// 10ms 周期调用（放 TIM2）：旋转闭环控制，到位后复位偏航角
+// 需按10ms节拍调用的旋转闭环接口，到位后复位偏航角；与下方不归零接口区分
 void car_rotate_ctrl(void);
-// 小车旋转目标角度（不复位角度版）
+// 小车旋转目标角度（不复位角度版）；比赛 rotate_state 分支每10ms持续调用，非只设置一次
 void car_rotate_yaw(float target_yaw);
-// 一次调用：小车沿 X/Y 轴走固定距离（cm），位置模式
+// 一次调用：小车沿车体 X/Y 轴走固定距离（cm），speed为驱动器速度指令RPM，位置模式
+// busy结束可能来自估算计时；不能单独作为实际到位反馈
 // x_cm > 0 向右，x_cm < 0 向左；y_cm > 0 向前，y_cm < 0 向后
 void car_run_distance(int16_t speed, float x_cm, float y_cm);
 // 底盘四个电机回到编码器零点位置
@@ -65,10 +67,11 @@ void chassis_odom_update(void);
 // 静止清零编码器后重建轮子基准  保留已确认的全局X/Y
 void chassis_odom_reset(void);
 // 底盘全局位姿实时解算tick  只放主循环  不在中断中调用
+// 当前正式 main.c 未周期调用；恢复前还需在可信实际位置建立起点，不能仅打开odom_on
 void chassis_odom_tick(void);
 
 // ======== 非阻塞计时发送 ======== //
-// 1ms 周期调用（可放 1ms 定时器）：仅做移动非阻塞计时
+// 1ms 周期调用：推进分时发送和移动计时；位置模式四轮装填后另发广播同步启动
 void car_run_tick(void);
 
 // ---------------- 结构体和枚举声明 ---------------- //

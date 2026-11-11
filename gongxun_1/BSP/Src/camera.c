@@ -4,6 +4,8 @@
 
 #include "headfile.h"
 
+// 摄像头接收/协议/窗口结果层，main中的cam_task持续消费；本层不直接执行抓取或停车。
+// 原始OK、窗口valid、stable含义不同，详见根目录docs/interfaces.md和当前回归记录。
 static UART_HandleTypeDef *cam_uart = NULL;
 
 // 通信协议变量
@@ -383,7 +385,7 @@ void maix_filter_handle(const maix_vision_t *raw)
     int16_t valid_dx[MAIX_WINDOW_SIZE]; // 有效帧dx数组
     int16_t valid_dy[MAIX_WINDOW_SIZE]; // 有效帧dy数组
     uint8_t valid_count = 0;            // 有效帧计数
-    int16_t stable_dx[MAIX_WINDOW_SIZE]; // B2只取OK=2  B3/B4取OK=1
+    int16_t stable_dx[MAIX_WINDOW_SIZE]; // 当前稳定候选取非零OK，B2的1/2均参与
     int16_t stable_dy[MAIX_WINDOW_SIZE];
     uint8_t stable_count = 0;
 
@@ -433,7 +435,8 @@ void maix_filter_handle(const maix_vision_t *raw)
         }
     }
 
-    // 单帧无效不清历史  B2当前OK=1也保留窗口  但本帧不报稳定
+    // 单帧无效不清历史；当前仅OK=0撤销本帧稳定，B2的OK=1仍可能报稳定。
+    // 下方注释掉的分支是旧的仅OK=2策略，host测试仍按旧约定检查，本次不改变判定。
     // if (raw->ok == 0 || (raw->cmd == MAIX_CMD_BLOB && raw->ok != 2))
     if (raw->ok == 0) {
         stable_count = 0;
@@ -454,7 +457,7 @@ void maix_filter_handle(const maix_vision_t *raw)
 
     // 稳定性判定 —— 寻找“小跨度簇”
     // 注: 算法目标：从最多5个候选点中找任意 3 点，保持原有跨度阈值和中位数算法
-    // B2候选仅为OK=2 不要求连续 OK=1仍参与上面的valid和普通坐标滤波
+    // 当前候选不要求连续；B2的OK=1/2均参与，与旧的仅OK=2稳定约定存在差异。
     //      若找到，则认为这3点构成了稳定簇，输出其中位数作为最终稳定结果
     // 该算法允许存在跳点，只要有3个点在小跨度内即可判定稳定
     if (maix_result.valid)
@@ -646,7 +649,8 @@ void maix_start_blob(uint8_t color)
     maix_send_frame(MAIX_CMD_BLOB, &color, 1);
 }
 
-// maix 启动2号圆环定位任务（不识别数字）
+// maix 启动2号圆环定位任务；主控仅下发D2，数字确认由所部署的视觉版本负责。
+// NOW 2.4.0包含确认数字2后跟踪的实现，但当前本地调试接收开关和设备版本仍须核对。
 void maix_start_ring(uint8_t number)
 {
     if (number != MAIX_RING_2) {

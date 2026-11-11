@@ -315,7 +315,9 @@ uint8_t Emm_V5_Get_Pos_Sample(uint8_t addr, int32_t *pos, uint32_t *tick)
   return 1;
 }
 
-// 串口错误、初始化时调用  正常重开DMA时不能清除半帧
+// 串口错误、初始化时调用  正常重开DMA时不能清除半帧。
+// 已知问题：下方清的是旧count和有效位，实际emm_v5_rx_ring_len未清，可能跨复位拼接半帧。
+// 对应run_odom_test的复位隔离断言失败；本次仅记录现状，未改变接收逻辑，见docs/maintenance.md M02。
 void Emm_V5_Rx_Reset(void)
 {
   uint32_t primask = __get_PRIMASK();
