@@ -1,5 +1,11 @@
 # 工训
 
+## 项目实物
+
+<p align="center">
+  <img src="docs/images/gongxun-robot.jpg" alt="工训智能搬运机器人实物" width="480">
+</p>
+
 #### 介绍
 工训赛仓库
 
